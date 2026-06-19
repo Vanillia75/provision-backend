@@ -13,6 +13,8 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
 
 from database import Base, engine, get_db
 from models import User, Profile, IncomeEntry
@@ -21,6 +23,8 @@ from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTR
 from invoice_extractor import extract_invoice_data
 
 Base.metadata.create_all(bind=engine)
+
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
 app = FastAPI(title="API Provision Cotisations")
 
@@ -44,6 +48,10 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class GoogleAuthRequest(BaseModel):
+    credential: str
 
 
 class AuthResponse(BaseModel):
@@ -87,8 +95,38 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 @app.post("/auth/login", response_model=AuthResponse)
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email).first()
-    if not user or not verify_password(req.password, user.password_hash):
+    if not user or not user.password_hash or not verify_password(req.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
+
+    return AuthResponse(token=create_token(user.id), email=user.email)
+
+
+@app.post("/auth/google", response_model=AuthResponse)
+def auth_google(req: GoogleAuthRequest, db: Session = Depends(get_db)):
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Connexion Google non configuree")
+
+    try:
+        payload = google_id_token.verify_oauth2_token(
+            req.credential, google_requests.Request(), GOOGLE_CLIENT_ID
+        )
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Jeton Google invalide")
+
+    email = payload.get("email")
+    google_id = payload.get("sub")
+    if not email or not google_id:
+        raise HTTPException(status_code=401, detail="Reponse Google incomplete")
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        user = User(email=email, google_id=google_id, password_hash=None)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    elif not user.google_id:
+        user.google_id = google_id
+        db.commit()
 
     return AuthResponse(token=create_token(user.id), email=user.email)
 
