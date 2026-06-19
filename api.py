@@ -6,6 +6,7 @@ Lancer avec : uvicorn api:app --reload
 import os
 import shutil
 import tempfile
+import requests as http_requests
 from datetime import date, datetime
 from typing import Optional
 
@@ -25,6 +26,7 @@ from invoice_extractor import extract_invoice_data
 Base.metadata.create_all(bind=engine)
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 app = FastAPI(title="API Provision Cotisations")
 
@@ -348,6 +350,81 @@ def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(g
             "jours_restants": result.periode_precedente.jours_restants,
         },
     }
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class AssistantRequest(BaseModel):
+    messages: list[ChatMessage]
+
+
+@app.post("/assistant/chat")
+def assistant_chat(
+    req: AssistantRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="Assistant IA non configure")
+
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    context = ""
+    if profile and profile.onboarding_complete and profile.statut == "auto_entrepreneur":
+        entries = db.query(IncomeEntry).filter(IncomeEntry.user_id == user.id).all()
+        incomes = [(e.date, e.amount) for e in entries]
+        try:
+            result = estimate(
+                statut=profile.statut, activite=profile.activite, periodicite=profile.periodicite,
+                acre=profile.acre, versement_liberatoire=profile.versement_liberatoire,
+                incomes=incomes, today=date.today(),
+            )
+            context = (
+                f"Donnees reelles de l'utilisateur : statut auto-entrepreneur, activite {profile.activite}, "
+                f"periodicite {profile.periodicite}. CA annuel {result.ca_annuel}EUR sur un plafond de {result.plafond}EUR "
+                f"({result.pourcentage_plafond}%). Taux de cotisations global {result.taux_global_pct}%. "
+                f"A provisionner pour la periode en cours ({result.periode_courante.label}) : {result.montant_a_provisionner}EUR, "
+                f"echeance dans {result.periode_courante.jours_restants} jours ({result.periode_courante.date_limite_declaration}). "
+                f"Utilise ces vrais chiffres pour repondre precisement a ses questions (ex: combien il peut se verser, "
+                f"depenser, ou quand il risque de depasser le plafond)."
+            )
+        except Exception:
+            context = f"L'utilisateur est {profile.statut} en activite '{profile.activite}'."
+
+    system_prompt = (
+        "Tu es H€CTOR, un assistant fiscal expert pour les auto-entrepreneurs francais. "
+        "Tu reponds de facon claire, concise et bienveillante, en francais. "
+        f"{context} "
+        "Tu donnes des conseils pratiques sur l'URSSAF, les cotisations, la TVA, l'ACRE, "
+        "la declaration de revenus. Tu rappelles de consulter un comptable pour les cas complexes. "
+        "Reponses courtes (5-8 lignes maximum sauf si l'utilisateur demande plus de detail)."
+    )
+
+    try:
+        resp = http_requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 600,
+                "system": system_prompt,
+                "messages": [{"role": m.role, "content": m.content} for m in req.messages],
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        reply = "".join(block.get("text", "") for block in data.get("content", []))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Erreur assistant IA : {e}")
+
+    return {"reply": reply or "Desole, je n'ai pas pu generer de reponse."}
 
 
 @app.get("/health")
