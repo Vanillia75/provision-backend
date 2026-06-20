@@ -38,9 +38,14 @@ CATEGORIES_FRAIS = (
 
 app = FastAPI(title="API Provision Cotisations")
 
+ALLOWED_ORIGINS = [
+    "https://provision-frontend-nu.vercel.app",
+    "http://localhost:5173",  # developpement local (Vite)
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
