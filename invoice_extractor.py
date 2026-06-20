@@ -12,8 +12,9 @@ from typing import Optional
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 AMOUNT_PATTERNS = [
+    r"montant\s+(?:prélevé|à payer|net\s+à\s+payer|ttc)\b[^\n€$]{0,50}?(\d{1,3}(?:[\s.]\d{3})*[.,]\d{2})",
+    r"total\s+(?:ttc|à payer|général)\b[^\n€$]{0,50}?(\d{1,3}(?:[\s.]\d{3})*[.,]\d{2})",
     r"total\b[^\n€$]{0,50}?(\d{1,3}(?:[\s.]\d{3})*[.,]\d{2})",
-    r"montant\s+(?:prélevé|à payer|ttc)\b[^\n€$]{0,50}?(\d{1,3}(?:[\s.]\d{3})*[.,]\d{2})",
     r"([\d\s]+[.,]\d{2})\s*€",
     r"€\s*([\d\s]+[.,]\d{2})",
     r"\$\s*([\d\s]+[.,]\d{2})",
@@ -164,20 +165,17 @@ def _find_tva(text: str) -> Optional[float]:
 
 def _find_amount(text: str) -> Optional[float]:
     text_lower = text.lower()
-    best_amount = None
     for pattern in AMOUNT_PATTERNS:
         matches = re.findall(pattern, text_lower)
         for m in matches:
             clean = m.replace(" ", "").replace(",", ".")
             try:
                 val = float(clean)
-                if val > 0 and (best_amount is None or val > best_amount):
-                    best_amount = val
+                if val > 0:
+                    return val  # premiere occurrence du motif le plus fiable = le bon montant
             except ValueError:
                 continue
-        if best_amount:
-            break
-    return best_amount
+    return None
 
 
 def _find_date(text: str) -> Optional[datetime]:
