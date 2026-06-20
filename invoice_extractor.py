@@ -123,21 +123,34 @@ def _extract_text_via_ocr_pdf(pdf_path: str) -> str:
     return "\n".join(_ocr_image(p) for p in pages)
 
 
+# Libelles francais et anglais couramment utilises par les outils de facturation
+# (Stripe Invoicing, Indy, Henrri, Tiime, factures faites a la main...).
+# \n* (au lieu de \n?) tolere une ligne vide entre le libelle et la valeur.
 CLIENT_PATTERNS = [
-    r"factur[ée]\s*(?:à|a)\s*:?\s*\n?\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
-    r"client\s*:?\s*\n?\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
-    r"destinataire\s*:?\s*\n?\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
+    r"factur[ée]\s*(?:à|a)\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
+    r"client\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
+    r"destinataire\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
+    r"adress[ée]\s*(?:à|a)\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
+    r"adresse\s+de\s+facturation\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
+    r"à\s+l['’]attention\s+de\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
+    r"bill(?:ed)?\s+to\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
+    r"customer\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
 ]
 
 DESCRIPTION_PATTERNS = [
-    r"objet\s*:?\s*\n?\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
-    r"d[ée]signation\s*:?\s*\n?\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
-    r"prestation\s*:?\s*\n?\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
+    r"objet\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
+    r"d[ée]signation\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
+    r"prestation\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
+    r"description\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
+    r"libell[ée]\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
+    r"intitul[ée]\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
+    r"service\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
 ]
 
 NUMERO_PATTERNS = [
     r"facture\s*n[°o]?\s*:?\s*([A-Za-z0-9\-\/]{2,20})",
     r"n[°o]\s*(?:de\s*)?facture\s*:?\s*([A-Za-z0-9\-\/]{2,20})",
+    r"invoice\s*(?:number|#|n[°o])?\s*:?\s*([A-Za-z0-9\-\/]{2,20})",
 ]
 
 TVA_PATTERN = r"tva\s*:?\s*(\d{1,2})\s*%"
