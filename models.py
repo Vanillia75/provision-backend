@@ -31,6 +31,9 @@ class User(Base):
     expenses = relationship(
         "Expense", back_populates="user", cascade="all, delete-orphan"
     )
+    contacts = relationship(
+        "Contact", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Profile(Base):
@@ -119,3 +122,19 @@ class Expense(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="expenses")
+
+
+class Contact(Base):
+    __tablename__ = "contacts"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+
+    nom = Column(String, nullable=False)
+    email = Column(String, nullable=True)
+    siret = Column(String, nullable=True)
+    adresse = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="contacts")

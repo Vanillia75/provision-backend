@@ -18,7 +18,7 @@ from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
 from database import Base, engine, get_db
-from models import User, Profile, IncomeEntry, ClientInvoice, Expense
+from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact
 from auth import hash_password, verify_password, create_token, get_current_user
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from invoice_extractor import extract_invoice_data
@@ -802,6 +802,71 @@ async def extract_expense(
         "filename": data["filename"],
         "description": data.get("description"),
     }
+
+
+# ----------------------------------------------------------------
+# Contacts
+# ----------------------------------------------------------------
+
+class ContactCreateRequest(BaseModel):
+    nom: str
+    email: Optional[str] = None
+    siret: Optional[str] = None
+    adresse: Optional[str] = None
+
+
+def _contact_to_dict(c: Contact) -> dict:
+    return {
+        "id": c.id,
+        "nom": c.nom,
+        "email": c.email,
+        "siret": c.siret,
+        "adresse": c.adresse,
+    }
+
+
+@app.get("/contacts")
+def list_contacts(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    contacts = (
+        db.query(Contact)
+        .filter(Contact.user_id == user.id)
+        .order_by(Contact.created_at.desc())
+        .all()
+    )
+    return [_contact_to_dict(c) for c in contacts]
+
+
+@app.post("/contacts")
+def create_contact(
+    req: ContactCreateRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    contact = Contact(
+        user_id=user.id,
+        nom=req.nom,
+        email=req.email,
+        siret=req.siret,
+        adresse=req.adresse,
+    )
+    db.add(contact)
+    db.commit()
+    db.refresh(contact)
+    return _contact_to_dict(contact)
+
+
+@app.delete("/contacts/{contact_id}")
+def delete_contact(
+    contact_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    contact = db.query(Contact).filter(Contact.id == contact_id, Contact.user_id == user.id).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact introuvable")
+    db.delete(contact)
+    db.commit()
+    return {"ok": True}
 
 
 # ----------------------------------------------------------------
