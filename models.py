@@ -50,6 +50,12 @@ class Profile(Base):
     siret = Column(String, nullable=True, index=True)
     raison_sociale = Column(String, nullable=True)
 
+    prenom = Column(String, nullable=True)
+    nom = Column(String, nullable=True)
+    telephone = Column(String, nullable=True)
+    entreprise = Column(String, nullable=True)
+    depenses_mensuelles = Column(Float, nullable=True)
+
     user = relationship("User", back_populates="profile")
 
 

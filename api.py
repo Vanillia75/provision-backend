@@ -161,6 +161,11 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "onboarding_complete": profile.onboarding_complete,
         "siret": profile.siret,
         "raison_sociale": profile.raison_sociale,
+        "prenom": profile.prenom,
+        "nom": profile.nom,
+        "telephone": profile.telephone,
+        "entreprise": profile.entreprise,
+        "depenses_mensuelles": profile.depenses_mensuelles,
     }
 
 
@@ -223,6 +228,35 @@ def save_siret(
 
     profile.siret = req.siret
     profile.raison_sociale = req.raison_sociale
+
+    db.commit()
+    return {"ok": True}
+
+
+class ProfileDetailsRequest(BaseModel):
+    prenom: Optional[str] = None
+    nom: Optional[str] = None
+    telephone: Optional[str] = None
+    entreprise: Optional[str] = None
+    depenses_mensuelles: Optional[float] = None
+
+
+@app.post("/profile/details")
+def save_profile_details(
+    req: ProfileDetailsRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        profile = Profile(user_id=user.id)
+        db.add(profile)
+
+    profile.prenom = req.prenom
+    profile.nom = req.nom
+    profile.telephone = req.telephone
+    profile.entreprise = req.entreprise
+    profile.depenses_mensuelles = req.depenses_mensuelles
 
     db.commit()
     return {"ok": True}
