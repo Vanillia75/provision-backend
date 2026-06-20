@@ -244,11 +244,10 @@ def delete_income(
     return {"ok": True}
 
 
-@app.post("/income/upload")
-async def upload_invoice(
+@app.post("/income/extract")
+async def extract_invoice(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
     if not file.filename.lower().endswith(allowed_ext):
@@ -270,26 +269,88 @@ async def upload_invoice(
             detail="Montant introuvable sur cette facture, merci de l'ajouter manuellement",
         )
 
-    entry_date = data["date"].date() if data["date"] else date.today()
+    return {
+        "amount": data["amount"],
+        "date": data["date"].date().isoformat() if data["date"] else date.today().isoformat(),
+        "filename": data["filename"],
+        "client": data.get("client"),
+        "description": data.get("description"),
+        "numero_facture": data.get("numero_facture"),
+        "tva_pct": data.get("tva_pct"),
+    }
+
+
+class IncomeConfirm(BaseModel):
+    date: date
+    amount: float
+    client: Optional[str] = None
+    description: Optional[str] = None
+    numero_facture: Optional[str] = None
+    filename: Optional[str] = None
+    force: bool = False
+
+
+@app.post("/income/confirm")
+def confirm_invoice_income(
+    payload: IncomeConfirm,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not payload.force:
+        from datetime import timedelta
+        candidats = (
+            db.query(IncomeEntry)
+            .filter(
+                IncomeEntry.user_id == user.id,
+                IncomeEntry.amount == payload.amount,
+                IncomeEntry.date >= payload.date - timedelta(days=3),
+                IncomeEntry.date <= payload.date + timedelta(days=3),
+            )
+            .all()
+        )
+        doublon = None
+        for c in candidats:
+            desc = (c.description or "").lower()
+            numero_match = payload.numero_facture and payload.numero_facture.lower() in desc
+            client_match = payload.client and payload.client.lower() in desc
+            # match si numero de facture trouve, OU client trouve, OU simplement meme montant+date proche (deja filtre)
+            if numero_match or client_match or not payload.numero_facture:
+                doublon = c
+                if numero_match:
+                    break  # numero de facture = quasi-certitude, on s'arrete la
+        if doublon:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "DOUBLON_POTENTIEL",
+                    "message": "Facture potentiellement deja importee",
+                    "existing_id": doublon.id,
+                    "existing_date": doublon.date.isoformat(),
+                    "existing_amount": doublon.amount,
+                    "existing_description": doublon.description,
+                },
+            )
+
+    desc_parts = []
+    if payload.numero_facture:
+        desc_parts.append(f"N° {payload.numero_facture}")
+    if payload.client:
+        desc_parts.append(f"Client : {payload.client}")
+    if payload.description:
+        desc_parts.append(payload.description)
+    description = " \u2014 ".join(desc_parts) if desc_parts else (f"Facture importee : {payload.filename}" if payload.filename else None)
 
     entry = IncomeEntry(
         user_id=user.id,
-        date=entry_date,
-        amount=data["amount"],
-        description=f"Facture importee : {file.filename}",
-        source="facture",
-        filename=file.filename,
+        date=payload.date,
+        amount=payload.amount,
+        description=description,
+        source="facture" if payload.filename else "manuel",
+        filename=payload.filename,
     )
     db.add(entry)
     db.commit()
-
-    return {
-        "ok": True,
-        "id": entry.id,
-        "amount": data["amount"],
-        "date": entry_date,
-        "filename": file.filename,
-    }
+    return {"ok": True, "id": entry.id}
 
 
 # ────────────────────────────────────────────────────────────
