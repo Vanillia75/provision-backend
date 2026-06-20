@@ -18,7 +18,7 @@ from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
 from database import Base, engine, get_db
-from models import User, Profile, IncomeEntry
+from models import User, Profile, IncomeEntry, ClientInvoice
 from auth import hash_password, verify_password, create_token, get_current_user
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from invoice_extractor import extract_invoice_data
@@ -29,19 +29,21 @@ Base.metadata.create_all(bind=engine)
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
+STATUTS_FACTURE = ("brouillon", "envoyee", "payee", "impayee")
+
 app = FastAPI(title="API Provision Cotisations")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # a restreindre au domaine du frontend une fois connu
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# ────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------
 # Schemas
-# ────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------
 
 class RegisterRequest(BaseModel):
     email: EmailStr
@@ -77,9 +79,9 @@ class IncomeRequest(BaseModel):
     description: Optional[str] = None
 
 
-# ────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------
 # Auth
-# ────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------
 
 @app.post("/auth/register", response_model=AuthResponse)
 def register(req: RegisterRequest, db: Session = Depends(get_db)):
@@ -134,9 +136,9 @@ def auth_google(req: GoogleAuthRequest, db: Session = Depends(get_db)):
     return AuthResponse(token=create_token(user.id), email=user.email)
 
 
-# ────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------
 # Profil
-# ────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------
 
 @app.get("/profile")
 def get_profile(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -186,9 +188,9 @@ def set_profile(
     return {"ok": True}
 
 
-# ────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------
 # Recherche SIRET (INSEE)
-# ────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------
 
 @app.get("/siret/lookup")
 def siret_lookup(siret: str, user: User = Depends(get_current_user)):
@@ -221,9 +223,9 @@ def save_siret(
     return {"ok": True}
 
 
-# ────────────────────────────────────────────────────────────
-# Revenus
-# ────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------
+# Revenus (saisie libre, sans facture formelle)
+# ----------------------------------------------------------------
 
 @app.get("/income")
 def list_income(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -390,9 +392,212 @@ def confirm_invoice_income(
     return {"ok": True, "id": entry.id}
 
 
-# ────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------
+# Factures Clients
+# Regle centrale : une facture n'alimente le CA que lorsqu'elle est "payee"
+# ----------------------------------------------------------------
+
+class FactureLigne(BaseModel):
+    description: str = ""
+    quantite: float = 1
+    prix_unitaire: float = 0
+
+
+class InvoiceCreateRequest(BaseModel):
+    client_nom: str
+    client_email: Optional[str] = None
+    client_adresse: Optional[str] = None
+    date_emission: date
+    date_echeance: Optional[date] = None
+    lignes: list[FactureLigne] = []
+    notes: Optional[str] = None
+    statut: str = "brouillon"
+
+
+class InvoiceUpdateRequest(BaseModel):
+    client_nom: Optional[str] = None
+    client_email: Optional[str] = None
+    client_adresse: Optional[str] = None
+    date_emission: Optional[date] = None
+    date_echeance: Optional[date] = None
+    lignes: Optional[list[FactureLigne]] = None
+    notes: Optional[str] = None
+
+
+class InvoiceStatusRequest(BaseModel):
+    statut: str
+
+
+def _montant_lignes(lignes: list) -> float:
+    total = 0.0
+    for l in lignes or []:
+        q = l.get("quantite", 0) if isinstance(l, dict) else l.quantite
+        p = l.get("prix_unitaire", 0) if isinstance(l, dict) else l.prix_unitaire
+        total += (q or 0) * (p or 0)
+    return round(total, 2)
+
+
+def _next_numero(db: Session, user_id: str) -> str:
+    year = date.today().year
+    count = (
+        db.query(ClientInvoice)
+        .filter(ClientInvoice.user_id == user_id, ClientInvoice.numero.like(f"F-{year}-%"))
+        .count()
+    )
+    return f"F-{year}-{count + 1:03d}"
+
+
+def _invoice_to_dict(inv: ClientInvoice) -> dict:
+    return {
+        "id": inv.id,
+        "numero": inv.numero,
+        "client_nom": inv.client_nom,
+        "client_email": inv.client_email,
+        "client_adresse": inv.client_adresse,
+        "date_emission": inv.date_emission,
+        "date_echeance": inv.date_echeance,
+        "date_paiement": inv.date_paiement,
+        "montant": inv.montant,
+        "statut": inv.statut,
+        "lignes": inv.lignes,
+        "notes": inv.notes,
+    }
+
+
+@app.get("/invoices")
+def list_invoices(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    invoices = (
+        db.query(ClientInvoice)
+        .filter(ClientInvoice.user_id == user.id)
+        .order_by(ClientInvoice.date_emission.desc())
+        .all()
+    )
+    return [_invoice_to_dict(inv) for inv in invoices]
+
+
+@app.get("/invoices/summary")
+def invoices_summary(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    invoices = db.query(ClientInvoice).filter(ClientInvoice.user_id == user.id).all()
+    facture_total = sum(i.montant for i in invoices)
+    paye_total = sum(i.montant for i in invoices if i.statut == "payee")
+    en_attente_total = sum(i.montant for i in invoices if i.statut in ("envoyee", "brouillon"))
+    impayees_montant = sum(i.montant for i in invoices if i.statut == "impayee")
+    impayees_count = sum(1 for i in invoices if i.statut == "impayee")
+    return {
+        "facture_total": round(facture_total, 2),
+        "paye_total": round(paye_total, 2),
+        "en_attente_total": round(en_attente_total + impayees_montant, 2),
+        "impayees_count": impayees_count,
+    }
+
+
+@app.post("/invoices")
+def create_invoice(
+    req: InvoiceCreateRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if req.statut not in STATUTS_FACTURE:
+        raise HTTPException(status_code=400, detail="Statut de facture inconnu")
+
+    lignes_dicts = [l.dict() for l in req.lignes]
+    montant = _montant_lignes(lignes_dicts)
+
+    inv = ClientInvoice(
+        user_id=user.id,
+        numero=_next_numero(db, user.id),
+        client_nom=req.client_nom,
+        client_email=req.client_email,
+        client_adresse=req.client_adresse,
+        date_emission=req.date_emission,
+        date_echeance=req.date_echeance,
+        montant=montant,
+        statut=req.statut,
+        date_paiement=date.today() if req.statut == "payee" else None,
+        lignes=lignes_dicts,
+        notes=req.notes,
+    )
+    db.add(inv)
+    db.commit()
+    db.refresh(inv)
+    return _invoice_to_dict(inv)
+
+
+@app.put("/invoices/{invoice_id}")
+def update_invoice(
+    invoice_id: str,
+    req: InvoiceUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    inv = db.query(ClientInvoice).filter(ClientInvoice.id == invoice_id, ClientInvoice.user_id == user.id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+
+    if req.client_nom is not None:
+        inv.client_nom = req.client_nom
+    if req.client_email is not None:
+        inv.client_email = req.client_email
+    if req.client_adresse is not None:
+        inv.client_adresse = req.client_adresse
+    if req.date_emission is not None:
+        inv.date_emission = req.date_emission
+    if req.date_echeance is not None:
+        inv.date_echeance = req.date_echeance
+    if req.notes is not None:
+        inv.notes = req.notes
+    if req.lignes is not None:
+        lignes_dicts = [l.dict() for l in req.lignes]
+        inv.lignes = lignes_dicts
+        inv.montant = _montant_lignes(lignes_dicts)
+
+    db.commit()
+    db.refresh(inv)
+    return _invoice_to_dict(inv)
+
+
+@app.patch("/invoices/{invoice_id}/status")
+def update_invoice_status(
+    invoice_id: str,
+    req: InvoiceStatusRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if req.statut not in STATUTS_FACTURE:
+        raise HTTPException(status_code=400, detail="Statut de facture inconnu")
+
+    inv = db.query(ClientInvoice).filter(ClientInvoice.id == invoice_id, ClientInvoice.user_id == user.id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+
+    inv.statut = req.statut
+    if req.statut == "payee" and not inv.date_paiement:
+        inv.date_paiement = date.today()
+    elif req.statut != "payee":
+        inv.date_paiement = None
+
+    db.commit()
+    db.refresh(inv)
+    return _invoice_to_dict(inv)
+
+
+@app.delete("/invoices/{invoice_id}")
+def delete_invoice(
+    invoice_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    inv = db.query(ClientInvoice).filter(ClientInvoice.id == invoice_id, ClientInvoice.user_id == user.id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    db.delete(inv)
+    db.commit()
+    return {"ok": True}
+
+
+# ----------------------------------------------------------------
 # Estimation des cotisations
-# ────────────────────────────────────────────────────────────
+# ----------------------------------------------------------------
 
 @app.get("/estimate")
 def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -410,6 +615,13 @@ def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(g
 
     entries = db.query(IncomeEntry).filter(IncomeEntry.user_id == user.id).all()
     incomes = [(e.date, e.amount) for e in entries]
+
+    paid_invoices = (
+        db.query(ClientInvoice)
+        .filter(ClientInvoice.user_id == user.id, ClientInvoice.statut == "payee")
+        .all()
+    )
+    incomes += [(inv.date_paiement or inv.date_emission, inv.montant) for inv in paid_invoices]
 
     result = estimate(
         statut=profile.statut,
@@ -473,6 +685,12 @@ def assistant_chat(
     if profile and profile.onboarding_complete and profile.statut == "auto_entrepreneur":
         entries = db.query(IncomeEntry).filter(IncomeEntry.user_id == user.id).all()
         incomes = [(e.date, e.amount) for e in entries]
+        paid_invoices = (
+            db.query(ClientInvoice)
+            .filter(ClientInvoice.user_id == user.id, ClientInvoice.statut == "payee")
+            .all()
+        )
+        incomes += [(inv.date_paiement or inv.date_emission, inv.montant) for inv in paid_invoices]
         try:
             result = estimate(
                 statut=profile.statut, activite=profile.activite, periodicite=profile.periodicite,

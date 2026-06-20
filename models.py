@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date
-from sqlalchemy import Column, String, Float, Boolean, DateTime, Date, ForeignKey
+from sqlalchemy import Column, String, Float, Boolean, DateTime, Date, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -24,6 +24,9 @@ class User(Base):
     )
     incomes = relationship(
         "IncomeEntry", back_populates="user", cascade="all, delete-orphan"
+    )
+    client_invoices = relationship(
+        "ClientInvoice", back_populates="user", cascade="all, delete-orphan"
     )
 
 
@@ -60,3 +63,30 @@ class IncomeEntry(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="incomes")
+
+
+# Statuts possibles : "brouillon", "envoyee", "payee", "impayee"
+class ClientInvoice(Base):
+    __tablename__ = "client_invoices"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+
+    numero = Column(String, nullable=False)
+    client_nom = Column(String, nullable=False)
+    client_email = Column(String, nullable=True)
+    client_adresse = Column(String, nullable=True)
+
+    date_emission = Column(Date, nullable=False)
+    date_echeance = Column(Date, nullable=True)
+    date_paiement = Column(Date, nullable=True)  # rempli automatiquement au passage en "payee"
+
+    montant = Column(Float, nullable=False)
+    statut = Column(String, nullable=False, default="brouillon")
+
+    lignes = Column(JSON, nullable=True)  # [{description, quantite, prix_unitaire}]
+    notes = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="client_invoices")
