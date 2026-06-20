@@ -800,6 +800,74 @@ async def extract_expense(
 
 
 # ----------------------------------------------------------------
+# RGPD : export et suppression du compte
+# ----------------------------------------------------------------
+
+@app.get("/account/export")
+def export_account_data(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    incomes = db.query(IncomeEntry).filter(IncomeEntry.user_id == user.id).all()
+    invoices = db.query(ClientInvoice).filter(ClientInvoice.user_id == user.id).all()
+    expenses = db.query(Expense).filter(Expense.user_id == user.id).all()
+
+    return {
+        "export_genere_le": datetime.now().isoformat(),
+        "compte": {
+            "id": user.id,
+            "email": user.email,
+            "cree_le": user.created_at.isoformat() if user.created_at else None,
+        },
+        "profil": {
+            "statut": profile.statut,
+            "activite": profile.activite,
+            "periodicite": profile.periodicite,
+            "acre": profile.acre,
+            "versement_liberatoire": profile.versement_liberatoire,
+            "siret": profile.siret,
+            "raison_sociale": profile.raison_sociale,
+            "prenom": profile.prenom,
+            "nom": profile.nom,
+            "telephone": profile.telephone,
+            "entreprise": profile.entreprise,
+        } if profile else None,
+        "revenus": [
+            {
+                "date": e.date.isoformat(),
+                "montant": e.amount,
+                "description": e.description,
+                "source": e.source,
+            } for e in incomes
+        ],
+        "factures_clients": [
+            {
+                "numero": i.numero,
+                "client_nom": i.client_nom,
+                "client_email": i.client_email,
+                "date_emission": i.date_emission.isoformat() if i.date_emission else None,
+                "date_paiement": i.date_paiement.isoformat() if i.date_paiement else None,
+                "montant": i.montant,
+                "statut": i.statut,
+            } for i in invoices
+        ],
+        "frais": [
+            {
+                "date": ex.date.isoformat(),
+                "montant": ex.montant,
+                "categorie": ex.categorie,
+                "description": ex.description,
+            } for ex in expenses
+        ],
+    }
+
+
+@app.delete("/account")
+def delete_account(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    db.delete(user)
+    db.commit()
+    return {"ok": True}
+
+
+# ----------------------------------------------------------------
 # Estimation des cotisations
 # ----------------------------------------------------------------
 
