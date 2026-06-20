@@ -28,6 +28,9 @@ class User(Base):
     client_invoices = relationship(
         "ClientInvoice", back_populates="user", cascade="all, delete-orphan"
     )
+    expenses = relationship(
+        "Expense", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Profile(Base):
@@ -79,14 +82,34 @@ class ClientInvoice(Base):
 
     date_emission = Column(Date, nullable=False)
     date_echeance = Column(Date, nullable=True)
-    date_paiement = Column(Date, nullable=True)  # rempli automatiquement au passage en "payee"
+    date_paiement = Column(Date, nullable=True)
 
     montant = Column(Float, nullable=False)
     statut = Column(String, nullable=False, default="brouillon")
 
-    lignes = Column(JSON, nullable=True)  # [{description, quantite, prix_unitaire}]
+    lignes = Column(JSON, nullable=True)
     notes = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="client_invoices")
+
+
+# Categories possibles : "logiciels", "abonnements", "taxi", "repas", "materiel",
+# "coworking", "telephone_internet", "autre"
+class Expense(Base):
+    __tablename__ = "expenses"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+
+    date = Column(Date, nullable=False)
+    montant = Column(Float, nullable=False)
+    categorie = Column(String, nullable=False, default="autre")
+    description = Column(String, nullable=True)
+    source = Column(String, default="manuel")  # "manuel" ou "import"
+    filename = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="expenses")

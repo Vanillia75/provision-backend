@@ -18,7 +18,7 @@ from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
 from database import Base, engine, get_db
-from models import User, Profile, IncomeEntry, ClientInvoice
+from models import User, Profile, IncomeEntry, ClientInvoice, Expense
 from auth import hash_password, verify_password, create_token, get_current_user
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from invoice_extractor import extract_invoice_data
@@ -30,6 +30,11 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 STATUTS_FACTURE = ("brouillon", "envoyee", "payee", "impayee")
+
+CATEGORIES_FRAIS = (
+    "logiciels", "abonnements", "taxi", "repas", "materiel",
+    "coworking", "telephone_internet", "autre",
+)
 
 app = FastAPI(title="API Provision Cotisations")
 
@@ -593,6 +598,171 @@ def delete_invoice(
     db.delete(inv)
     db.commit()
     return {"ok": True}
+
+
+# ----------------------------------------------------------------
+# Frais d'Entreprise
+# ----------------------------------------------------------------
+
+class ExpenseCreateRequest(BaseModel):
+    date: date
+    montant: float
+    categorie: str = "autre"
+    description: Optional[str] = None
+
+
+class ExpenseUpdateRequest(BaseModel):
+    date: Optional[date] = None
+    montant: Optional[float] = None
+    categorie: Optional[str] = None
+    description: Optional[str] = None
+
+
+def _expense_to_dict(e: Expense) -> dict:
+    return {
+        "id": e.id,
+        "date": e.date,
+        "montant": e.montant,
+        "categorie": e.categorie,
+        "description": e.description,
+        "source": e.source,
+        "filename": e.filename,
+    }
+
+
+@app.get("/expenses")
+def list_expenses(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    expenses = (
+        db.query(Expense)
+        .filter(Expense.user_id == user.id)
+        .order_by(Expense.date.desc())
+        .all()
+    )
+    return [_expense_to_dict(e) for e in expenses]
+
+
+@app.get("/expenses/summary")
+def expenses_summary(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    expenses = db.query(Expense).filter(Expense.user_id == user.id).all()
+    today = date.today()
+
+    frais_mois = sum(e.montant for e in expenses if e.date.year == today.year and e.date.month == today.month)
+    frais_annee = sum(e.montant for e in expenses if e.date.year == today.year)
+
+    par_categorie = {}
+    for e in expenses:
+        if e.date.year == today.year:
+            par_categorie[e.categorie] = par_categorie.get(e.categorie, 0) + e.montant
+
+    repartition = sorted(
+        [{"categorie": k, "montant": round(v, 2)} for k, v in par_categorie.items()],
+        key=lambda x: x["montant"],
+        reverse=True,
+    )
+
+    return {
+        "frais_mois": round(frais_mois, 2),
+        "frais_annee": round(frais_annee, 2),
+        "par_categorie": repartition,
+    }
+
+
+@app.post("/expenses")
+def create_expense(
+    req: ExpenseCreateRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if req.categorie not in CATEGORIES_FRAIS:
+        raise HTTPException(status_code=400, detail="Categorie de frais inconnue")
+
+    expense = Expense(
+        user_id=user.id,
+        date=req.date,
+        montant=req.montant,
+        categorie=req.categorie,
+        description=req.description,
+        source="manuel",
+    )
+    db.add(expense)
+    db.commit()
+    db.refresh(expense)
+    return _expense_to_dict(expense)
+
+
+@app.put("/expenses/{expense_id}")
+def update_expense(
+    expense_id: str,
+    req: ExpenseUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    expense = db.query(Expense).filter(Expense.id == expense_id, Expense.user_id == user.id).first()
+    if not expense:
+        raise HTTPException(status_code=404, detail="Frais introuvable")
+
+    if req.categorie is not None and req.categorie not in CATEGORIES_FRAIS:
+        raise HTTPException(status_code=400, detail="Categorie de frais inconnue")
+
+    if req.date is not None:
+        expense.date = req.date
+    if req.montant is not None:
+        expense.montant = req.montant
+    if req.categorie is not None:
+        expense.categorie = req.categorie
+    if req.description is not None:
+        expense.description = req.description
+
+    db.commit()
+    db.refresh(expense)
+    return _expense_to_dict(expense)
+
+
+@app.delete("/expenses/{expense_id}")
+def delete_expense(
+    expense_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    expense = db.query(Expense).filter(Expense.id == expense_id, Expense.user_id == user.id).first()
+    if not expense:
+        raise HTTPException(status_code=404, detail="Frais introuvable")
+    db.delete(expense)
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/expenses/extract")
+async def extract_expense(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
+    if not file.filename.lower().endswith(allowed_ext):
+        raise HTTPException(status_code=400, detail="Format de fichier non supporte")
+
+    tmp_dir = tempfile.mkdtemp()
+    file_path = os.path.join(tmp_dir, file.filename)
+    with open(file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    try:
+        data = extract_invoice_data(file_path)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Impossible de lire la facture : {e}")
+
+    if data["amount"] is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Montant introuvable sur cette facture, merci de l'ajouter manuellement",
+        )
+
+    return {
+        "amount": data["amount"],
+        "date": data["date"].date().isoformat() if data["date"] else date.today().isoformat(),
+        "filename": data["filename"],
+        "description": data.get("description"),
+    }
 
 
 # ----------------------------------------------------------------
