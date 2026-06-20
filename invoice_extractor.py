@@ -31,6 +31,41 @@ MONTHS_FR = {
     "juillet": 7, "août": 8, "septembre": 9, "octobre": 10, "novembre": 11, "décembre": 12,
 }
 
+# Mots qui, s'ils apparaissent dans le texte capture, trahissent un fragment de phrase
+# (texte legal, CGV, suite de paragraphe) plutot qu'une vraie donnee (nom client, objet)
+STOPWORDS_DEBUT = {
+    "le", "la", "les", "un", "une", "des", "est", "sont", "aussi", "sur", "dans",
+    "pour", "avec", "où", "qui", "que", "dont", "tout", "tous", "toute", "toutes",
+    "ce", "cet", "cette", "ces", "il", "elle", "nous", "vous", "ils", "elles",
+    "et", "ou", "mais", "donc", "or", "ni", "car", "de", "du", "au", "aux",
+}
+MOTS_LEGAUX = {
+    "tva", "applicable", "article", "conformément", "conditions", "paiement",
+    "échéance", "pénalité", "indemnité", "recouvrement", "cgv", "rgpd", "siret",
+    "siren", "rcs", "naf", "ape", "tribunal", "compétent", "vigueur", "code",
+    "civil", "commercial", "intracommunautaire", "exonération",
+}
+
+
+def _est_credible(valeur: str) -> bool:
+    """Filtre de confiance : mieux vaut ne rien extraire qu'extraire un fragment de phrase."""
+    if not valeur:
+        return False
+    mot_initial = valeur.strip().split(" ")[0].lower().strip(".,;:")
+    if mot_initial in STOPWORDS_DEBUT:
+        return False
+    mots = set(w.lower().strip(".,;:()") for w in valeur.split())
+    if mots & MOTS_LEGAUX:
+        return False
+    # Une vraie donnee (nom client, objet court) ne se termine quasiment jamais par un point isole
+    # type fin de phrase ("...individualisable.") sauf abreviation courante
+    if valeur.strip().endswith(".") and len(valeur.split()) > 4:
+        return False
+    # Doit contenir au moins une majuscule en debut de mot (nom propre, debut d'objet structure)
+    if not any(c.isupper() for c in valeur[:1]):
+        return False
+    return True
+
 
 def extract_invoice_data(file_path: str) -> dict:
     ext = os.path.splitext(file_path)[1].lower()
@@ -44,8 +79,10 @@ def extract_invoice_data(file_path: str) -> dict:
 
     amount = _find_amount(text)
     invoice_date = _find_date(text)
-    client = _find_first_match(text, CLIENT_PATTERNS)
-    description = _find_first_match(text, DESCRIPTION_PATTERNS)
+    client_brut = _find_first_match(text, CLIENT_PATTERNS)
+    description_brut = _find_first_match(text, DESCRIPTION_PATTERNS)
+    client = client_brut if _est_credible(client_brut) else None
+    description = description_brut if _est_credible(description_brut) else None
     numero = _find_first_match(text, NUMERO_PATTERNS)
     tva = _find_tva(text)
 
