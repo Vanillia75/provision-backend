@@ -22,6 +22,7 @@ from models import User, Profile, IncomeEntry
 from auth import hash_password, verify_password, create_token, get_current_user
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from invoice_extractor import extract_invoice_data
+from insee_lookup import lookup_siret, SiretLookupError
 
 Base.metadata.create_all(bind=engine)
 
@@ -151,6 +152,8 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "versement_liberatoire": profile.versement_liberatoire,
         "date_creation_activite": profile.date_creation_activite,
         "onboarding_complete": profile.onboarding_complete,
+        "siret": profile.siret,
+        "raison_sociale": profile.raison_sociale,
     }
 
 
@@ -178,6 +181,41 @@ def set_profile(
     profile.versement_liberatoire = req.versement_liberatoire
     profile.date_creation_activite = req.date_creation_activite
     profile.onboarding_complete = True
+
+    db.commit()
+    return {"ok": True}
+
+
+# ────────────────────────────────────────────────────────────
+# Recherche SIRET (INSEE)
+# ────────────────────────────────────────────────────────────
+
+@app.get("/siret/lookup")
+def siret_lookup(siret: str, user: User = Depends(get_current_user)):
+    try:
+        return lookup_siret(siret)
+    except SiretLookupError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+class SiretSaveRequest(BaseModel):
+    siret: str
+    raison_sociale: Optional[str] = None
+
+
+@app.post("/profile/siret")
+def save_siret(
+    req: SiretSaveRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        profile = Profile(user_id=user.id)
+        db.add(profile)
+
+    profile.siret = req.siret
+    profile.raison_sociale = req.raison_sociale
 
     db.commit()
     return {"ok": True}
@@ -313,11 +351,10 @@ def confirm_invoice_income(
             desc = (c.description or "").lower()
             numero_match = payload.numero_facture and payload.numero_facture.lower() in desc
             client_match = payload.client and payload.client.lower() in desc
-            # match si numero de facture trouve, OU client trouve, OU simplement meme montant+date proche (deja filtre)
             if numero_match or client_match or not payload.numero_facture:
                 doublon = c
                 if numero_match:
-                    break  # numero de facture = quasi-certitude, on s'arrete la
+                    break
         if doublon:
             raise HTTPException(
                 status_code=409,
@@ -333,12 +370,12 @@ def confirm_invoice_income(
 
     desc_parts = []
     if payload.numero_facture:
-        desc_parts.append(f"N° {payload.numero_facture}")
+        desc_parts.append(f"N. {payload.numero_facture}")
     if payload.client:
         desc_parts.append(f"Client : {payload.client}")
     if payload.description:
         desc_parts.append(payload.description)
-    description = " \u2014 ".join(desc_parts) if desc_parts else (f"Facture importee : {payload.filename}" if payload.filename else None)
+    description = " - ".join(desc_parts) if desc_parts else (f"Facture importee : {payload.filename}" if payload.filename else None)
 
     entry = IncomeEntry(
         user_id=user.id,
@@ -455,7 +492,7 @@ def assistant_chat(
             context = f"L'utilisateur est {profile.statut} en activite '{profile.activite}'."
 
     system_prompt = (
-        "Tu es H€CTOR, un assistant fiscal expert pour les auto-entrepreneurs francais. "
+        "Tu es H.CTOR, un assistant fiscal expert pour les auto-entrepreneurs francais. "
         "Tu reponds de facon claire, concise et bienveillante, en francais. "
         f"{context} "
         "Tu donnes des conseils pratiques sur l'URSSAF, les cotisations, la TVA, l'ACRE, "
