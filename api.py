@@ -228,6 +228,7 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "onboarding_complete": profile.onboarding_complete,
         "siret": profile.siret,
         "raison_sociale": profile.raison_sociale,
+        "adresse": profile.adresse,
         "prenom": profile.prenom,
         "nom": profile.nom,
         "telephone": profile.telephone,
@@ -282,6 +283,7 @@ def siret_lookup(siret: str, user: User = Depends(get_current_user)):
 class SiretSaveRequest(BaseModel):
     siret: str
     raison_sociale: Optional[str] = None
+    adresse: Optional[str] = None
 
 
 @app.post("/profile/siret")
@@ -297,6 +299,8 @@ def save_siret(
 
     profile.siret = req.siret
     profile.raison_sociale = req.raison_sociale
+    if req.adresse:
+        profile.adresse = req.adresse
 
     db.commit()
     return {"ok": True}
@@ -307,6 +311,7 @@ class ProfileDetailsRequest(BaseModel):
     nom: Optional[str] = None
     telephone: Optional[str] = None
     entreprise: Optional[str] = None
+    adresse: Optional[str] = None
     depenses_mensuelles: Optional[float] = None
 
 
@@ -325,6 +330,8 @@ def save_profile_details(
     profile.nom = req.nom
     profile.telephone = req.telephone
     profile.entreprise = req.entreprise
+    if req.adresse is not None:
+        profile.adresse = req.adresse
     profile.depenses_mensuelles = req.depenses_mensuelles
 
     db.commit()
@@ -1342,6 +1349,7 @@ def export_account_data(user: User = Depends(get_current_user), db: Session = De
             "versement_liberatoire": profile.versement_liberatoire,
             "siret": profile.siret,
             "raison_sociale": profile.raison_sociale,
+            "adresse": profile.adresse,
             "prenom": profile.prenom,
             "nom": profile.nom,
             "telephone": profile.telephone,

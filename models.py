@@ -56,6 +56,7 @@ class Profile(Base):
 
     siret = Column(String, nullable=True, index=True)
     raison_sociale = Column(String, nullable=True)
+    adresse = Column(String, nullable=True)
 
     prenom = Column(String, nullable=True)
     nom = Column(String, nullable=True)

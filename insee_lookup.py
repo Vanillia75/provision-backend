@@ -2,7 +2,6 @@
 Interrogation de l'API Sirene (INSEE) pour recuperer les informations
 d'une entreprise a partir de son numero SIRET.
 """
-
 import os
 import re
 import requests
@@ -20,6 +19,43 @@ def clean_siret(siret: str) -> str:
     return re.sub(r"[^0-9]", "", siret or "")
 
 
+def lookup_naf_label(code_ape: str) -> str | None:
+    """
+    Tente de recuperer le libelle lisible d'un code NAF via l'API Metadonnees
+    de l'INSEE. Best-effort : ne leve jamais d'exception, renvoie None si le
+    code est absent, si l'appel echoue, ou si la cle API n'a pas acces a ce
+    produit (l'onboarding ne doit jamais etre bloque par ce bonus UX).
+    """
+    if not code_ape or not INSEE_API_KEY:
+        return None
+
+    # L'API Metadonnees attend le code au format "NN.NNL" (avec point), alors
+    # que l'API Sirene renvoie le code sans point (ex: "6201Z" -> "62.01Z").
+    code_clean = code_ape.strip().upper()
+    if "." not in code_clean and len(code_clean) >= 4:
+        code_formatted = f"{code_clean[:2]}.{code_clean[2:]}"
+    else:
+        code_formatted = code_clean
+
+    url = f"https://api.insee.fr/metadonnees/nomenclatures/v1/codes/nafr2/sousClasse/{code_formatted}"
+    headers = {"X-INSEE-Api-Key-Integration": INSEE_API_KEY}
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        # Le nom exact du champ peut varier selon la version de l'API ;
+        # on essaie plusieurs cles plausibles avant d'abandonner proprement.
+        for key in ("intitule", "intituleSansTiret", "libelle", "intituleProtege"):
+            value = data.get(key)
+            if value:
+                return value
+        return None
+    except Exception:
+        return None
+
+
 def lookup_siret(siret: str) -> dict:
     """
     Interroge l'API Sirene pour un SIRET donne et retourne les informations
@@ -29,7 +65,6 @@ def lookup_siret(siret: str) -> dict:
     n'est pas configuree / indisponible.
     """
     siret = clean_siret(siret)
-
     if len(siret) != 14:
         raise SiretLookupError("Le SIRET doit comporter exactement 14 chiffres")
 
@@ -46,16 +81,13 @@ def lookup_siret(siret: str) -> dict:
 
     if resp.status_code == 404:
         raise SiretLookupError("Aucun etablissement trouve pour ce SIRET")
-
     if resp.status_code == 401 or resp.status_code == 403:
         raise SiretLookupError("Cle API INSEE invalide ou non autorisee")
-
     if resp.status_code != 200:
         raise SiretLookupError(f"Erreur API INSEE (code {resp.status_code})")
 
     data = resp.json()
     etablissement = data.get("etablissement", {})
-
     unite_legale = etablissement.get("uniteLegale", {})
     adresse = etablissement.get("adresseEtablissement", {})
 
@@ -67,7 +99,6 @@ def lookup_siret(siret: str) -> dict:
         raison_sociale = f"{prenom} {nom}".strip() or None
 
     date_creation = etablissement.get("dateCreationEtablissement")
-
     code_ape = unite_legale.get("activitePrincipaleUniteLegale")
     libelle_ape = unite_legale.get("nomenclatureActivitePrincipaleUniteLegale")
 
@@ -85,6 +116,7 @@ def lookup_siret(siret: str) -> dict:
         "date_creation_etablissement": date_creation,
         "code_ape": code_ape,
         "nomenclature_ape": libelle_ape,
+        "libelle_activite": lookup_naf_label(code_ape),
         "adresse": adresse_ligne,
         "code_postal": adresse.get("codePostalEtablissement"),
         "commune": adresse.get("libelleCommuneEtablissement"),
