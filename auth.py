@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import Depends, HTTPException, Header
 from sqlalchemy.orm import Session
-
 from database import get_db
 from models import User
 
@@ -44,3 +43,29 @@ def get_current_user(
     if not user:
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
     return user
+
+
+# ----------------------------------------------------------------
+# Tokens a usage unique : reinitialisation de mot de passe et
+# verification d'email. Reutilisent le meme secret JWT, mais portent
+# un champ "purpose" pour ne jamais etre confondus avec un token de
+# session classique (cree par create_token ci-dessus).
+# ----------------------------------------------------------------
+
+def create_purpose_token(user_id: str, purpose: str, expire_minutes: int = 60) -> str:
+    payload = {
+        "sub": user_id,
+        "purpose": purpose,
+        "exp": datetime.utcnow() + timedelta(minutes=expire_minutes),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def verify_purpose_token(token: str, expected_purpose: str) -> str:
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=400, detail="Lien invalide ou expire")
+    if payload.get("purpose") != expected_purpose:
+        raise HTTPException(status_code=400, detail="Lien invalide")
+    return payload["sub"]

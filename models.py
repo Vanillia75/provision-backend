@@ -17,6 +17,7 @@ class User(Base):
     email = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=True)
     google_id = Column(String, unique=True, nullable=True, index=True)
+    email_verified = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     profile = relationship(

@@ -19,7 +19,11 @@ from google.auth.transport import requests as google_requests
 
 from database import Base, engine, get_db
 from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact
-from auth import hash_password, verify_password, create_token, get_current_user
+from auth import (
+    hash_password, verify_password, create_token, get_current_user,
+    create_purpose_token, verify_purpose_token,
+)
+from emailing import send_reset_password_email, send_verification_email
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from invoice_extractor import extract_invoice_data
 from insee_lookup import lookup_siret, SiretLookupError
@@ -106,6 +110,9 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
+    verify_token = create_purpose_token(user.id, "verify_email", expire_minutes=60 * 24)
+    send_verification_email(user.email, verify_token)
+
     return AuthResponse(token=create_token(user.id), email=user.email)
 
 
@@ -149,8 +156,60 @@ def auth_google(req: GoogleAuthRequest, db: Session = Depends(get_db)):
 
 
 # ----------------------------------------------------------------
-# Profil
+# Mot de passe oublie / verification email
 # ----------------------------------------------------------------
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+@app.post("/auth/forgot-password")
+def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    # On repond toujours {"ok": True}, meme si l'email n'existe pas en base,
+    # pour ne jamais reveler quels emails ont un compte (securite).
+    user = db.query(User).filter(User.email == req.email).first()
+    if user and user.password_hash:
+        token = create_purpose_token(user.id, "reset_password", expire_minutes=60)
+        send_reset_password_email(user.email, token)
+    return {"ok": True}
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+@app.post("/auth/reset-password")
+def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
+    user_id = verify_purpose_token(req.token, "reset_password")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    user.password_hash = hash_password(req.new_password)
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/auth/send-verification")
+def send_verification(user: User = Depends(get_current_user)):
+    if user.email_verified:
+        return {"ok": True, "already_verified": True}
+    token = create_purpose_token(user.id, "verify_email", expire_minutes=60 * 24)
+    send_verification_email(user.email, token)
+    return {"ok": True}
+
+
+@app.get("/auth/verify-email")
+def verify_email(token: str, db: Session = Depends(get_db)):
+    user_id = verify_purpose_token(token, "verify_email")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    user.email_verified = True
+    db.commit()
+    return {"ok": True}
 
 @app.get("/profile")
 def get_profile(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -173,6 +232,8 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "telephone": profile.telephone,
         "entreprise": profile.entreprise,
         "depenses_mensuelles": profile.depenses_mensuelles,
+        "email": user.email,
+        "email_verified": user.email_verified,
     }
 
 
