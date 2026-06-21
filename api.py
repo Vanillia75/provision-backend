@@ -236,6 +236,7 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "telephone": profile.telephone,
         "entreprise": profile.entreprise,
         "depenses_mensuelles": profile.depenses_mensuelles,
+        "solde_bancaire": profile.solde_bancaire,
         "email": user.email,
         "email_verified": user.email_verified,
     }
@@ -303,6 +304,27 @@ def save_siret(
     profile.raison_sociale = req.raison_sociale
     if req.adresse:
         profile.adresse = req.adresse
+
+    db.commit()
+    return {"ok": True}
+
+
+class SoldeRequest(BaseModel):
+    solde: Optional[float] = None
+
+
+@app.post("/profile/solde")
+def save_solde(
+    req: SoldeRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        profile = Profile(user_id=user.id)
+        db.add(profile)
+
+    profile.solde_bancaire = req.solde
 
     db.commit()
     return {"ok": True}
@@ -1393,6 +1415,7 @@ def export_account_data(user: User = Depends(get_current_user), db: Session = De
             "nom": profile.nom,
             "telephone": profile.telephone,
             "entreprise": profile.entreprise,
+            "solde_bancaire": profile.solde_bancaire,
         } if profile else None,
         "revenus": [
             {
