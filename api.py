@@ -11,6 +11,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
@@ -24,6 +25,7 @@ from auth import (
     create_purpose_token, verify_purpose_token,
 )
 from emailing import send_reset_password_email, send_verification_email, send_invoice_email
+from invoice_pdf import generate_invoice_pdf
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from invoice_extractor import extract_invoice_data
 from insee_lookup import lookup_siret, SiretLookupError
@@ -708,6 +710,43 @@ def delete_invoice(
     db.delete(inv)
     db.commit()
     return {"ok": True}
+
+
+def _build_emitter_info(profile: Optional[Profile]) -> dict:
+    if not profile:
+        return {"nom": None, "adresse": None, "siret": None, "mention": None}
+    nom = profile.entreprise or f"{profile.prenom or ''} {profile.nom or ''}".strip() or None
+    mention = (
+        "Auto-entrepreneur, dispensé d'immatriculation au RCS et au RM"
+        if profile.statut == "auto_entrepreneur" else None
+    )
+    return {"nom": nom, "adresse": profile.adresse, "siret": profile.siret, "mention": mention}
+
+
+@app.get("/invoices/{invoice_id}/pdf")
+def get_invoice_pdf(
+    invoice_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    inv = db.query(ClientInvoice).filter(ClientInvoice.id == invoice_id, ClientInvoice.user_id == user.id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    emitter = _build_emitter_info(profile)
+
+    try:
+        pdf_bytes = generate_invoice_pdf(_invoice_to_dict(inv), emitter)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la generation du PDF : {e}")
+
+    filename = f"facture-{inv.numero}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 class SendInvoiceRequest(BaseModel):
