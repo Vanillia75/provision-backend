@@ -23,7 +23,7 @@ from auth import (
     hash_password, verify_password, create_token, get_current_user,
     create_purpose_token, verify_purpose_token,
 )
-from emailing import send_reset_password_email, send_verification_email
+from emailing import send_reset_password_email, send_verification_email, send_invoice_email
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from invoice_extractor import extract_invoice_data
 from insee_lookup import lookup_siret, SiretLookupError
@@ -700,6 +700,92 @@ def delete_invoice(
     db.delete(inv)
     db.commit()
     return {"ok": True}
+
+
+class SendInvoiceRequest(BaseModel):
+    emitter_nom: Optional[str] = None
+    emitter_adresse: Optional[str] = None
+    emitter_siret: Optional[str] = None
+    message: Optional[str] = None
+
+
+def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest") -> str:
+    lignes_html = ""
+    for l in (inv.lignes or []):
+        desc = l.get("description", "") if isinstance(l, dict) else l.description
+        qte = l.get("quantite", 0) if isinstance(l, dict) else l.quantite
+        pu = l.get("prix_unitaire", 0) if isinstance(l, dict) else l.prix_unitaire
+        total_ligne = (qte or 0) * (pu or 0)
+        lignes_html += f"""
+        <tr>
+          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7;">{desc}</td>
+          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:center;">{qte}</td>
+          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:right;">{pu:.2f} €</td>
+          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:right; font-weight:600;">{total_ligne:.2f} €</td>
+        </tr>"""
+
+    message_html = f'<p style="color:#3D4452;">{req.message}</p>' if req.message else ""
+    echeance_html = (
+        f'<p style="color:#6B7A8D; font-size:13px;">Échéance : {inv.date_echeance.strftime("%d/%m/%Y")}</p>'
+        if inv.date_echeance else ""
+    )
+
+    return f"""
+    <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto;">
+      <h2 style="color:#0A2540;">Facture {inv.numero}</h2>
+      {message_html}
+      <div style="background:#F7F9F5; border-radius:10px; padding:16px; margin:16px 0; font-size:13px; color:#5B6573;">
+        <strong>{req.emitter_nom or ""}</strong><br/>
+        {req.emitter_adresse or ""}<br/>
+        {f"SIRET : {req.emitter_siret}" if req.emitter_siret else ""}
+      </div>
+      <p style="color:#6B7A8D; font-size:13px;">
+        Émise le {inv.date_emission.strftime("%d/%m/%Y")} — destinée à {inv.client_nom}
+      </p>
+      {echeance_html}
+      <table style="width:100%; border-collapse:collapse; margin-top:16px; font-size:14px;">
+        <thead>
+          <tr style="color:#6B7A8D; font-size:12px; text-align:left;">
+            <th style="padding-bottom:8px;">Description</th>
+            <th style="padding-bottom:8px; text-align:center;">Qté</th>
+            <th style="padding-bottom:8px; text-align:right;">PU</th>
+            <th style="padding-bottom:8px; text-align:right;">Total</th>
+          </tr>
+        </thead>
+        <tbody>{lignes_html}</tbody>
+      </table>
+      <div style="text-align:right; margin-top:16px; font-size:16px; font-weight:700; color:#0A2540;">
+        Total TTC : {inv.montant:.2f} €
+      </div>
+      <p style="color:#8BA5C0; font-size:11px; margin-top:24px;">TVA non applicable — article 293 B du CGI.</p>
+      {f'<p style="color:#6B7A8D; font-size:12px;">{inv.notes}</p>' if inv.notes else ""}
+    </div>
+    """
+
+
+@app.post("/invoices/{invoice_id}/send")
+def send_invoice(
+    invoice_id: str,
+    req: SendInvoiceRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    inv = db.query(ClientInvoice).filter(ClientInvoice.id == invoice_id, ClientInvoice.user_id == user.id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    if not inv.client_email:
+        raise HTTPException(status_code=400, detail="Aucun email client renseigne sur cette facture")
+
+    html = _build_invoice_email_html(inv, req)
+    ok = send_invoice_email(inv.client_email, f"Facture {inv.numero}", html)
+    if not ok:
+        raise HTTPException(status_code=502, detail="Erreur lors de l'envoi de l'email")
+
+    if inv.statut == "brouillon":
+        inv.statut = "envoyee"
+    db.commit()
+    db.refresh(inv)
+    return _invoice_to_dict(inv)
 
 
 # ----------------------------------------------------------------

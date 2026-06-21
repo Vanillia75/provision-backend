@@ -68,3 +68,7 @@ def send_verification_email(to: str, token: str) -> bool:
     </div>
     """
     return send_email(to, "Confirmez votre email H€CTOR", html)
+
+
+def send_invoice_email(to: str, subject: str, html: str) -> bool:
+    return send_email(to, subject, html)
