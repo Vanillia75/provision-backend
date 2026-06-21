@@ -40,6 +40,8 @@ app = FastAPI(title="API Provision Cotisations")
 
 ALLOWED_ORIGINS = [
     "https://provision-frontend-nu.vercel.app",
+    "https://hector-app.fr",
+    "https://www.hector-app.fr",
     "http://localhost:5173",  # developpement local (Vite)
 ]
 
