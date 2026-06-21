@@ -237,6 +237,8 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "entreprise": profile.entreprise,
         "depenses_mensuelles": profile.depenses_mensuelles,
         "solde_bancaire": profile.solde_bancaire,
+        "reserve_securite": profile.reserve_securite,
+        "tmi": profile.tmi,
         "email": user.email,
         "email_verified": user.email_verified,
     }
@@ -325,6 +327,31 @@ def save_solde(
         db.add(profile)
 
     profile.solde_bancaire = req.solde
+
+    db.commit()
+    return {"ok": True}
+
+
+class SettingsRequest(BaseModel):
+    reserve_securite: Optional[float] = None
+    tmi: Optional[str] = None
+
+
+@app.post("/profile/settings")
+def save_settings(
+    req: SettingsRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        profile = Profile(user_id=user.id)
+        db.add(profile)
+
+    if req.reserve_securite is not None:
+        profile.reserve_securite = req.reserve_securite
+    if req.tmi is not None:
+        profile.tmi = req.tmi
 
     db.commit()
     return {"ok": True}
@@ -1416,6 +1443,8 @@ def export_account_data(user: User = Depends(get_current_user), db: Session = De
             "telephone": profile.telephone,
             "entreprise": profile.entreprise,
             "solde_bancaire": profile.solde_bancaire,
+            "reserve_securite": profile.reserve_securite,
+            "tmi": profile.tmi,
         } if profile else None,
         "revenus": [
             {

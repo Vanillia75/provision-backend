@@ -64,6 +64,8 @@ class Profile(Base):
     entreprise = Column(String, nullable=True)
     depenses_mensuelles = Column(Float, nullable=True)
     solde_bancaire = Column(Float, nullable=True)
+    reserve_securite = Column(Float, nullable=True)
+    tmi = Column(String, nullable=True)
 
     user = relationship("User", back_populates="profile")
 
