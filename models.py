@@ -35,6 +35,9 @@ class User(Base):
     contacts = relationship(
         "Contact", back_populates="user", cascade="all, delete-orphan"
     )
+    quotes = relationship(
+        "Quote", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Profile(Base):
@@ -139,3 +142,32 @@ class Contact(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="contacts")
+
+
+# Statuts possibles : "brouillon", "envoye", "accepte", "refuse", "expire"
+class Quote(Base):
+    __tablename__ = "quotes"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+
+    numero = Column(String, nullable=False)
+    client_nom = Column(String, nullable=False)
+    client_email = Column(String, nullable=True)
+    client_adresse = Column(String, nullable=True)
+
+    date_emission = Column(Date, nullable=False)
+    date_validite = Column(Date, nullable=True)
+
+    montant = Column(Float, nullable=False)
+    statut = Column(String, nullable=False, default="brouillon")
+
+    lignes = Column(JSON, nullable=True)
+    notes = Column(String, nullable=True)
+
+    # Renseigne l'id de la facture creee si ce devis a ete converti
+    converted_invoice_id = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="quotes")

@@ -18,7 +18,7 @@ from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
 from database import Base, engine, get_db
-from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact
+from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote
 from auth import (
     hash_password, verify_password, create_token, get_current_user,
     create_purpose_token, verify_purpose_token,
@@ -34,6 +34,7 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 STATUTS_FACTURE = ("brouillon", "envoyee", "payee", "impayee")
+STATUTS_DEVIS = ("brouillon", "envoye", "accepte", "refuse", "expire")
 
 CATEGORIES_FRAIS = (
     "logiciels", "abonnements", "taxi", "repas", "materiel",
@@ -786,6 +787,303 @@ def send_invoice(
     db.commit()
     db.refresh(inv)
     return _invoice_to_dict(inv)
+
+
+# ----------------------------------------------------------------
+# Devis
+# ----------------------------------------------------------------
+
+class QuoteCreateRequest(BaseModel):
+    client_nom: str
+    client_email: Optional[str] = None
+    client_adresse: Optional[str] = None
+    date_emission: date
+    date_validite: Optional[date] = None
+    lignes: list[FactureLigne] = []
+    notes: Optional[str] = None
+    statut: str = "brouillon"
+
+
+class QuoteUpdateRequest(BaseModel):
+    client_nom: Optional[str] = None
+    client_email: Optional[str] = None
+    client_adresse: Optional[str] = None
+    date_emission: Optional[date] = None
+    date_validite: Optional[date] = None
+    lignes: Optional[list[FactureLigne]] = None
+    notes: Optional[str] = None
+
+
+class QuoteStatusRequest(BaseModel):
+    statut: str
+
+
+def _next_numero_devis(db: Session, user_id: str) -> str:
+    year = date.today().year
+    count = (
+        db.query(Quote)
+        .filter(Quote.user_id == user_id, Quote.numero.like(f"D-{year}-%"))
+        .count()
+    )
+    return f"D-{year}-{count + 1:03d}"
+
+
+def _quote_to_dict(q: Quote) -> dict:
+    return {
+        "id": q.id,
+        "numero": q.numero,
+        "client_nom": q.client_nom,
+        "client_email": q.client_email,
+        "client_adresse": q.client_adresse,
+        "date_emission": q.date_emission,
+        "date_validite": q.date_validite,
+        "montant": q.montant,
+        "statut": q.statut,
+        "lignes": q.lignes,
+        "notes": q.notes,
+        "converted_invoice_id": q.converted_invoice_id,
+    }
+
+
+@app.get("/quotes")
+def list_quotes(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    quotes = (
+        db.query(Quote)
+        .filter(Quote.user_id == user.id)
+        .order_by(Quote.date_emission.desc())
+        .all()
+    )
+    return [_quote_to_dict(q) for q in quotes]
+
+
+@app.get("/quotes/summary")
+def quotes_summary(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    quotes = db.query(Quote).filter(Quote.user_id == user.id).all()
+    total = sum(q.montant for q in quotes)
+    accepte_total = sum(q.montant for q in quotes if q.statut == "accepte")
+    en_attente_total = sum(q.montant for q in quotes if q.statut in ("brouillon", "envoye"))
+    envoyes = sum(1 for q in quotes if q.statut in ("envoye", "accepte", "refuse", "expire"))
+    acceptes = sum(1 for q in quotes if q.statut == "accepte")
+    taux_conversion = round((acceptes / envoyes) * 100) if envoyes > 0 else None
+    return {
+        "total": round(total, 2),
+        "accepte_total": round(accepte_total, 2),
+        "en_attente_total": round(en_attente_total, 2),
+        "taux_conversion": taux_conversion,
+    }
+
+
+@app.post("/quotes")
+def create_quote(
+    req: QuoteCreateRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if req.statut not in STATUTS_DEVIS:
+        raise HTTPException(status_code=400, detail="Statut de devis inconnu")
+
+    lignes_dicts = [l.dict() for l in req.lignes]
+    montant = _montant_lignes(lignes_dicts)
+
+    q = Quote(
+        user_id=user.id,
+        numero=_next_numero_devis(db, user.id),
+        client_nom=req.client_nom,
+        client_email=req.client_email,
+        client_adresse=req.client_adresse,
+        date_emission=req.date_emission,
+        date_validite=req.date_validite,
+        montant=montant,
+        statut=req.statut,
+        lignes=lignes_dicts,
+        notes=req.notes,
+    )
+    db.add(q)
+    db.commit()
+    db.refresh(q)
+    return _quote_to_dict(q)
+
+
+@app.put("/quotes/{quote_id}")
+def update_quote(
+    quote_id: str,
+    req: QuoteUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(Quote).filter(Quote.id == quote_id, Quote.user_id == user.id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Devis introuvable")
+
+    if req.client_nom is not None:
+        q.client_nom = req.client_nom
+    if req.client_email is not None:
+        q.client_email = req.client_email
+    if req.client_adresse is not None:
+        q.client_adresse = req.client_adresse
+    if req.date_emission is not None:
+        q.date_emission = req.date_emission
+    if req.date_validite is not None:
+        q.date_validite = req.date_validite
+    if req.notes is not None:
+        q.notes = req.notes
+    if req.lignes is not None:
+        lignes_dicts = [l.dict() for l in req.lignes]
+        q.lignes = lignes_dicts
+        q.montant = _montant_lignes(lignes_dicts)
+
+    db.commit()
+    db.refresh(q)
+    return _quote_to_dict(q)
+
+
+@app.patch("/quotes/{quote_id}/status")
+def update_quote_status(
+    quote_id: str,
+    req: QuoteStatusRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if req.statut not in STATUTS_DEVIS:
+        raise HTTPException(status_code=400, detail="Statut de devis inconnu")
+
+    q = db.query(Quote).filter(Quote.id == quote_id, Quote.user_id == user.id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Devis introuvable")
+
+    q.statut = req.statut
+    db.commit()
+    db.refresh(q)
+    return _quote_to_dict(q)
+
+
+@app.delete("/quotes/{quote_id}")
+def delete_quote(
+    quote_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(Quote).filter(Quote.id == quote_id, Quote.user_id == user.id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Devis introuvable")
+    db.delete(q)
+    db.commit()
+    return {"ok": True}
+
+
+def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest") -> str:
+    lignes_html = ""
+    for l in (q.lignes or []):
+        desc = l.get("description", "") if isinstance(l, dict) else l.description
+        qte = l.get("quantite", 0) if isinstance(l, dict) else l.quantite
+        pu = l.get("prix_unitaire", 0) if isinstance(l, dict) else l.prix_unitaire
+        total_ligne = (qte or 0) * (pu or 0)
+        lignes_html += f"""
+        <tr>
+          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7;">{desc}</td>
+          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:center;">{qte}</td>
+          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:right;">{pu:.2f} €</td>
+          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:right; font-weight:600;">{total_ligne:.2f} €</td>
+        </tr>"""
+
+    message_html = f'<p style="color:#3D4452;">{req.message}</p>' if req.message else ""
+    validite_html = (
+        f'<p style="color:#6B7A8D; font-size:13px;">Devis valable jusqu\'au {q.date_validite.strftime("%d/%m/%Y")}</p>'
+        if q.date_validite else ""
+    )
+
+    return f"""
+    <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto;">
+      <h2 style="color:#0A2540;">Devis {q.numero}</h2>
+      {message_html}
+      <div style="background:#F7F9F5; border-radius:10px; padding:16px; margin:16px 0; font-size:13px; color:#5B6573;">
+        <strong>{req.emitter_nom or ""}</strong><br/>
+        {req.emitter_adresse or ""}<br/>
+        {f"SIRET : {req.emitter_siret}" if req.emitter_siret else ""}
+      </div>
+      <p style="color:#6B7A8D; font-size:13px;">
+        Émis le {q.date_emission.strftime("%d/%m/%Y")} — destiné à {q.client_nom}
+      </p>
+      {validite_html}
+      <table style="width:100%; border-collapse:collapse; margin-top:16px; font-size:14px;">
+        <thead>
+          <tr style="color:#6B7A8D; font-size:12px; text-align:left;">
+            <th style="padding-bottom:8px;">Description</th>
+            <th style="padding-bottom:8px; text-align:center;">Qté</th>
+            <th style="padding-bottom:8px; text-align:right;">PU</th>
+            <th style="padding-bottom:8px; text-align:right;">Total</th>
+          </tr>
+        </thead>
+        <tbody>{lignes_html}</tbody>
+      </table>
+      <div style="text-align:right; margin-top:16px; font-size:16px; font-weight:700; color:#0A2540;">
+        Total TTC : {q.montant:.2f} €
+      </div>
+      <p style="color:#8BA5C0; font-size:11px; margin-top:24px;">TVA non applicable — article 293 B du CGI.</p>
+      {f'<p style="color:#6B7A8D; font-size:12px;">{q.notes}</p>' if q.notes else ""}
+    </div>
+    """
+
+
+@app.post("/quotes/{quote_id}/send")
+def send_quote(
+    quote_id: str,
+    req: SendInvoiceRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(Quote).filter(Quote.id == quote_id, Quote.user_id == user.id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Devis introuvable")
+    if not q.client_email:
+        raise HTTPException(status_code=400, detail="Aucun email client renseigne sur ce devis")
+
+    html = _build_quote_email_html(q, req)
+    ok = send_invoice_email(q.client_email, f"Devis {q.numero}", html)
+    if not ok:
+        raise HTTPException(status_code=502, detail="Erreur lors de l'envoi de l'email")
+
+    if q.statut == "brouillon":
+        q.statut = "envoye"
+    db.commit()
+    db.refresh(q)
+    return _quote_to_dict(q)
+
+
+@app.post("/quotes/{quote_id}/convert")
+def convert_quote_to_invoice(
+    quote_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(Quote).filter(Quote.id == quote_id, Quote.user_id == user.id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Devis introuvable")
+    if q.converted_invoice_id:
+        raise HTTPException(status_code=409, detail="Ce devis a deja ete converti en facture")
+
+    inv = ClientInvoice(
+        user_id=user.id,
+        numero=_next_numero(db, user.id),
+        client_nom=q.client_nom,
+        client_email=q.client_email,
+        client_adresse=q.client_adresse,
+        date_emission=date.today(),
+        date_echeance=None,
+        montant=q.montant,
+        statut="brouillon",
+        lignes=q.lignes,
+        notes=q.notes,
+    )
+    db.add(inv)
+    q.statut = "accepte"
+    db.commit()
+    db.refresh(inv)
+    q.converted_invoice_id = inv.id
+    db.commit()
+    db.refresh(q)
+
+    return {"quote": _quote_to_dict(q), "invoice": _invoice_to_dict(inv)}
 
 
 # ----------------------------------------------------------------
