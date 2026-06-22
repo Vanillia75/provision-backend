@@ -1591,18 +1591,39 @@ def assistant_chat(
                 f"({result.pourcentage_plafond}%). Taux de cotisations global {result.taux_global_pct}%. "
                 f"A provisionner pour la periode en cours ({result.periode_courante.label}) : {result.montant_a_provisionner}EUR, "
                 f"echeance dans {result.periode_courante.jours_restants} jours ({result.periode_courante.date_limite_declaration}). "
-                f"Utilise ces vrais chiffres pour repondre precisement a ses questions (ex: combien il peut se verser, "
-                f"depenser, ou quand il risque de depasser le plafond)."
+            )
+            if profile.solde_bancaire is not None:
+                context += f"Solde bancaire actuel declare : {profile.solde_bancaire}EUR. "
+            if profile.reserve_securite is not None:
+                context += f"Objectif de reserve de securite qu'il s'est fixe : {profile.reserve_securite}EUR. "
+            context += (
+                "Utilise ces vrais chiffres pour repondre precisement (ex: combien il peut se verser "
+                "ou depenser sans risque, combien mettre de cote maintenant, quand il risque de depasser "
+                "le plafond). Ne reclame jamais une information qui est deja ci-dessus."
             )
         except Exception:
             context = f"L'utilisateur est {profile.statut} en activite '{profile.activite}'."
 
     system_prompt = (
-        "Tu es H.CTOR, un assistant fiscal expert pour les auto-entrepreneurs francais. "
-        "Tu reponds de facon claire, concise et bienveillante, en francais. "
+        "Tu es H€CTOR, le copilote financier d'un travailleur independant francais. "
+        "Ton role n'est pas seulement de repondre a des questions fiscales : tu l'aides "
+        "concretement a garder le controle de son argent et a dormir tranquille. "
+        "Tu reponds en francais, de facon claire, chaleureuse et directe, en le tutoyant. "
         f"{context} "
-        "Tu donnes des conseils pratiques sur l'URSSAF, les cotisations, la TVA, l'ACRE, "
-        "la declaration de revenus. Tu rappelles de consulter un comptable pour les cas complexes. "
+        "Tu donnes des conseils pratiques et ACTIONNABLES sur : combien il peut depenser ou se "
+        "verser sans risque, comment mettre de l'argent de cote pour l'URSSAF et les impots avant "
+        "de les depenser par erreur, comment se constituer une reserve de securite adaptee a la "
+        "regularite de ses revenus, et comment lisser des rentrees d'argent irregulieres. "
+        "Tu maitrises aussi l'URSSAF, les cotisations, la TVA, l'ACRE et la declaration de revenus. "
+        "Si l'utilisateur precise son metier (graphiste, coach, artisan, createur de contenu, "
+        "consultant...), adapte tes conseils a la realite de ce metier : saisonnalite, gros "
+        "montants espaces ou petits revenus reguliers, frais typiques du secteur. "
+        "Quand c'est utile, propose-lui une regle simple a suivre plutot qu'une longue explication "
+        "(ex: 'mets X% de cote a chaque encaissement'). "
+        "Tu rappelles de consulter un comptable pour les cas complexes, sans en faire trop. "
+        "IMPORTANT : ecris en texte simple, SANS aucun formatage Markdown. N'utilise jamais "
+        "d'asterisques (*, **), de dièses (#), ni de tirets en debut de ligne pour des listes. "
+        "Si tu dois enumerer, ecris en phrases ou separe par des sauts de ligne simples. "
         "Reponses courtes (5-8 lignes maximum sauf si l'utilisateur demande plus de detail)."
     )
 
@@ -1625,6 +1646,13 @@ def assistant_chat(
         resp.raise_for_status()
         data = resp.json()
         reply = "".join(block.get("text", "") for block in data.get("content", []))
+        # Filet de securite : meme si le modele glisse du Markdown, on nettoie l'affichage.
+        if reply:
+            import re as _re
+            reply = _re.sub(r"\*{1,3}", "", reply)          # retire * ** ***
+            reply = _re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", reply)  # retire les titres #
+            reply = _re.sub(r"(?m)^\s*[-•]\s+", "", reply)   # retire les puces - ou •
+            reply = reply.strip()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Erreur assistant IA : {e}")
 
