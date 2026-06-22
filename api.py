@@ -1596,6 +1596,24 @@ def assistant_chat(
                 context += f"Solde bancaire actuel declare : {profile.solde_bancaire}EUR. "
             if profile.reserve_securite is not None:
                 context += f"Objectif de reserve de securite qu'il s'est fixe : {profile.reserve_securite}EUR. "
+            # Etat du profil emetteur (pour les factures/devis : mentions legales obligatoires)
+            siret_ok = bool(profile.siret)
+            adresse_ok = bool(profile.adresse)
+            if siret_ok and adresse_ok:
+                context += "Son profil emetteur est complet (SIRET et adresse renseignes). "
+            else:
+                manques = []
+                if not siret_ok:
+                    manques.append("le SIRET")
+                if not adresse_ok:
+                    manques.append("l'adresse de l'entreprise")
+                context += (
+                    f"ATTENTION : il manque {' et '.join(manques)} dans son profil. Ces informations "
+                    "sont OBLIGATOIRES sur une facture ou un devis legalement valable. Si la personne "
+                    "demande de creer une facture ou un devis, previens-la gentiment une fois que "
+                    f"{' et '.join(manques)} doit etre renseigne dans son profil pour que le document "
+                    "soit conforme — mais propose quand meme de preparer le document. "
+                )
             context += (
                 "Utilise ces vrais chiffres pour repondre precisement (ex: combien il peut se verser "
                 "ou depenser sans risque, combien mettre de cote maintenant, quand il risque de depasser "
@@ -1626,17 +1644,21 @@ def assistant_chat(
         "un chien qui parle — c'est ce que ton meilleur compagnon te repondrait s'il comprenait la "
         "fiscalite et tes comptes. "
         "Tu reponds en francais, clair et direct, en tutoyant, et tu vas a l'essentiel sans blabla. "
-        "CAPACITE SPECIALE — creer un devis : si la personne te demande de preparer/faire un devis "
-        "(ex: 'fais-moi un devis pour Dupont, 800 EUR de design'), tu reponds normalement en une phrase "
-        "chaleureuse, PUIS tu ajoutes a la toute fin de ton message un bloc technique sur une ligne "
-        "separee, au format EXACT suivant (rien apres) : "
-        "[[DEVIS:{\"client_nom\":\"...\",\"lignes\":[{\"description\":\"...\",\"quantite\":1,\"prix_unitaire\":800}],\"notes\":\"\"}]] "
-        "Regles du bloc : client_nom obligatoire ; lignes est une liste (1 ou plusieurs) avec description, "
-        "quantite (defaut 1) et prix_unitaire en euros ; n'invente jamais un montant ou un client absent "
-        "de la demande — s'il manque le client ou le montant, ne mets PAS de bloc et demande gentiment "
-        "l'info manquante. Si on te demande si un prix est coherent, donne ton avis honnete AVANT de "
-        "proposer le devis. Ne mets ce bloc QUE pour une vraie demande de creation de devis, jamais autrement. "
-        "Ne mentionne jamais le bloc ni son format a l'utilisateur (il est transforme en bouton dans l'interface). "
+        "CAPACITE SPECIALE — preparer un devis OU une facture : si la personne te demande de "
+        "preparer/faire un devis ou une facture (ex: 'fais-moi un devis pour Dupont, 800 EUR de design', "
+        "ou 'une facture pour Martin de 354 EUR de consulting'), tu reponds en une phrase chaleureuse, "
+        "PUIS tu ajoutes a la toute fin de ton message un bloc technique sur une ligne separee, au "
+        "format EXACT suivant (rien apres) : "
+        "[[DOC:{\"type\":\"devis\",\"client_nom\":\"...\",\"client_adresse\":\"\",\"client_email\":\"\",\"lignes\":[{\"description\":\"...\",\"quantite\":1,\"prix_unitaire\":800}],\"notes\":\"\"}]] "
+        "Regles du bloc : 'type' vaut 'devis' ou 'facture' selon la demande ; client_nom obligatoire ; "
+        "lignes est une liste avec description, quantite (defaut 1) et prix_unitaire en euros ; "
+        "client_adresse et client_email sont optionnels (laisse vide si non fournis). "
+        "N'invente JAMAIS un montant, un client ou une prestation absents de la demande. S'il manque "
+        "le client, le montant OU la description de la prestation, ne mets PAS de bloc et demande "
+        "gentiment l'info manquante (une facture sans description de prestation n'est pas valable). "
+        "Si on te demande si un prix est coherent, donne ton avis honnete AVANT de proposer le document. "
+        "Ne mets ce bloc QUE pour une vraie demande de creation de devis ou facture. "
+        "Ne mentionne jamais le bloc ni son format a l'utilisateur (il devient un bouton dans l'interface). "
         f"{context} "
         "TRES IMPORTANT — tu vis A L'INTERIEUR de l'application H€CTOR, et tu connais ce "
         "qu'elle sait faire. Quand l'utilisateur demande une action que H€CTOR propose, tu "
@@ -1689,15 +1711,15 @@ def assistant_chat(
         # Filet de securite : meme si le modele glisse du Markdown, on nettoie l'affichage.
         if reply:
             import re as _re
-            # On protege d'abord un eventuel bloc [[DEVIS:...]] pour que le nettoyage ne l'abime pas.
-            devis_blocks = _re.findall(r"\[\[DEVIS:.*?\]\]", reply, _re.DOTALL)
-            reply = _re.sub(r"\[\[DEVIS:.*?\]\]", "\x00DEVIS\x00", reply, flags=_re.DOTALL)
+            # On protege d'abord un eventuel bloc [[DOC:...]] pour que le nettoyage ne l'abime pas.
+            doc_blocks = _re.findall(r"\[\[DOC:.*?\]\]", reply, _re.DOTALL)
+            reply = _re.sub(r"\[\[DOC:.*?\]\]", "\x00DOC\x00", reply, flags=_re.DOTALL)
             reply = _re.sub(r"\*{1,3}", "", reply)          # retire * ** ***
             reply = _re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", reply)  # retire les titres #
             reply = _re.sub(r"(?m)^\s*[-•]\s+", "", reply)   # retire les puces - ou •
-            # On remet le bloc devis intact.
-            for blk in devis_blocks:
-                reply = reply.replace("\x00DEVIS\x00", blk, 1)
+            # On remet le bloc intact.
+            for blk in doc_blocks:
+                reply = reply.replace("\x00DOC\x00", blk, 1)
             reply = reply.strip()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Erreur assistant IA : {e}")
