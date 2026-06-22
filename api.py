@@ -1626,6 +1626,17 @@ def assistant_chat(
         "un chien qui parle — c'est ce que ton meilleur compagnon te repondrait s'il comprenait la "
         "fiscalite et tes comptes. "
         "Tu reponds en francais, clair et direct, en tutoyant, et tu vas a l'essentiel sans blabla. "
+        "CAPACITE SPECIALE — creer un devis : si la personne te demande de preparer/faire un devis "
+        "(ex: 'fais-moi un devis pour Dupont, 800 EUR de design'), tu reponds normalement en une phrase "
+        "chaleureuse, PUIS tu ajoutes a la toute fin de ton message un bloc technique sur une ligne "
+        "separee, au format EXACT suivant (rien apres) : "
+        "[[DEVIS:{\"client_nom\":\"...\",\"lignes\":[{\"description\":\"...\",\"quantite\":1,\"prix_unitaire\":800}],\"notes\":\"\"}]] "
+        "Regles du bloc : client_nom obligatoire ; lignes est une liste (1 ou plusieurs) avec description, "
+        "quantite (defaut 1) et prix_unitaire en euros ; n'invente jamais un montant ou un client absent "
+        "de la demande — s'il manque le client ou le montant, ne mets PAS de bloc et demande gentiment "
+        "l'info manquante. Si on te demande si un prix est coherent, donne ton avis honnete AVANT de "
+        "proposer le devis. Ne mets ce bloc QUE pour une vraie demande de creation de devis, jamais autrement. "
+        "Ne mentionne jamais le bloc ni son format a l'utilisateur (il est transforme en bouton dans l'interface). "
         f"{context} "
         "TRES IMPORTANT — tu vis A L'INTERIEUR de l'application H€CTOR, et tu connais ce "
         "qu'elle sait faire. Quand l'utilisateur demande une action que H€CTOR propose, tu "
@@ -1678,9 +1689,15 @@ def assistant_chat(
         # Filet de securite : meme si le modele glisse du Markdown, on nettoie l'affichage.
         if reply:
             import re as _re
+            # On protege d'abord un eventuel bloc [[DEVIS:...]] pour que le nettoyage ne l'abime pas.
+            devis_blocks = _re.findall(r"\[\[DEVIS:.*?\]\]", reply, _re.DOTALL)
+            reply = _re.sub(r"\[\[DEVIS:.*?\]\]", "\x00DEVIS\x00", reply, flags=_re.DOTALL)
             reply = _re.sub(r"\*{1,3}", "", reply)          # retire * ** ***
             reply = _re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", reply)  # retire les titres #
             reply = _re.sub(r"(?m)^\s*[-•]\s+", "", reply)   # retire les puces - ou •
+            # On remet le bloc devis intact.
+            for blk in devis_blocks:
+                reply = reply.replace("\x00DEVIS\x00", blk, 1)
             reply = reply.strip()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Erreur assistant IA : {e}")
