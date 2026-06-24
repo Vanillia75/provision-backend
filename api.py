@@ -1889,6 +1889,21 @@ def save_statut(
     return {"ok": True, "statut": profile.statut}
 
 
+@app.post("/profile/complete-onboarding")
+def complete_onboarding(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Marque l'onboarding comme terminé, sans toucher au reste du profil.
+    Utilisé par le flux intermittent qui n'a pas le formulaire AE classique."""
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+    profile.onboarding_complete = True
+    db.commit()
+    return {"ok": True}
+
+
 @app.get("/intermittent/cockpit")
 def get_intermittent_cockpit(
     user: User = Depends(get_current_user), db: Session = Depends(get_db)
