@@ -1863,6 +1863,32 @@ def save_date_anniversaire(
     return {"ok": True, "date_anniversaire": profile.date_anniversaire}
 
 
+# Statuts de compte gérés par H€CTOR (verticales du moteur de décision).
+STATUTS_COMPTE = ("auto_entrepreneur", "intermittent")
+
+
+class StatutRequest(BaseModel):
+    statut: str
+
+
+@app.post("/profile/statut")
+def save_statut(
+    req: StatutRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Change UNIQUEMENT le statut du profil. Ne touche à aucun autre champ
+    (activité, périodicité, etc.) — réversible et sans effet de bord."""
+    if req.statut not in STATUTS_COMPTE:
+        raise HTTPException(status_code=400, detail="Statut inconnu")
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+    profile.statut = req.statut
+    db.commit()
+    return {"ok": True, "statut": profile.statut}
+
+
 @app.get("/intermittent/cockpit")
 def get_intermittent_cockpit(
     user: User = Depends(get_current_user), db: Session = Depends(get_db)
