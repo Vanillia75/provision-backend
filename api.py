@@ -1502,6 +1502,15 @@ def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(g
             f"On vous previent des qu'il est pret.",
         }
 
+    # L'intermittent a son propre cockpit (compteur 507h), pas l'estimation fiscale AE.
+    # On renvoie proprement plutot que de laisser tax_engine planter sur un statut inconnu.
+    if profile.statut != "auto_entrepreneur":
+        return {
+            "statut": profile.statut,
+            "disponible": False,
+            "message": "Ce statut utilise un autre tableau de bord.",
+        }
+
     entries = db.query(IncomeEntry).filter(IncomeEntry.user_id == user.id).all()
     incomes = [(e.date, e.amount) for e in entries]
 
@@ -1512,15 +1521,19 @@ def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(g
     )
     incomes += [(inv.date_paiement or inv.date_emission, inv.montant) for inv in paid_invoices]
 
-    result = estimate(
-        statut=profile.statut,
-        activite=profile.activite,
-        periodicite=profile.periodicite,
-        acre=profile.acre,
-        versement_liberatoire=profile.versement_liberatoire,
-        incomes=incomes,
-        today=date.today(),
-    )
+    try:
+        result = estimate(
+            statut=profile.statut,
+            activite=profile.activite,
+            periodicite=profile.periodicite,
+            acre=profile.acre,
+            versement_liberatoire=profile.versement_liberatoire,
+            incomes=incomes,
+            today=date.today(),
+        )
+    except Exception as e:
+        # Filet : on ne laisse jamais une erreur de calcul casser le chargement du dashboard.
+        raise HTTPException(status_code=422, detail=f"Estimation indisponible : {e}")
 
     return {
         "statut": result.statut,
