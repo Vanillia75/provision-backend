@@ -35,6 +35,62 @@ Base.metadata.create_all(bind=engine)
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
+# ──────────────────────────────────────────────────────────────────────────
+#  PLAFOND BUDGET IA — protection anti-emballement du cout API Anthropic
+#  Seul l'endpoint /assistant/chat appelle l'API Anthropic. Si jamais le
+#  trafic explose (bug, boucle cote client, abus), ce garde-fou coupe les
+#  appels au-dela d'un budget quotidien et fait repondre Hector gentiment.
+#
+#  Compteur 100% EN MEMOIRE : un simple dict { "YYYY-MM-DD": cout_du_jour }.
+#  Zero migration DB, zero colonne. Le compteur se "remet a zero" tout seul
+#  chaque jour (la cle de date change) et a chaque redemarrage du service.
+#  C'est volontaire : on protege contre un emballement, pas contre un abus
+#  reparti sur des semaines. Pour un plafond strictement persistant, il
+#  faudrait une colonne DB — non necessaire ici.
+#
+#  Tarifs Claude Sonnet (USD par token) — a reverifier si le modele change.
+#  Source : tarification API Anthropic. On convertit en EUR avec une marge.
+# ──────────────────────────────────────────────────────────────────────────
+IA_BUDGET_QUOTIDIEN_EUR = 5.0  # plafond dur : au-dela, Hector ne rappelle plus l'API du jour
+
+# Tarif Sonnet : 3 USD / million tokens en entree, 15 USD / million en sortie.
+_IA_PRIX_INPUT_USD_PAR_TOKEN = 3.0 / 1_000_000
+_IA_PRIX_OUTPUT_USD_PAR_TOKEN = 15.0 / 1_000_000
+_IA_TAUX_USD_VERS_EUR = 0.95  # conversion approx ; on majore plutot que sous-estimer
+
+# Compteur en memoire : { "2026-06-24": 1.83, ... } (cout cumule du jour en EUR)
+_ia_cout_par_jour: dict[str, float] = {}
+
+
+def _ia_cle_jour() -> str:
+    return date.today().isoformat()
+
+
+def _ia_cout_du_jour() -> float:
+    """Cout IA deja consomme aujourd'hui, en euros."""
+    return _ia_cout_par_jour.get(_ia_cle_jour(), 0.0)
+
+
+def _ia_plafond_atteint() -> bool:
+    return _ia_cout_du_jour() >= IA_BUDGET_QUOTIDIEN_EUR
+
+
+def _ia_enregistre_cout(input_tokens: int, output_tokens: int) -> None:
+    """Ajoute le cout reel d'un appel (calcule sur les tokens factures) au compteur du jour."""
+    cout_usd = (
+        input_tokens * _IA_PRIX_INPUT_USD_PAR_TOKEN
+        + output_tokens * _IA_PRIX_OUTPUT_USD_PAR_TOKEN
+    )
+    cout_eur = cout_usd * _IA_TAUX_USD_VERS_EUR
+    cle = _ia_cle_jour()
+    _ia_cout_par_jour[cle] = _ia_cout_par_jour.get(cle, 0.0) + cout_eur
+    # Petit nettoyage : on ne garde que le jour courant pour eviter que le dict
+    # grossisse indefiniment si le service tourne tres longtemps.
+    for k in list(_ia_cout_par_jour.keys()):
+        if k != cle:
+            del _ia_cout_par_jour[k]
+
+
 STATUTS_FACTURE = ("brouillon", "envoyee", "payee", "impayee")
 STATUTS_DEVIS = ("brouillon", "envoye", "accepte", "refuse", "expire")
 
@@ -1568,6 +1624,18 @@ def assistant_chat(
     if not ANTHROPIC_API_KEY:
         raise HTTPException(status_code=500, detail="Assistant IA non configure")
 
+    # Garde-fou budget : si le plafond IA du jour est atteint, on n'appelle pas
+    # l'API. Hector repond dans son ton, sans erreur technique pour l'utilisateur.
+    if _ia_plafond_atteint():
+        return {
+            "reply": (
+                "J'ai beaucoup reflechi avec tout le monde aujourd'hui, et j'ai besoin de "
+                "souffler un peu. Reviens me voir demain, je serai en pleine forme pour "
+                "regarder ca avec toi. En attendant, tout ce que l'app calcule (ton "
+                "disponible, tes echeances, tes factures) reste a jour dans le Cockpit. 🐾"
+            )
+        }
+
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     context = ""
     if profile and profile.onboarding_complete and profile.statut == "auto_entrepreneur":
@@ -1707,6 +1775,15 @@ def assistant_chat(
         )
         resp.raise_for_status()
         data = resp.json()
+
+        # Comptabilisation du cout reel de cet appel, a partir des tokens factures
+        # renvoyes par l'API. On incremente le compteur du jour (plafond IA).
+        usage = data.get("usage", {}) or {}
+        _ia_enregistre_cout(
+            int(usage.get("input_tokens", 0) or 0),
+            int(usage.get("output_tokens", 0) or 0),
+        )
+
         reply = "".join(block.get("text", "") for block in data.get("content", []))
         # Filet de securite : meme si le modele glisse du Markdown, on nettoie l'affichage.
         if reply:
