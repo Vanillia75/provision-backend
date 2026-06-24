@@ -1,6 +1,5 @@
 """
 Extrait montant et date depuis une facture (PDF avec texte, PDF scanne, JPG ou PNG).
-Reprend la logique validee et testee sur le projet Qontrol.
 """
 
 import os
@@ -32,14 +31,13 @@ MONTHS_FR = {
     "juillet": 7, "août": 8, "septembre": 9, "octobre": 10, "novembre": 11, "décembre": 12,
 }
 
-# Mots qui, s'ils apparaissent dans le texte capture, trahissent un fragment de phrase
-# (texte legal, CGV, suite de paragraphe) plutot qu'une vraie donnee (nom client, objet)
 STOPWORDS_DEBUT = {
     "le", "la", "les", "un", "une", "des", "est", "sont", "aussi", "sur", "dans",
     "pour", "avec", "où", "qui", "que", "dont", "tout", "tous", "toute", "toutes",
     "ce", "cet", "cette", "ces", "il", "elle", "nous", "vous", "ils", "elles",
     "et", "ou", "mais", "donc", "or", "ni", "car", "de", "du", "au", "aux",
 }
+
 MOTS_LEGAUX = {
     "tva", "applicable", "article", "conformément", "conditions", "paiement",
     "échéance", "pénalité", "indemnité", "recouvrement", "cgv", "rgpd", "siret",
@@ -47,10 +45,25 @@ MOTS_LEGAUX = {
     "civil", "commercial", "intracommunautaire", "exonération",
 }
 
+# Headers de tableau PDF qui ne sont pas des descriptions de prestation
+HEADERS_TABLEAU = {
+    "qté", "quantite", "quantité", "prix", "unitaire", "prix unitaire",
+    "taxe", "montant", "total", "ht", "ttc", "tva", "désignation", "designation",
+    "libellé", "libelle", "description", "référence", "reference", "article",
+    "remise", "discount", "quantity", "unit price", "amount", "subtotal",
+}
+
 
 def _est_credible(valeur: str) -> bool:
-    """Filtre de confiance : mieux vaut ne rien extraire qu'extraire un fragment de phrase."""
     if not valeur:
+        return False
+    # Rejeter si ressemble à un header de tableau
+    mots_valeur = set(w.lower().strip(".,;:()") for w in valeur.split())
+    if len(mots_valeur & HEADERS_TABLEAU) >= 2:
+        return False
+    # Rejeter si contient des mots de header de tableau connus
+    valeur_lower = valeur.lower()
+    if any(h in valeur_lower for h in ["qté", "prix unitaire", "taxe", "montant ht", "montant ttc"]):
         return False
     mot_initial = valeur.strip().split(" ")[0].lower().strip(".,;:")
     if mot_initial in STOPWORDS_DEBUT:
@@ -58,14 +71,20 @@ def _est_credible(valeur: str) -> bool:
     mots = set(w.lower().strip(".,;:()") for w in valeur.split())
     if mots & MOTS_LEGAUX:
         return False
-    # Une vraie donnee (nom client, objet court) ne se termine quasiment jamais par un point isole
-    # type fin de phrase ("...individualisable.") sauf abreviation courante
     if valeur.strip().endswith(".") and len(valeur.split()) > 4:
         return False
-    # Doit contenir au moins une majuscule en debut de mot (nom propre, debut d'objet structure)
     if not any(c.isupper() for c in valeur[:1]):
         return False
     return True
+
+
+def _nom_fichier_propre(filename: str) -> str:
+    """Nettoie un nom de fichier pour en faire une description lisible."""
+    nom = re.sub(r"\.(pdf|jpg|jpeg|png|bmp|tiff|webp)$", "", filename, flags=re.IGNORECASE)
+    nom = re.sub(r"[_\-]+", " ", nom).strip()
+    # Capitaliser
+    nom = nom.capitalize()
+    return nom if len(nom) > 2 else ""
 
 
 def extract_invoice_data(file_path: str) -> dict:
@@ -84,6 +103,11 @@ def extract_invoice_data(file_path: str) -> dict:
     description_brut = _find_first_match(text, DESCRIPTION_PATTERNS)
     client = client_brut if _est_credible(client_brut) else None
     description = description_brut if _est_credible(description_brut) else None
+
+    # Fallback description : nom du fichier nettoyé
+    if not description:
+        description = _nom_fichier_propre(os.path.basename(file_path)) or None
+
     numero = _find_first_match(text, NUMERO_PATTERNS)
     tva = _find_tva(text)
 
@@ -91,10 +115,10 @@ def extract_invoice_data(file_path: str) -> dict:
         "amount": amount,
         "date": invoice_date,
         "filename": os.path.basename(file_path),
-        "client": client,  # best-effort, peut etre None
-        "description": description,  # best-effort, peut etre None
-        "numero_facture": numero,  # best-effort, peut etre None
-        "tva_pct": tva,  # best-effort, peut etre None (ne pas supposer 0%)
+        "client": client,
+        "description": description,
+        "numero_facture": numero,
+        "tva_pct": tva,
     }
 
 
@@ -123,28 +147,24 @@ def _extract_text_via_ocr_pdf(pdf_path: str) -> str:
     return "\n".join(_ocr_image(p) for p in pages)
 
 
-# Libelles francais et anglais couramment utilises par les outils de facturation
-# (Stripe Invoicing, Indy, Henrri, Tiime, factures faites a la main...).
-# \n* (au lieu de \n?) tolere une ligne vide entre le libelle et la valeur.
 CLIENT_PATTERNS = [
     r"factur[ée]\s*(?:à|a)\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
     r"client\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
     r"destinataire\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
     r"adress[ée]\s*(?:à|a)\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
     r"adresse\s+de\s+facturation\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
-    r"à\s+l['’]attention\s+de\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
+    r"à\s+l['']attention\s+de\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
     r"bill(?:ed)?\s+to\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
     r"customer\s*:?\s*\n*\s*([A-Z][A-Za-zÀ-ÿ0-9&'\.\-\s]{2,60}?)(?:\n|$)",
 ]
 
 DESCRIPTION_PATTERNS = [
     r"objet\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
-    r"d[ée]signation\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
     r"prestation\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
-    r"description\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
     r"libell[ée]\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
     r"intitul[ée]\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
     r"service\s*:?\s*\n*\s*([A-Za-zÀ-ÿ0-9&'\.\-,\s]{4,80}?)(?:\n|$)",
+    # "désignation" et "description" retirés car trop souvent headers de tableau
 ]
 
 NUMERO_PATTERNS = [
@@ -185,7 +205,7 @@ def _find_amount(text: str) -> Optional[float]:
             try:
                 val = float(clean)
                 if val > 0:
-                    return val  # premiere occurrence du motif le plus fiable = le bon montant
+                    return val
             except ValueError:
                 continue
     return None
