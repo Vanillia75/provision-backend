@@ -38,6 +38,9 @@ class User(Base):
     quotes = relationship(
         "Quote", back_populates="user", cascade="all, delete-orphan"
     )
+    intermittent_activities = relationship(
+        "IntermittentActivity", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Profile(Base):
@@ -52,6 +55,9 @@ class Profile(Base):
     acre = Column(Boolean, default=False)
     versement_liberatoire = Column(Boolean, default=False)
     date_creation_activite = Column(Date, nullable=True)
+    # Date anniversaire des droits intermittent (échéance de renouvellement).
+    # Saisie par l'utilisateur. Nullable : seuls les profils intermittents l'utilisent.
+    date_anniversaire = Column(Date, nullable=True)
     onboarding_complete = Column(Boolean, default=False)
 
     siret = Column(String, nullable=True, index=True)
@@ -83,6 +89,37 @@ class IncomeEntry(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="incomes")
+
+
+# ============================================================================
+#  INTERMITTENT — socle de données du module intermittent du spectacle.
+#  Une ligne = une déclaration d'activité (un contrat, une période, un cachet).
+#  Le calcul (conversion en heures, fenêtre glissante 12 mois, total vers 507h)
+#  se fait dans le MOTEUR, jamais stocké en dur ici : si une règle change, on
+#  ne touche qu'au moteur, pas aux données. Suivi INDICATIF, ne remplace pas
+#  France Travail.
+#
+#  type_activite :
+#    - "heures"        → techniciens (annexe 8) : nombre = heures réelles
+#    - "cachet_isole"  → 1 cachet isolé   = 12h (converti par le moteur)
+#    - "cachet_groupe" → 1 cachet groupé  = 8h  (converti par le moteur)
+#  nombre : nb d'heures si type="heures", sinon nb de cachets.
+# ============================================================================
+class IntermittentActivity(Base):
+    __tablename__ = "intermittent_activities"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+
+    date = Column(Date, nullable=False)
+    employeur = Column(String, nullable=True)
+    type_activite = Column(String, nullable=False, default="heures")
+    nombre = Column(Float, nullable=False, default=0)
+
+    source = Column(String, default="manuel")  # "manuel" ou "ocr" (AEM, plus tard)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="intermittent_activities")
 
 
 # Statuts possibles : "brouillon", "envoyee", "payee", "impayee"
