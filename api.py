@@ -1511,6 +1511,15 @@ def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(g
             "message": "Ce statut utilise un autre tableau de bord.",
         }
 
+    # Garde-fou : sans activite renseignee, tax_engine ne peut pas calculer.
+    # On invite a completer le profil plutot que de planter le dashboard.
+    if not profile.activite:
+        return {
+            "statut": profile.statut,
+            "disponible": False,
+            "message": "Renseigne ton type d'activite dans ton profil pour activer ton estimation.",
+        }
+
     entries = db.query(IncomeEntry).filter(IncomeEntry.user_id == user.id).all()
     incomes = [(e.date, e.amount) for e in entries]
 
