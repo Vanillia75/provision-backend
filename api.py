@@ -28,6 +28,7 @@ from emailing import send_reset_password_email, send_verification_email, send_in
 from invoice_pdf import generate_invoice_pdf
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from invoice_extractor import extract_invoice_data
+from aem_extractor import extract_aem_data
 import intermittent_engine as ie
 from insee_lookup import lookup_siret, SiretLookupError
 
@@ -1899,6 +1900,9 @@ class IntermittentActiviteRequest(BaseModel):
     type_activite: str
     nombre: float
     employeur: Optional[str] = None
+    salaire_brut: Optional[float] = None
+    aem_recue: Optional[bool] = False
+    aem_filename: Optional[str] = None
 
 
 class DateAnniversaireRequest(BaseModel):
@@ -1955,6 +1959,9 @@ def list_intermittent_activites(
             "employeur": r.employeur,
             "type_activite": r.type_activite,
             "nombre": r.nombre,
+            "salaire_brut": r.salaire_brut,
+            "aem_recue": r.aem_recue,
+            "aem_filename": r.aem_filename,
             "source": r.source,
         }
         for r in rows
@@ -1977,11 +1984,39 @@ def add_intermittent_activite(
         employeur=(req.employeur or None),
         type_activite=req.type_activite,
         nombre=req.nombre,
-        source="manuel",
+        salaire_brut=req.salaire_brut,
+        aem_recue=bool(req.aem_recue),
+        aem_filename=(req.aem_filename or None),
+        source=("ocr" if req.aem_recue else "manuel"),
     )
     db.add(row)
     db.commit()
     return {"ok": True, "id": row.id}
+
+
+@app.post("/intermittent/aem/extract")
+async def extract_aem(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    """Lit une AEM (photo ou PDF) via Claude Vision et renvoie les champs détectés.
+    Ne crée rien : le front affiche le résultat pour vérification, puis appelle
+    /intermittent/activite avec les valeurs validées par l'utilisateur."""
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+    if not file.filename.lower().endswith(allowed_ext):
+        raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
+
+    tmp_dir = tempfile.mkdtemp()
+    file_path = os.path.join(tmp_dir, file.filename)
+    with open(file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    try:
+        data = extract_aem_data(file_path)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e) or "Impossible de lire cette AEM.")
+
+    return data
 
 
 @app.delete("/intermittent/activite/{activite_id}")

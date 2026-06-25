@@ -116,7 +116,16 @@ class IntermittentActivity(Base):
     type_activite = Column(String, nullable=False, default="heures")
     nombre = Column(Float, nullable=False, default=0)
 
-    source = Column(String, default="manuel")  # "manuel" ou "ocr" (AEM, plus tard)
+    # Salaire brut du contrat (renseigné à la saisie ou lu sur l'AEM). Sert au récap
+    # d'actualisation France Travail. Nullable : pas toujours connu.
+    salaire_brut = Column(Float, nullable=True)
+    # true si l'AEM (Attestation Employeur Mensuelle) correspondante a été reçue/scannée.
+    # Sert à la check-list d'actualisation ("il te manque une AEM").
+    aem_recue = Column(Boolean, nullable=False, default=False)
+    # Nom du fichier AEM scanné, le cas échéant.
+    aem_filename = Column(String, nullable=True)
+
+    source = Column(String, default="manuel")  # "manuel" ou "ocr" (AEM)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="intermittent_activities")
