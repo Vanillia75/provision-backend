@@ -1766,7 +1766,7 @@ def assistant_chat(
                 ie.Activite(date=r.date, type_activite=r.type_activite, nombre=r.nombre)
                 for r in rows
             ]
-            res = ie.calculer(activites, date_anniversaire=profile.date_anniversaire, aujourd_hui=date.today())
+            res = ie.calculer(activites, date_anniversaire=profile.date_anniversaire, aujourdhui=date.today())
             context = (
                 f"Donnees reelles de l'utilisateur (intermittent du spectacle) : "
                 f"il a cumule {res.total_heures} heures sur les 12 derniers mois glissants, "
