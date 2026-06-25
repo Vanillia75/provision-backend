@@ -41,6 +41,9 @@ class User(Base):
     intermittent_activities = relationship(
         "IntermittentActivity", back_populates="user", cascade="all, delete-orphan"
     )
+    ai_usage = relationship(
+        "AIUsage", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Profile(Base):
@@ -101,8 +104,10 @@ class IncomeEntry(Base):
 #
 #  type_activite :
 #    - "heures"        → techniciens (annexe 8) : nombre = heures réelles
-#    - "cachet_isole"  → 1 cachet isolé   = 12h (converti par le moteur)
-#    - "cachet_groupe" → 1 cachet groupé  = 8h  (converti par le moteur)
+#    - "cachet"        → 1 cachet (artiste, annexe 10) = 12h (converti par le moteur)
+#  NOTE : les anciennes valeurs "cachet_isole" / "cachet_groupe" peuvent exister
+#  en base (historique). Le moteur les compte toutes 12h désormais : la règle
+#  "cachet groupé = 8h" a été abandonnée (cf. regles_intermittent).
 #  nombre : nb d'heures si type="heures", sinon nb de cachets.
 # ============================================================================
 class IntermittentActivity(Base):
@@ -241,6 +246,8 @@ class AIUsage(Base):
     type_appel = Column(String, nullable=False)            # "chat" | "aem_scan"
     count = Column(Float, nullable=False, default=0)
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="ai_usage")
 
 
 # ============================================================================

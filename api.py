@@ -1575,6 +1575,11 @@ def delete_account(user: User = Depends(get_current_user), db: Session = Depends
     # RGPD : on purge d'abord tous les documents AEM de l'utilisateur sur R2.
     if r2_storage.R2_ENABLED:
         r2_storage.delete_all_for_user(str(user.id))
+    # Purge des tentatives de login (table sans FK : on cible par email).
+    db.query(LoginAttempt).filter(LoginAttempt.email == (user.email or "").strip().lower()).delete()
+    # AIUsage est supprimé en cascade via la relationship, mais on l'efface aussi
+    # explicitement par sécurité (au cas où la cascade ne serait pas appliquée).
+    db.query(AIUsage).filter(AIUsage.user_id == user.id).delete()
     db.delete(user)
     db.commit()
     return {"ok": True}
