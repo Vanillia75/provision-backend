@@ -78,6 +78,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Module de connexion bancaire (Powens, lecture seule DSP2).
+from powens import router as bank_router
+app.include_router(bank_router)
+
 
 # ----------------------------------------------------------------
 # Schemas

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date
-from sqlalchemy import Column, String, Float, Boolean, DateTime, Date, ForeignKey, JSON
+from sqlalchemy import Column, String, Float, Boolean, DateTime, Date, ForeignKey, JSON, Integer
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -75,6 +75,14 @@ class Profile(Base):
     solde_bancaire = Column(Float, nullable=True)
     reserve_securite = Column(Float, nullable=True)
     tmi = Column(String, nullable=True)
+
+    # Connexion bancaire Powens (agrégateur DSP2, lecture seule).
+    # powens_token : token permanent de l'utilisateur côté Powens (sensible).
+    # powens_user_id : id utilisateur Powens (debug / webhooks éventuels).
+    # powens_connection_id : id de la connexion bancaire active (None = pas de banque reliée).
+    powens_token = Column(String, nullable=True)
+    powens_user_id = Column(String, nullable=True)
+    powens_connection_id = Column(Integer, nullable=True)
 
     user = relationship("User", back_populates="profile")
 
