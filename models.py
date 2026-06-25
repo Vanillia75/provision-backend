@@ -241,3 +241,19 @@ class AIUsage(Base):
     type_appel = Column(String, nullable=False)            # "chat" | "aem_scan"
     count = Column(Float, nullable=False, default=0)
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================================
+#  LOGIN ATTEMPT — protection anti brute-force.
+#  Une ligne par email tenté. On compte les échecs consécutifs et l'heure du
+#  dernier échec : au-delà d'un seuil dans une fenêtre de temps, on bloque
+#  temporairement les tentatives pour cet email. Réinitialisé à la 1re réussite.
+# ============================================================================
+class LoginAttempt(Base):
+    __tablename__ = "login_attempts"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    email = Column(String, nullable=False, index=True)
+    echecs = Column(Float, nullable=False, default=0)        # nb d'échecs consécutifs
+    dernier_echec = Column(DateTime, nullable=True)          # horodatage du dernier échec
+    bloque_jusqua = Column(DateTime, nullable=True)          # blocage temporaire jusqu'à

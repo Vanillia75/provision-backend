@@ -4,10 +4,11 @@ Lancer avec : uvicorn api:app --reload
 """
 
 import os
+import html
 import shutil
 import tempfile
 import requests as http_requests
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
@@ -19,7 +20,7 @@ from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
 from database import Base, engine, get_db
-from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage
+from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt
 from auth import (
     hash_password, verify_password, create_token, get_current_user,
     create_purpose_token, verify_purpose_token,
@@ -47,6 +48,11 @@ AI_AEM_DAILY_LIMIT = int(os.environ.get("AI_AEM_DAILY_LIMIT", "15"))
 
 # Taille maximale d'un fichier AEM uploadé (anti-DoS disque/mémoire/coût Vision).
 AEM_MAX_BYTES = int(os.environ.get("AEM_MAX_BYTES", str(10 * 1024 * 1024)))  # 10 Mo
+
+# Protection anti brute-force du login : au-delà de N échecs consécutifs, on
+# bloque temporairement les tentatives pour cet email pendant un délai.
+LOGIN_MAX_ECHECS = int(os.environ.get("LOGIN_MAX_ECHECS", "8"))
+LOGIN_BLOCAGE_MINUTES = int(os.environ.get("LOGIN_BLOCAGE_MINUTES", "15"))
 
 STATUTS_FACTURE = ("brouillon", "envoyee", "payee", "impayee")
 STATUTS_DEVIS = ("brouillon", "envoye", "accepte", "refuse", "expire")
@@ -132,12 +138,50 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     return AuthResponse(token=create_token(user.id), email=user.email)
 
 
+def _login_verifier_blocage(db: Session, email: str):
+    """Si trop d'échecs récents pour cet email, refuse temporairement (429)."""
+    att = db.query(LoginAttempt).filter(LoginAttempt.email == email).first()
+    if att and att.bloque_jusqua and att.bloque_jusqua > datetime.utcnow():
+        reste = int((att.bloque_jusqua - datetime.utcnow()).total_seconds() // 60) + 1
+        raise HTTPException(
+            status_code=429,
+            detail=f"Trop de tentatives. Réessaie dans {reste} minute(s), ou réinitialise ton mot de passe.",
+        )
+    return att
+
+
+def _login_enregistrer_echec(db: Session, email: str, att):
+    """Incrémente le compteur d'échecs ; au-delà du seuil, pose un blocage temporaire."""
+    if not att:
+        att = LoginAttempt(email=email, echecs=0)
+        db.add(att)
+    att.echecs = int(att.echecs or 0) + 1
+    att.dernier_echec = datetime.utcnow()
+    if att.echecs >= LOGIN_MAX_ECHECS:
+        att.bloque_jusqua = datetime.utcnow() + timedelta(minutes=LOGIN_BLOCAGE_MINUTES)
+        att.echecs = 0  # on repart à zéro après avoir posé le blocage
+    db.commit()
+
+
+def _login_reset(db: Session, email: str):
+    """Réinitialise le compteur après une connexion réussie."""
+    att = db.query(LoginAttempt).filter(LoginAttempt.email == email).first()
+    if att:
+        att.echecs = 0
+        att.bloque_jusqua = None
+        db.commit()
+
+
 @app.post("/auth/login", response_model=AuthResponse)
 def login(req: LoginRequest, db: Session = Depends(get_db)):
+    email = (req.email or "").strip().lower()
+    att = _login_verifier_blocage(db, email)
     user = db.query(User).filter(User.email == req.email).first()
     if not user or not user.password_hash or not verify_password(req.password, user.password_hash):
+        _login_enregistrer_echec(db, email, att)
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
 
+    _login_reset(db, email)
     return AuthResponse(token=create_token(user.id), email=user.email)
 
 
@@ -850,6 +894,10 @@ class SendInvoiceRequest(BaseModel):
 
 
 def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest") -> str:
+    # Tout ce qui vient de l'utilisateur est échappé avant d'entrer dans le HTML
+    # de l'email envoyé au client (anti-injection / anti-phishing).
+    e = lambda v: html.escape(str(v)) if v is not None else ""
+
     lignes_html = ""
     for l in (inv.lignes or []):
         desc = l.get("description", "") if isinstance(l, dict) else l.description
@@ -858,13 +906,13 @@ def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest") -> 
         total_ligne = (qte or 0) * (pu or 0)
         lignes_html += f"""
         <tr>
-          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7;">{desc}</td>
-          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:center;">{qte}</td>
+          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7;">{e(desc)}</td>
+          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:center;">{e(qte)}</td>
           <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:right;">{pu:.2f} €</td>
           <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:right; font-weight:600;">{total_ligne:.2f} €</td>
         </tr>"""
 
-    message_html = f'<p style="color:#3D4452;">{req.message}</p>' if req.message else ""
+    message_html = f'<p style="color:#3D4452;">{e(req.message)}</p>' if req.message else ""
     echeance_html = (
         f'<p style="color:#6B7A8D; font-size:13px;">Échéance : {inv.date_echeance.strftime("%d/%m/%Y")}</p>'
         if inv.date_echeance else ""
@@ -872,15 +920,15 @@ def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest") -> 
 
     return f"""
     <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto;">
-      <h2 style="color:#0A2540;">Facture {inv.numero}</h2>
+      <h2 style="color:#0A2540;">Facture {e(inv.numero)}</h2>
       {message_html}
       <div style="background:#F7F9F5; border-radius:10px; padding:16px; margin:16px 0; font-size:13px; color:#5B6573;">
-        <strong>{req.emitter_nom or ""}</strong><br/>
-        {req.emitter_adresse or ""}<br/>
-        {f"SIRET : {req.emitter_siret}" if req.emitter_siret else ""}
+        <strong>{e(req.emitter_nom)}</strong><br/>
+        {e(req.emitter_adresse)}<br/>
+        {f"SIRET : {e(req.emitter_siret)}" if req.emitter_siret else ""}
       </div>
       <p style="color:#6B7A8D; font-size:13px;">
-        Émise le {inv.date_emission.strftime("%d/%m/%Y")} — destinée à {inv.client_nom}
+        Émise le {inv.date_emission.strftime("%d/%m/%Y")} — destinée à {e(inv.client_nom)}
       </p>
       {echeance_html}
       <table style="width:100%; border-collapse:collapse; margin-top:16px; font-size:14px;">
@@ -898,7 +946,7 @@ def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest") -> 
         Total TTC : {inv.montant:.2f} €
       </div>
       <p style="color:#8BA5C0; font-size:11px; margin-top:24px;">TVA non applicable — article 293 B du CGI.</p>
-      {f'<p style="color:#6B7A8D; font-size:12px;">{inv.notes}</p>' if inv.notes else ""}
+      {f'<p style="color:#6B7A8D; font-size:12px;">{e(inv.notes)}</p>' if inv.notes else ""}
     </div>
     """
 
@@ -1111,6 +1159,8 @@ def delete_quote(
 
 
 def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest") -> str:
+    e = lambda v: html.escape(str(v)) if v is not None else ""
+
     lignes_html = ""
     for l in (q.lignes or []):
         desc = l.get("description", "") if isinstance(l, dict) else l.description
@@ -1119,13 +1169,13 @@ def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest") -> str:
         total_ligne = (qte or 0) * (pu or 0)
         lignes_html += f"""
         <tr>
-          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7;">{desc}</td>
-          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:center;">{qte}</td>
+          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7;">{e(desc)}</td>
+          <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:center;">{e(qte)}</td>
           <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:right;">{pu:.2f} €</td>
           <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:right; font-weight:600;">{total_ligne:.2f} €</td>
         </tr>"""
 
-    message_html = f'<p style="color:#3D4452;">{req.message}</p>' if req.message else ""
+    message_html = f'<p style="color:#3D4452;">{e(req.message)}</p>' if req.message else ""
     validite_html = (
         f'<p style="color:#6B7A8D; font-size:13px;">Devis valable jusqu\'au {q.date_validite.strftime("%d/%m/%Y")}</p>'
         if q.date_validite else ""
@@ -1133,15 +1183,15 @@ def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest") -> str:
 
     return f"""
     <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto;">
-      <h2 style="color:#0A2540;">Devis {q.numero}</h2>
+      <h2 style="color:#0A2540;">Devis {e(q.numero)}</h2>
       {message_html}
       <div style="background:#F7F9F5; border-radius:10px; padding:16px; margin:16px 0; font-size:13px; color:#5B6573;">
-        <strong>{req.emitter_nom or ""}</strong><br/>
-        {req.emitter_adresse or ""}<br/>
-        {f"SIRET : {req.emitter_siret}" if req.emitter_siret else ""}
+        <strong>{e(req.emitter_nom)}</strong><br/>
+        {e(req.emitter_adresse)}<br/>
+        {f"SIRET : {e(req.emitter_siret)}" if req.emitter_siret else ""}
       </div>
       <p style="color:#6B7A8D; font-size:13px;">
-        Émis le {q.date_emission.strftime("%d/%m/%Y")} — destiné à {q.client_nom}
+        Émis le {q.date_emission.strftime("%d/%m/%Y")} — destiné à {e(q.client_nom)}
       </p>
       {validite_html}
       <table style="width:100%; border-collapse:collapse; margin-top:16px; font-size:14px;">
@@ -1159,7 +1209,7 @@ def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest") -> str:
         Total TTC : {q.montant:.2f} €
       </div>
       <p style="color:#8BA5C0; font-size:11px; margin-top:24px;">TVA non applicable — article 293 B du CGI.</p>
-      {f'<p style="color:#6B7A8D; font-size:12px;">{q.notes}</p>' if q.notes else ""}
+      {f'<p style="color:#6B7A8D; font-size:12px;">{e(q.notes)}</p>' if q.notes else ""}
     </div>
     """
 

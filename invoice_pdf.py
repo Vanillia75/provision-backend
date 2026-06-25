@@ -5,6 +5,7 @@ une mise en page propre en tableaux.
 """
 
 import io
+import html
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
@@ -40,18 +41,22 @@ def generate_invoice_pdf(invoice: dict, emitter: dict) -> bytes:
 
     story = []
 
-    story.append(Paragraph(f"Facture {invoice.get('numero', '')}", title_style))
+    # Échappement : ces champs viennent de l'utilisateur et reportlab interprète
+    # les balises (<b>, <br/>...). On échappe pour éviter toute injection de balise.
+    e = lambda v: html.escape(str(v)) if v is not None else ""
+
+    story.append(Paragraph(f"Facture {e(invoice.get('numero', ''))}", title_style))
     story.append(Spacer(1, 6 * mm))
 
-    emitter_html = f"<b>{emitter.get('nom') or '—'}</b><br/>{emitter.get('adresse') or ''}"
+    emitter_html = f"<b>{e(emitter.get('nom')) or '—'}</b><br/>{e(emitter.get('adresse'))}"
     if emitter.get("siret"):
-        emitter_html += f"<br/>SIRET : {emitter['siret']}"
+        emitter_html += f"<br/>SIRET : {e(emitter['siret'])}"
     if emitter.get("mention"):
-        emitter_html += f"<br/>{emitter['mention']}"
+        emitter_html += f"<br/>{e(emitter['mention'])}"
 
-    client_html = f"<b>{invoice.get('client_nom', '')}</b><br/>{invoice.get('client_adresse') or ''}"
+    client_html = f"<b>{e(invoice.get('client_nom', ''))}</b><br/>{e(invoice.get('client_adresse'))}"
     if invoice.get("client_email"):
-        client_html += f"<br/>{invoice['client_email']}"
+        client_html += f"<br/>{e(invoice['client_email'])}"
 
     info_table = Table(
         [
@@ -81,7 +86,7 @@ def generate_invoice_pdf(invoice: dict, emitter: dict) -> bytes:
         qte = (l.get("quantite", 0) if isinstance(l, dict) else getattr(l, "quantite", 0)) or 0
         pu = (l.get("prix_unitaire", 0) if isinstance(l, dict) else getattr(l, "prix_unitaire", 0)) or 0
         total = qte * pu
-        data.append([desc, f"{qte:g}", f"{pu:.2f} €", f"{total:.2f} €"])
+        data.append([Paragraph(e(desc), normal_style), f"{qte:g}", f"{pu:.2f} €", f"{total:.2f} €"])
 
     lignes_table = Table(data, colWidths=[85 * mm, 20 * mm, 35 * mm, 30 * mm])
     lignes_table.setStyle(TableStyle([
@@ -121,7 +126,7 @@ def generate_invoice_pdf(invoice: dict, emitter: dict) -> bytes:
 
     if invoice.get("notes"):
         story.append(Spacer(1, 8 * mm))
-        story.append(Paragraph(f"<b>Notes :</b> {invoice['notes']}", small_style))
+        story.append(Paragraph(f"<b>Notes :</b> {e(invoice['notes'])}", small_style))
 
     story.append(Spacer(1, 14 * mm))
     story.append(Paragraph("Document généré par H€CTOR — hector-app.fr", small_style))
