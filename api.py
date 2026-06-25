@@ -29,6 +29,7 @@ from invoice_pdf import generate_invoice_pdf
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from invoice_extractor import extract_invoice_data
 from aem_extractor import extract_aem_data
+import r2_storage
 import intermittent_engine as ie
 from insee_lookup import lookup_siret, SiretLookupError
 
@@ -1480,6 +1481,9 @@ def export_account_data(user: User = Depends(get_current_user), db: Session = De
 
 @app.delete("/account")
 def delete_account(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # RGPD : on purge d'abord tous les documents AEM de l'utilisateur sur R2.
+    if r2_storage.R2_ENABLED:
+        r2_storage.delete_all_for_user(str(user.id))
     db.delete(user)
     db.commit()
     return {"ok": True}
@@ -1903,6 +1907,7 @@ class IntermittentActiviteRequest(BaseModel):
     salaire_brut: Optional[float] = None
     aem_recue: Optional[bool] = False
     aem_filename: Optional[str] = None
+    aem_r2_key: Optional[str] = None
 
 
 class DateAnniversaireRequest(BaseModel):
@@ -1962,6 +1967,7 @@ def list_intermittent_activites(
             "salaire_brut": r.salaire_brut,
             "aem_recue": r.aem_recue,
             "aem_filename": r.aem_filename,
+            "a_document": bool(r.aem_r2_key),
             "source": r.source,
         }
         for r in rows
@@ -1987,6 +1993,7 @@ def add_intermittent_activite(
         salaire_brut=req.salaire_brut,
         aem_recue=bool(req.aem_recue),
         aem_filename=(req.aem_filename or None),
+        aem_r2_key=(req.aem_r2_key or None),
         source=("ocr" if req.aem_recue else "manuel"),
     )
     db.add(row)
@@ -2016,6 +2023,16 @@ async def extract_aem(
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e) or "Impossible de lire cette AEM.")
 
+    # Conserve le document original sur R2 (si configuré). On renvoie la clé au front,
+    # qui la transmettra à /intermittent/activite pour la lier à l'activité créée.
+    if r2_storage.R2_ENABLED:
+        try:
+            r2_key = r2_storage.upload_aem(file_path, str(user.id), file.filename)
+            data["aem_r2_key"] = r2_key
+        except Exception as e:
+            # L'échec du stockage ne doit pas bloquer le scan : les données restent exploitables.
+            data["aem_r2_key"] = None
+
     return data
 
 
@@ -2035,9 +2052,41 @@ def delete_intermittent_activite(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Activite introuvable")
+    # RGPD : on retire aussi le document original de R2, le cas échéant.
+    if row.aem_r2_key:
+        r2_storage.delete_file(row.aem_r2_key)
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+
+@app.get("/intermittent/activite/{activite_id}/document")
+def get_aem_document_url(
+    activite_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Renvoie une URL signée temporaire (1h) pour consulter le document AEM original.
+    Le fichier n'est jamais public : seul son propriétaire peut obtenir une URL, valable 1h."""
+    row = (
+        db.query(IntermittentActivity)
+        .filter(
+            IntermittentActivity.id == activite_id,
+            IntermittentActivity.user_id == user.id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Activite introuvable")
+    if not row.aem_r2_key:
+        raise HTTPException(status_code=404, detail="Aucun document conservé pour cette activité.")
+    if not r2_storage.R2_ENABLED:
+        raise HTTPException(status_code=503, detail="Stockage indisponible.")
+    try:
+        url = r2_storage.get_signed_url(row.aem_r2_key, expires_seconds=3600)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Impossible de générer le lien.")
+    return {"url": url}
 
 
 @app.post("/profile/date-anniversaire")
