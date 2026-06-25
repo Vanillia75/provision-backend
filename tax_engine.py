@@ -1,8 +1,18 @@
 """
 Moteur de calcul des cotisations / impots selon le statut.
 
-Taux verifies (sources officielles URSSAF, janvier 2026) pour l'auto-entrepreneuriat.
-SARL / SAS : structure prevue, calcul pas encore implemente (statuts "a venir").
+═══════════════════════════════════════════════════════════════════════════════
+ JUMEAU de fiscalite.js (frontend). Les valeurs de AUTO_ENTREPRENEUR_RATES
+ DOIVENT rester strictement alignées avec FISCALITE.regimes côté front : c'est
+ la même réglementation, déclinée dans les deux langages. Si tu modifies un taux
+ ici, modifie-le AUSSI dans fiscalite.js (et inversement).
+
+ Le test test_coherence_fiscalite.py vérifie automatiquement que les deux fichiers
+ concordent — lance-le après tout changement de taux.
+
+ Taux verifies (sources officielles URSSAF, janvier 2026) pour l'auto-entrepreneuriat.
+ SARL / SAS : structure prevue, calcul pas encore implemente (statuts "a venir").
+═══════════════════════════════════════════════════════════════════════════════
 """
 
 from datetime import date, timedelta
@@ -10,25 +20,35 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+# Version du référentiel fiscal (doit correspondre à FISCALITE.version côté front).
+FISCALITE_VERSION = "2026.1"
+FISCALITE_DATE_VALIDITE = "2026-01-01"
+
+# Taux par régime. MIROIR EXACT de FISCALITE.regimes (fiscalite.js).
+# - cotisations : cotisations sociales URSSAF (hors CFP)
+# - cfp         : contribution formation professionnelle (prélevée en plus)
+# - liberatoire : versement libératoire de l'IR (option)
+# - plafond     : plafond de CA annuel du régime micro
+# - seuil_tva   : seuil de franchise en base de TVA
 AUTO_ENTREPRENEUR_RATES = {
     "vente": {
-        "cotisations": 0.123,
-        "cfp": 0.001,
-        "liberatoire": 0.01,
+        "cotisations": 0.123,   # 12,3 %
+        "cfp": 0.001,           # 0,1 %
+        "liberatoire": 0.01,    # 1 %
         "plafond": 203100,
         "seuil_tva": 85000,
     },
     "services": {
-        "cotisations": 0.212,
-        "cfp": 0.002,
-        "liberatoire": 0.017,
+        "cotisations": 0.212,   # 21,2 %
+        "cfp": 0.002,           # 0,2 %
+        "liberatoire": 0.017,   # 1,7 %
         "plafond": 83600,
         "seuil_tva": 37500,
     },
     "bnc": {
-        "cotisations": 0.256,
-        "cfp": 0.002,
-        "liberatoire": 0.022,
+        "cotisations": 0.256,   # 25,6 % (hausse 2026 : 24,6 % → 25,6 % au 01/01/2026)
+        "cfp": 0.002,           # 0,2 %
+        "liberatoire": 0.022,   # 2,2 %
         "plafond": 83600,
         "seuil_tva": 37500,
     },
