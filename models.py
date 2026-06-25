@@ -124,6 +124,9 @@ class IntermittentActivity(Base):
     aem_recue = Column(Boolean, nullable=False, default=False)
     # Nom du fichier AEM scanné, le cas échéant.
     aem_filename = Column(String, nullable=True)
+    # Clé du fichier original stocké sur Cloudflare R2 (pour consultation / suppression RGPD).
+    # Nullable : null si le document n'a pas été conservé (ancien scan, ou R2 désactivé).
+    aem_r2_key = Column(String, nullable=True)
 
     source = Column(String, default="manuel")  # "manuel" ou "ocr" (AEM)
     created_at = Column(DateTime, default=datetime.utcnow)
