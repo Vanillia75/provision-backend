@@ -19,7 +19,7 @@ from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
 from database import Base, engine, get_db
-from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity
+from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage
 from auth import (
     hash_password, verify_password, create_token, get_current_user,
     create_purpose_token, verify_purpose_token,
@@ -37,6 +37,16 @@ Base.metadata.create_all(bind=engine)
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+# ── Plafonds anti-abus des appels IA (par utilisateur, par jour) ──
+# Bornent le coût Anthropic. Largement au-dessus d'un usage normal : ils ne
+# servent qu'à couper une boucle anormale ou un abus, pas à gêner un vrai user.
+# Surchageables par variable d'environnement sans toucher au code.
+AI_CHAT_DAILY_LIMIT = int(os.environ.get("AI_CHAT_DAILY_LIMIT", "40"))
+AI_AEM_DAILY_LIMIT = int(os.environ.get("AI_AEM_DAILY_LIMIT", "15"))
+
+# Taille maximale d'un fichier AEM uploadé (anti-DoS disque/mémoire/coût Vision).
+AEM_MAX_BYTES = int(os.environ.get("AEM_MAX_BYTES", str(10 * 1024 * 1024)))  # 10 Mo
 
 STATUTS_FACTURE = ("brouillon", "envoyee", "payee", "impayee")
 STATUTS_DEVIS = ("brouillon", "envoye", "accepte", "refuse", "expire")
@@ -595,6 +605,37 @@ class InvoiceUpdateRequest(BaseModel):
 
 class InvoiceStatusRequest(BaseModel):
     statut: str
+
+
+def _verifier_et_incrementer_quota_ia(db: Session, user_id: str, type_appel: str, limite: int):
+    """
+    Vérifie le quota IA du jour pour cet utilisateur et ce type d'appel.
+    - Si la limite est atteinte : lève une HTTPException 429 (message Hector chaleureux).
+    - Sinon : incrémente le compteur du jour et laisse passer.
+    Borne le coût Anthropic. La ligne (user, jour, type) est créée à la volée.
+    """
+    aujourdhui = date.today()
+    usage = (
+        db.query(AIUsage)
+        .filter(AIUsage.user_id == user_id, AIUsage.jour == aujourdhui, AIUsage.type_appel == type_appel)
+        .first()
+    )
+    deja = int(usage.count) if usage else 0
+    if deja >= limite:
+        if type_appel == "aem_scan":
+            msg = ("Tu as scanné beaucoup d'AEM aujourd'hui — je fais une petite pause pour rester raisonnable. "
+                   "Réessaie demain, ou saisis cette activité à la main en attendant.")
+        else:
+            msg = ("On a beaucoup échangé aujourd'hui ! Je me repose un peu et je reviens en pleine forme demain. "
+                   "En attendant, le reste de l'app fonctionne normalement.")
+        raise HTTPException(status_code=429, detail=msg)
+
+    if usage:
+        usage.count = deja + 1
+        usage.updated_at = datetime.utcnow()
+    else:
+        db.add(AIUsage(user_id=user_id, jour=aujourdhui, type_appel=type_appel, count=1))
+    db.commit()
 
 
 def _montant_lignes(lignes: list) -> float:
@@ -1596,6 +1637,9 @@ def assistant_chat(
     if not ANTHROPIC_API_KEY:
         raise HTTPException(status_code=500, detail="Assistant IA non configure")
 
+    # Plafond anti-abus : borne le coût des appels IA par utilisateur et par jour.
+    _verifier_et_incrementer_quota_ia(db, user.id, "chat", AI_CHAT_DAILY_LIMIT)
+
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     context = ""
     if profile and profile.onboarding_complete and profile.statut == "auto_entrepreneur":
@@ -2007,35 +2051,59 @@ def add_intermittent_activite(
 async def extract_aem(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Lit une AEM (photo ou PDF) via Claude Vision et renvoie les champs détectés.
     Ne crée rien : le front affiche le résultat pour vérification, puis appelle
     /intermittent/activite avec les valeurs validées par l'utilisateur."""
     allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
-    if not file.filename.lower().endswith(allowed_ext):
+    if not file.filename or not file.filename.lower().endswith(allowed_ext):
         raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
 
+    # Plafond anti-abus : borne le coût des appels Vision par utilisateur et par jour.
+    _verifier_et_incrementer_quota_ia(db, user.id, "aem_scan", AI_AEM_DAILY_LIMIT)
+
     tmp_dir = tempfile.mkdtemp()
-    file_path = os.path.join(tmp_dir, file.filename)
-    with open(file_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-
+    file_path = os.path.join(tmp_dir, os.path.basename(file.filename))
     try:
-        data = extract_aem_data(file_path)
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=str(e) or "Impossible de lire cette AEM.")
+        # Écriture bornée : on lit par blocs et on s'arrête net au-delà de la taille max
+        # (anti-DoS : on ne charge jamais un fichier géant en mémoire ni sur disque).
+        taille = 0
+        with open(file_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1 Mo
+                if not chunk:
+                    break
+                taille += len(chunk)
+                if taille > AEM_MAX_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Fichier trop volumineux (max {AEM_MAX_BYTES // (1024*1024)} Mo). "
+                               "Réduis la taille de la photo et réessaie.",
+                    )
+                f.write(chunk)
 
-    # Conserve le document original sur R2 (si configuré). On renvoie la clé au front,
-    # qui la transmettra à /intermittent/activite pour la lier à l'activité créée.
-    if r2_storage.R2_ENABLED:
         try:
-            r2_key = r2_storage.upload_aem(file_path, str(user.id), file.filename)
-            data["aem_r2_key"] = r2_key
+            data = extract_aem_data(file_path)
+        except HTTPException:
+            raise
         except Exception as e:
-            # L'échec du stockage ne doit pas bloquer le scan : les données restent exploitables.
-            data["aem_r2_key"] = None
+            raise HTTPException(status_code=422, detail=str(e) or "Impossible de lire cette AEM.")
 
-    return data
+        # Conserve le document original sur R2 (si configuré). On renvoie la clé au front,
+        # qui la transmettra à /intermittent/activite pour la lier à l'activité créée.
+        if r2_storage.R2_ENABLED:
+            try:
+                r2_key = r2_storage.upload_aem(file_path, str(user.id), file.filename)
+                data["aem_r2_key"] = r2_key
+            except Exception:
+                # L'échec du stockage ne doit pas bloquer le scan : les données restent exploitables.
+                data["aem_r2_key"] = None
+
+        return data
+    finally:
+        # Nettoyage systématique du fichier temporaire (évite l'accumulation sur disque).
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @app.delete("/intermittent/activite/{activite_id}")

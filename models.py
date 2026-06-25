@@ -224,3 +224,20 @@ class Quote(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="quotes")
+
+
+# ============================================================================
+#  AI USAGE — compteur d'appels IA par utilisateur, par jour, par type.
+#  Sert à plafonner la consommation (coût Anthropic borné) et à tracer l'usage.
+#  Une ligne = (user, jour, type d'appel). On incrémente "count" à chaque appel.
+#  type : "chat" (assistant Hector) | "aem_scan" (lecture AEM via Vision)
+# ============================================================================
+class AIUsage(Base):
+    __tablename__ = "ai_usage"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    jour = Column(Date, nullable=False, index=True)       # date du jour (UTC)
+    type_appel = Column(String, nullable=False)            # "chat" | "aem_scan"
+    count = Column(Float, nullable=False, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow)
