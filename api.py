@@ -1943,6 +1943,8 @@ def _resultat_vers_dict(res) -> dict:
         "jours_avant_anniversaire": res.jours_avant_anniversaire,
         "date_anniversaire": res.date_anniversaire,
         "detail_lignes": res.detail_lignes,
+        "regles_appliquees": getattr(res, "regles_appliquees", []),
+        "version_referentiel": getattr(res, "version_referentiel", ""),
         "avertissement": res.avertissement,
     }
 

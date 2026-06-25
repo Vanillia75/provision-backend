@@ -10,11 +10,13 @@ intermittent_engine.py — Moteur de calcul des droits intermittent du spectacle
  niveau C (le verdict sur les droits).
 ═══════════════════════════════════════════════════════════════════════════════
 
- Règles 2026 (vérifiées, à revérifier chaque année — réformes assurance chômage) :
+ Règles 2026 (centralisées dans regles_intermittent.py — sourcées, datées) :
    - 507 heures sur 12 mois GLISSANTS pour ouvrir/renouveler les droits.
-   - Conversion : 1 cachet isolé = 12h, 1 cachet groupé = 8h, heures réelles
-     (techniciens annexe 8) telles quelles.
-   - Clause de rattrapage / filet : palier symbolique à 338h.
+   - Conversion : 1 cachet (artiste, annexe 10) = 12h ; heures réelles
+     (techniciens annexe 8) telles quelles. NOTE : la règle historique
+     "cachet groupé = 8h" est ABANDONNÉE (source douteuse) — tous les cachets
+     comptent 12h tant qu'un expert n'a pas confirmé un autre forfait.
+   - Clause de rattrapage / filet : palier à 338h (Circulaire Unédic 2018-04).
    - Paliers d'évolution d'Hector (émotionnel, ancré dans le réel) :
        100h chiot · 250h ado · 338h filet · 400h adulte · 507h niche complète.
 
@@ -26,27 +28,34 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Optional
 
+from regles_intermittent import valeur_de, tracer, VERSION_REFERENTIEL
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  CONSTANTES MÉTIER (sourcées, datées — modifier UNIQUEMENT ici si la loi change)
+#  CONSTANTES MÉTIER — toutes issues du référentiel central (source unique).
+#  Ne JAMAIS écrire un chiffre réglementaire en dur ici : tout passe par
+#  regles_intermittent.py, qui porte la valeur, sa source et sa version.
 # ─────────────────────────────────────────────────────────────────────────────
-VERSION = "2026.1"
-DERNIERE_VERIFICATION = "2026-06-24"
+VERSION = VERSION_REFERENTIEL["version"]
+DERNIERE_VERIFICATION = VERSION_REFERENTIEL["revue"]
 
-SEUIL_DROITS = 507          # heures requises sur 12 mois glissants
-FENETRE_JOURS = 365         # fenêtre glissante de 12 mois
+SEUIL_DROITS = valeur_de("seuilHeures")          # 507
+FENETRE_JOURS = valeur_de("periodeReferenceJours")  # 365
+SEUIL_FILET = valeur_de("rattrapageSeuilMin")    # 338
 
-HEURES_CACHET_ISOLE = 12
-HEURES_CACHET_GROUPE = 8
+# Conversion cachet → heures. Tous les cachets comptent 12h (la règle historique
+# "cachet groupé = 8h" est abandonnée, cf. regles_intermittent.py).
+HEURES_CACHET = valeur_de("cachetHeures")        # 12
 
 # Paliers d'évolution d'Hector (seuil en heures → état). Trié croissant.
+# Le palier "filet" est aligné sur le seuil de la clause de rattrapage (référentiel).
 PALIERS_HECTOR = [
-    (0,   "oeuf",    "On démarre. Chaque heure compte, je note tout."),
-    (100, "chiot",   "Premier palier passé. Doucement mais sûrement."),
-    (250, "ado",     "Tu es à mi-chemin, le rythme est bon."),
-    (338, "filet",   "Filet de sécurité atteint : tu es protégé même si tu n'atteins pas 507h."),
-    (400, "adulte",  "On y est presque, je le sens."),
-    (507, "niche",   "On l'a fait. Tes droits sont sécurisés. Tellement fier de nous."),
+    (0,             "oeuf",    "On démarre. Chaque heure compte, je note tout."),
+    (100,           "chiot",   "Premier palier passé. Doucement mais sûrement."),
+    (250,           "ado",     "Tu es à mi-chemin, le rythme est bon."),
+    (SEUIL_FILET,   "filet",   "Filet de sécurité atteint : tu es protégé même si tu n'atteins pas 507h."),
+    (400,           "adulte",  "On y est presque, je le sens."),
+    (SEUIL_DROITS,  "niche",   "On l'a fait. Tes droits sont sécurisés. Tellement fier de nous."),
 ]
 
 AVERTISSEMENT = (
@@ -80,6 +89,8 @@ class ResultatIntermittent:
     jours_avant_anniversaire: Optional[int] = None
     date_anniversaire: Optional[date] = None
     detail_lignes: list = field(default_factory=list)  # pour la transparence
+    regles_appliquees: list = field(default_factory=list)  # trace réglementaire (Pourquoi ?)
+    version_referentiel: str = ""
     avertissement: str = AVERTISSEMENT
 
 
@@ -89,10 +100,11 @@ class ResultatIntermittent:
 def heures_de(activite: Activite) -> float:
     t = activite.type_activite
     n = max(0.0, float(activite.nombre or 0))
-    if t == "cachet_isole":
-        return n * HEURES_CACHET_ISOLE
-    if t == "cachet_groupe":
-        return n * HEURES_CACHET_GROUPE
+    # Tous les cachets comptent 12h. On gère aussi "cachet_groupe" pour les
+    # activités historiques déjà en base : elles sont désormais comptées 12h
+    # comme les autres (la règle "8h" est abandonnée, cf. référentiel).
+    if t in ("cachet_isole", "cachet_groupe", "cachet"):
+        return n * HEURES_CACHET
     if t == "heures":
         return n
     # Type inconnu : on ne devine pas, on compte 0 (le moteur n'invente jamais).
@@ -117,8 +129,8 @@ def etat_hector(total_heures: float) -> tuple:
 def construire_verdict(total: float, manquant: float, jours_restants: Optional[int]) -> str:
     if total >= SEUIL_DROITS:
         return "Tes droits sont sécurisés. Tu as tes 507h. Profite, je veille."
-    if total >= 338:
-        base = f"Il te manque {int(round(manquant))}h pour tes 507h, mais tu as déjà ton filet de sécurité (338h passées)."
+    if total >= SEUIL_FILET:
+        base = f"Il te manque {int(round(manquant))}h pour tes {SEUIL_DROITS}h, mais tu as déjà ton filet de sécurité ({SEUIL_FILET}h passées)."
     else:
         base = f"Il te manque {int(round(manquant))}h pour sécuriser tes droits."
     if jours_restants is not None:
@@ -161,11 +173,17 @@ def calculer(
             continue
         h = heures_de(a)
         total += h
+        # Trace : quelle règle de conversion a transformé cette activité en heures.
+        if a.type_activite == "heures":
+            regle_ligne = "Heures réelles (technicien, annexe 8) : comptées telles quelles."
+        else:
+            regle_ligne = tracer("cachetHeures")
         detail.append({
             "date": a.date.isoformat(),
             "type": a.type_activite,
             "nombre": a.nombre,
             "heures": h,
+            "regle": regle_ligne,
         })
 
     total = round(total, 2)
@@ -179,19 +197,30 @@ def calculer(
 
     verdict = construire_verdict(total, manquant, jours_restants)
 
+    # Trace réglementaire globale (pour le bouton "Pourquoi ?") : les règles-clés
+    # qui ont servi au calcul, avec leur source et leur version.
+    regles_appliquees = [
+        tracer("seuilHeures"),
+        tracer("cachetHeures"),
+        tracer("periodeReferenceJours"),
+        tracer("rattrapageSeuilMin"),
+    ]
+
     return ResultatIntermittent(
         total_heures=total,
         seuil=SEUIL_DROITS,
         manquant=round(manquant, 2),
         pourcentage=pourcentage,
         droits_securises=total >= SEUIL_DROITS,
-        filet_atteint=total >= 338,
+        filet_atteint=total >= SEUIL_FILET,
         hector_etat=etat,
         hector_message=message,
         verdict=verdict,
         jours_avant_anniversaire=jours_restants,
         date_anniversaire=date_anniversaire,
         detail_lignes=detail,
+        regles_appliquees=regles_appliquees,
+        version_referentiel=VERSION,
     )
 
 
