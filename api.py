@@ -1772,7 +1772,13 @@ def assistant_chat(
                 f"il a cumule {res.total_heures} heures sur les 12 derniers mois glissants, "
                 f"sur un seuil de {res.seuil} heures pour ouvrir ses droits. "
                 f"Il lui manque {res.manquant} heures. "
-                f"Filet de securite (clause de rattrapage a 338h) {'ATTEINT' if res.filet_atteint else 'pas encore atteint'}. "
+                f"Seuil d'heures du filet (338h, premiere des deux conditions de la clause de rattrapage) "
+                f"{'FRANCHI' if res.filet_atteint else 'pas encore franchi'}. "
+                f"ATTENTION : franchir 338h ne garantit PAS le filet — il faut AUSSI avoir ouvert des "
+                f"droits 5 fois sur 10 ans, ce que tu ne peux pas verifier ici. Ne dis donc jamais a "
+                f"l'utilisateur que son filet est acquis sur la seule base des 338h : dis que c'est une "
+                f"premiere condition remplie, et que la seconde depend de son historique (a verifier "
+                f"aupres de France Travail). "
                 f"Droits {'SECURISES' if res.droits_securises else 'pas encore securises'}. "
             )
             if res.date_anniversaire:
