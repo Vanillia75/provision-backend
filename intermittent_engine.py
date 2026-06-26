@@ -53,7 +53,7 @@ PALIERS_HECTOR = [
     (0,             "oeuf",    "On démarre. Chaque heure compte, je note tout."),
     (100,           "chiot",   "Premier palier passé. Doucement mais sûrement."),
     (250,           "ado",     "Tu es à mi-chemin, le rythme est bon."),
-    (SEUIL_FILET,   "filet",   "Filet de sécurité atteint : tu es protégé même si tu n'atteins pas 507h."),
+    (SEUIL_FILET,   "filet",   "Tu as passé les 338h : une des deux conditions du filet (clause de rattrapage) est remplie. L'autre dépend de ton historique d'ouvertures de droits."),
     (400,           "adulte",  "On y est presque, je le sens."),
     (SEUIL_DROITS,  "niche",   "On l'a fait. Tes droits sont sécurisés. Tellement fier de nous."),
 ]
@@ -82,7 +82,9 @@ class ResultatIntermittent:
     manquant: float
     pourcentage: float            # 0..100+ (peut dépasser 100)
     droits_securises: bool        # total >= 507
-    filet_atteint: bool           # total >= 338
+    filet_atteint: bool           # total >= 338 (SEUIL D'HEURES du filet franchi ;
+                                  # PAS le filet acquis : la 2e condition — 5 ouvertures
+                                  # sur 10 ans — n'est pas vérifiable par le moteur)
     hector_etat: str              # "oeuf"|"chiot"|"ado"|"filet"|"adulte"|"niche"
     hector_message: str
     verdict: str                  # niveau C : phrase de synthèse bienveillante
@@ -130,7 +132,13 @@ def construire_verdict(total: float, manquant: float, jours_restants: Optional[i
     if total >= SEUIL_DROITS:
         return "Tes droits sont sécurisés. Tu as tes 507h. Profite, je veille."
     if total >= SEUIL_FILET:
-        base = f"Il te manque {int(round(manquant))}h pour tes {SEUIL_DROITS}h, mais tu as déjà ton filet de sécurité ({SEUIL_FILET}h passées)."
+        base = (
+            f"Il te manque {int(round(manquant))}h pour tes {SEUIL_DROITS}h. "
+            f"Bonne nouvelle : tu as passé les {SEUIL_FILET}h, c'est une des conditions de la "
+            f"clause de rattrapage (le \"filet\"). L'autre condition dépend de ton historique "
+            f"(avoir déjà ouvert des droits 5 fois sur 10 ans) : si c'est ton cas, le filet peut "
+            f"jouer. Vérifie ce point avec France Travail pour en être sûr."
+        )
     else:
         base = f"Il te manque {int(round(manquant))}h pour sécuriser tes droits."
     if jours_restants is not None:
