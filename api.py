@@ -29,7 +29,7 @@ from emailing import send_reset_password_email, send_verification_email, send_in
 from invoice_pdf import generate_invoice_pdf
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from invoice_extractor import extract_invoice_data
-from aem_extractor import extract_aem_data, extract_are_data
+from aem_extractor import extract_aem_data
 import r2_storage
 import intermittent_engine as ie
 from insee_lookup import lookup_siret, SiretLookupError
@@ -288,8 +288,6 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "acre": profile.acre,
         "versement_liberatoire": profile.versement_liberatoire,
         "date_creation_activite": profile.date_creation_activite,
-        "date_anniversaire": profile.date_anniversaire,
-        "montant_journalier": profile.montant_journalier,
         "onboarding_complete": profile.onboarding_complete,
         "siret": profile.siret,
         "raison_sociale": profile.raison_sociale,
@@ -2069,7 +2067,6 @@ class IntermittentActiviteRequest(BaseModel):
 
 class DateAnniversaireRequest(BaseModel):
     date_anniversaire: Optional[date] = None
-    montant_journalier: Optional[float] = None
 
 
 class SimulationContratRequest(BaseModel):
@@ -2206,76 +2203,27 @@ async def extract_aem(
                 f.write(chunk)
 
         try:
-            data = extract_aem_data(file_path)
+            aems = extract_aem_data(file_path)
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(status_code=422, detail=str(e) or "Impossible de lire cette AEM.")
 
-        # Conserve le document original sur R2 (si configuré). On renvoie la clé au front,
-        # qui la transmettra à /intermittent/activite pour la lier à l'activité créée.
+        # Conserve le document original sur R2 (si configuré). Le même document peut contenir
+        # plusieurs AEM : on stocke le fichier une fois et on lie la même clé à chacune.
+        r2_key = None
         if r2_storage.R2_ENABLED:
             try:
                 r2_key = r2_storage.upload_aem(file_path, str(user.id), file.filename)
-                data["aem_r2_key"] = r2_key
             except Exception:
                 # L'échec du stockage ne doit pas bloquer le scan : les données restent exploitables.
-                data["aem_r2_key"] = None
+                r2_key = None
+        for a in aems:
+            a["aem_r2_key"] = r2_key
 
-        return data
-    finally:
-        # Nettoyage systématique du fichier temporaire (évite l'accumulation sur disque).
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
-@app.post("/intermittent/are/extract")
-async def extract_are(
-    file: UploadFile = File(...),
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Lit une attestation de droits France Travail (ARE) via Claude Vision et
-    renvoie la date anniversaire + le montant journalier détectés. Ne sauvegarde
-    rien : le front affiche le résultat pour vérification, puis appelle
-    /profile/date-anniversaire avec les valeurs validées par l'utilisateur.
-    H€CTOR LIT ces infos, il ne les calcule jamais."""
-    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
-    if not file.filename or not file.filename.lower().endswith(allowed_ext):
-        raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
-
-    # Plafond anti-abus : même compteur que les scans AEM (lecture Vision rare).
-    _verifier_et_incrementer_quota_ia(db, user.id, "aem_scan", AI_AEM_DAILY_LIMIT)
-
-    tmp_dir = tempfile.mkdtemp()
-    file_path = os.path.join(tmp_dir, os.path.basename(file.filename))
-    try:
-        # Écriture bornée : on lit par blocs et on s'arrête net au-delà de la taille max
-        # (anti-DoS : on ne charge jamais un fichier géant en mémoire ni sur disque).
-        taille = 0
-        with open(file_path, "wb") as f:
-            while True:
-                chunk = await file.read(1024 * 1024)  # 1 Mo
-                if not chunk:
-                    break
-                taille += len(chunk)
-                if taille > AEM_MAX_BYTES:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"Fichier trop volumineux (max {AEM_MAX_BYTES // (1024*1024)} Mo). "
-                               "Réduis la taille de la photo et réessaie.",
-                    )
-                f.write(chunk)
-
-        try:
-            data = extract_are_data(file_path)
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=422, detail=str(e) or "Impossible de lire cette attestation.")
-
-        # On ne conserve pas l'attestation ARE : elle ne sert qu'à lire 2 valeurs,
-        # qui sont ensuite stockées sur le profil. Pas de copie sur R2 (moins de données = mieux).
-        return data
+        # Format de réponse : on renvoie toujours une liste sous "aems".
+        # (Le front gère 1 ou plusieurs attestations à valider.)
+        return {"aems": aems}
     finally:
         # Nettoyage systématique du fichier temporaire (évite l'accumulation sur disque).
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -2344,16 +2292,8 @@ def save_date_anniversaire(
     if not profile:
         raise HTTPException(status_code=404, detail="Profil introuvable")
     profile.date_anniversaire = req.date_anniversaire
-    # On n'écrase le montant journalier QUE s'il est explicitement fourni (import ARE).
-    # Une simple modification de date à la main ne doit pas effacer un montant déjà lu.
-    if req.montant_journalier is not None:
-        profile.montant_journalier = req.montant_journalier
     db.commit()
-    return {
-        "ok": True,
-        "date_anniversaire": profile.date_anniversaire,
-        "montant_journalier": profile.montant_journalier,
-    }
+    return {"ok": True, "date_anniversaire": profile.date_anniversaire}
 
 
 # Statuts de compte gérés par H€CTOR (verticales du moteur de décision).
@@ -2414,11 +2354,7 @@ def get_intermittent_cockpit(
         aujourdhui=date.today(),
         date_anniversaire=date_anniv,
     )
-    out = _resultat_vers_dict(res)
-    # Montant journalier de l'ARE : LU sur l'attestation France Travail, affiché tel
-    # quel, jamais recalculé. On le joint au cockpit pour que le front l'affiche.
-    out["montant_journalier"] = profile.montant_journalier if profile else None
-    return out
+    return _resultat_vers_dict(res)
 
 
 @app.post("/intermittent/simuler")
