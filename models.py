@@ -61,6 +61,10 @@ class Profile(Base):
     # Date anniversaire des droits intermittent (échéance de renouvellement).
     # Saisie par l'utilisateur. Nullable : seuls les profils intermittents l'utilisent.
     date_anniversaire = Column(Date, nullable=True)
+    # Montant journalier de l'ARE (allocation), LU sur l'attestation France Travail.
+    # H€CTOR l'affiche tel quel, ne le calcule jamais. Nullable : seuls les intermittents
+    # qui ont importé leur attestation l'ont renseigné.
+    montant_journalier = Column(Float, nullable=True)
     onboarding_complete = Column(Boolean, default=False)
 
     siret = Column(String, nullable=True, index=True)

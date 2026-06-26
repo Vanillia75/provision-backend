@@ -164,3 +164,112 @@ def extract_aem_data(file_path: str) -> dict:
         raise RuntimeError("Je n'ai pas réussi à lire cette AEM. Essaie une photo plus nette, ou saisis à la main.")
 
     return _normalise(data, os.path.basename(file_path))
+
+
+# ============================================================================
+#  ARE — Attestation de droits France Travail (intermittent).
+#  H€CTOR LIT deux informations sur l'attestation : la date anniversaire
+#  (échéance de renouvellement) et le montant journalier de l'allocation.
+#  Il ne CALCULE rien : il affiche ce que France Travail a déjà décidé.
+#
+#  Retourne un dict :
+#    {
+#      "date_anniversaire":  "YYYY-MM-DD" | None,
+#      "montant_journalier": float | None,   # allocation journalière en euros
+#      "filename":           str,
+#    }
+# ============================================================================
+
+PROMPT_ARE = """Tu lis une attestation de droits France Travail (anciennement Pôle emploi) d'un intermittent du spectacle français. Ce document récapitule ses droits à l'ARE (Allocation de Retour à l'Emploi).
+
+Extrais UNIQUEMENT ces informations et réponds STRICTEMENT en JSON, sans aucun texte autour, sans balises Markdown :
+
+{
+  "date_anniversaire": "date anniversaire / date de réexamen / date de fin de droits au format YYYY-MM-DD, sinon null",
+  "montant_journalier": montant de l'allocation journalière brute en euros (un nombre, sans symbole €), sinon null
+}
+
+Règles importantes :
+- "date_anniversaire" : c'est la date à laquelle France Travail réexamine les droits (parfois appelée "date anniversaire", "date de réexamen", "fin de droits", "échéance"). Mets-la au format YYYY-MM-DD.
+- "montant_journalier" : c'est l'allocation journalière (souvent notée "AJ", "allocation journalière", "montant journalier brut"). Mets juste le nombre.
+- Si une information est absente ou illisible, mets null.
+- Ne devine jamais une date ou un montant : si tu n'es pas sûr, mets null.
+- Réponds en JSON pur, rien d'autre."""
+
+
+def _normalise_are(data: dict, filename: str) -> dict:
+    """Nettoie et borne les valeurs ARE renvoyées par le modèle."""
+    # date anniversaire
+    date_str = data.get("date_anniversaire")
+    date_iso = None
+    if date_str:
+        try:
+            date_iso = datetime.strptime(str(date_str)[:10], "%Y-%m-%d").date().isoformat()
+        except ValueError:
+            date_iso = None
+
+    # montant journalier
+    mj = data.get("montant_journalier")
+    try:
+        mj = float(mj) if mj is not None else None
+        if mj is not None and mj < 0:
+            mj = None
+    except (TypeError, ValueError):
+        mj = None
+
+    return {
+        "date_anniversaire": date_iso,
+        "montant_journalier": mj,
+        "filename": filename,
+    }
+
+
+def extract_are_data(file_path: str) -> dict:
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("Lecture d'attestation indisponible : clé API non configurée.")
+
+    import requests  # déjà présent dans les dépendances backend
+
+    media_type, b64, kind = _encode_file(file_path)
+
+    if kind == "document":
+        source_block = {"type": "document", "source": {"type": "base64", "media_type": media_type, "data": b64}}
+    else:
+        source_block = {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}}
+
+    resp = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json={
+            "model": MODEL,
+            "max_tokens": 400,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        source_block,
+                        {"type": "text", "text": PROMPT_ARE},
+                    ],
+                }
+            ],
+        },
+        timeout=60,
+    )
+
+    if resp.status_code != 200:
+        raise RuntimeError(f"Lecture impossible (code {resp.status_code}).")
+
+    body = resp.json()
+    parts = [b.get("text", "") for b in body.get("content", []) if b.get("type") == "text"]
+    raw = _clean_json("".join(parts))
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        raise RuntimeError("Je n'ai pas réussi à lire cette attestation. Essaie une photo plus nette, ou saisis à la main.")
+
+    return _normalise_are(data, os.path.basename(file_path))
