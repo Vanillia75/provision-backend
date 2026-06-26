@@ -38,7 +38,8 @@ Réponds STRICTEMENT en JSON, sans aucun texte autour, sans balises Markdown. Le
   {
     "employeur": "raison sociale de l'employeur (la structure qui emploie, pas le salarié)",
     "siret": "numéro SIRET de l'employeur si présent, sinon null",
-    "date": "date de fin de la période d'emploi au format YYYY-MM-DD (ou le dernier jour travaillé)",
+    "date": "date de DÉBUT du contrat (date d'embauche) au format YYYY-MM-DD",
+    "date_fin": "date de FIN du contrat au format YYYY-MM-DD si elle est indiquée, sinon null",
     "type_activite": "cachet_isole, cachet_groupe ou heures",
     "nombre": nombre de cachets OU nombre d'heures (un nombre),
     "salaire_brut": salaire brut total de la période en euros (un nombre, sans symbole), sinon null
@@ -47,6 +48,8 @@ Réponds STRICTEMENT en JSON, sans aucun texte autour, sans balises Markdown. Le
 
 Règles importantes :
 - Une attestation = un bloc avec son propre numéro d'attestation et sa propre période. S'il y a 2 numéros d'attestation différents, renvoie 2 objets. S'il y en a 3, renvoie 3 objets.
+- "date" : c'est TOUJOURS la date de début / d'embauche (le premier jour travaillé). Elle est presque toujours présente.
+- "date_fin" : c'est le dernier jour travaillé / date de fin de contrat. Si le contrat est sur un seul jour, date_fin peut être égale à date. Si elle n'est pas indiquée, mets null. Ne confonds JAMAIS début et fin : si tu n'as qu'une date, mets-la dans "date" et mets "date_fin" à null.
 - "type_activite" : si l'AEM mentionne des CACHETS, utilise "cachet_isole" (cas le plus courant) ou "cachet_groupe" si explicitement groupés. Si elle est en HEURES réelles (technicien, annexe 8), utilise "heures".
 - "nombre" : si ce sont des cachets, mets le NOMBRE DE CACHETS. Si ce sont des heures, mets le NOMBRE D'HEURES. Ne convertis pas toi-même.
 - Si une information est absente ou illisible, mets null (sauf "nombre" : mets 0 si introuvable).
@@ -99,7 +102,7 @@ def _normalise(data: dict, filename: str) -> dict:
     except (TypeError, ValueError):
         brut = None
 
-    # date
+    # date (début / embauche) — sert de référence pour le calcul
     date_str = data.get("date")
     date_iso = None
     if date_str:
@@ -108,10 +111,26 @@ def _normalise(data: dict, filename: str) -> dict:
         except ValueError:
             date_iso = None
 
+    # date_fin (dernier jour) — purement pour l'affichage "du X au Y"
+    date_fin_str = data.get("date_fin")
+    date_fin_iso = None
+    if date_fin_str:
+        try:
+            date_fin_iso = datetime.strptime(str(date_fin_str)[:10], "%Y-%m-%d").date().isoformat()
+        except ValueError:
+            date_fin_iso = None
+    # Si la fin est avant le début (lecture inversée), on l'ignore plutôt que d'afficher une absurdité.
+    if date_iso and date_fin_iso and date_fin_iso < date_iso:
+        date_fin_iso = None
+    # Si la fin égale le début (contrat d'un jour), pas besoin de l'afficher comme une période.
+    if date_fin_iso and date_iso and date_fin_iso == date_iso:
+        date_fin_iso = None
+
     return {
         "employeur": (data.get("employeur") or None),
         "siret": (data.get("siret") or None),
         "date": date_iso,
+        "date_fin": date_fin_iso,
         "type_activite": type_act,
         "nombre": nombre,
         "salaire_brut": brut,

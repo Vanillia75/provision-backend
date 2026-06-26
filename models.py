@@ -61,10 +61,6 @@ class Profile(Base):
     # Date anniversaire des droits intermittent (échéance de renouvellement).
     # Saisie par l'utilisateur. Nullable : seuls les profils intermittents l'utilisent.
     date_anniversaire = Column(Date, nullable=True)
-    # Montant journalier de l'ARE (allocation), LU sur l'attestation France Travail.
-    # H€CTOR l'affiche tel quel, ne le calcule jamais. Nullable : seuls les intermittents
-    # qui ont importé leur attestation l'ont renseigné.
-    montant_journalier = Column(Float, nullable=True)
     onboarding_complete = Column(Boolean, default=False)
 
     siret = Column(String, nullable=True, index=True)
@@ -129,6 +125,10 @@ class IntermittentActivity(Base):
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
 
     date = Column(Date, nullable=False)
+    # Date de fin du contrat, le cas échéant (AEM couvrant une période, ex : du 12 au 17).
+    # Sert UNIQUEMENT à l'affichage ("du X au Y"). Le calcul des 507h utilise 'date' (le début).
+    # Nullable : un cachet/contrat d'un seul jour n'a pas de date de fin distincte.
+    date_fin = Column(Date, nullable=True)
     employeur = Column(String, nullable=True)
     type_activite = Column(String, nullable=False, default="heures")
     nombre = Column(Float, nullable=False, default=0)

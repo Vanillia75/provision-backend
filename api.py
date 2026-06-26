@@ -2056,6 +2056,7 @@ TYPES_ACTIVITE_INTERMITTENT = ("heures", "cachet_isole", "cachet_groupe")
 
 class IntermittentActiviteRequest(BaseModel):
     date: date
+    date_fin: Optional[date] = None
     type_activite: str
     nombre: float
     employeur: Optional[str] = None
@@ -2126,6 +2127,7 @@ def list_intermittent_activites(
         {
             "id": r.id,
             "date": r.date,
+            "date_fin": r.date_fin,
             "employeur": r.employeur,
             "type_activite": r.type_activite,
             "nombre": r.nombre,
@@ -2152,6 +2154,7 @@ def add_intermittent_activite(
     row = IntermittentActivity(
         user_id=user.id,
         date=req.date,
+        date_fin=(req.date_fin or None),
         employeur=(req.employeur or None),
         type_activite=req.type_activite,
         nombre=req.nombre,
