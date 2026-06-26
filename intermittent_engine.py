@@ -90,6 +90,29 @@ class ResultatIntermittent:
     verdict: str                  # niveau C : phrase de synthèse bienveillante
     jours_avant_anniversaire: Optional[int] = None
     date_anniversaire: Optional[date] = None
+    # ── PROJECTION À LA DATE ANNIVERSAIRE (F1) ──
+    # Distincte du compteur "aujourd'hui". Calculée seulement si la date anniversaire
+    # est connue ET dans le futur. DEUX projections, pour ne jamais mentir :
+    #
+    #   • PLANCHER STRICT : on ne compte QUE les contrats déjà faits (<= aujourd'hui)
+    #     qui seront encore dans la fenêtre à l'échéance. "Si tu ne retravailles plus
+    #     d'ici ton échéance, tu serais à X heures." → le risque maximal.
+    #
+    #   • AVEC CONTRATS PRÉVUS : on ajoute les contrats FUTURS déjà saisis (signés mais
+    #     pas encore faits). "En comptant ce que tu as déjà prévu, tu serais à Y heures."
+    #     → la projection réaliste.
+    #
+    # Si l'utilisateur n'a aucun contrat futur saisi, les deux chiffres sont identiques
+    # (proj_avec_prevus == proj_plancher) et l'affichage n'a qu'un seul chiffre à montrer.
+    # Si la date anniversaire manque, tout reste None et l'affichage demande l'info.
+    projection_disponible: bool = False
+    projection_plancher_heures: Optional[float] = None    # si tu ne retravailles plus
+    projection_plancher_manquant: Optional[float] = None
+    projection_plancher_securise: Optional[bool] = None
+    projection_avec_prevus_heures: Optional[float] = None  # en comptant tes contrats futurs saisis
+    projection_avec_prevus_manquant: Optional[float] = None
+    projection_avec_prevus_securise: Optional[bool] = None
+    projection_a_des_contrats_futurs: bool = False         # True si des contrats futurs sont saisis
     detail_lignes: list = field(default_factory=list)  # pour la transparence
     regles_appliquees: list = field(default_factory=list)  # trace réglementaire (Pourquoi ?)
     version_referentiel: str = ""
@@ -152,36 +175,22 @@ def construire_verdict(total: float, manquant: float, jours_restants: Optional[i
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  CALCUL PRINCIPAL
+#  COMPTAGE SUR UNE FENÊTRE — brique réutilisable (aujourd'hui OU date anniversaire)
+#  Compte les heures des activités tombant dans (fin - 365j, fin].
+#  Ne compte jamais une activité postérieure à `fin`.
 # ─────────────────────────────────────────────────────────────────────────────
-def calculer(
-    activites: list,
-    aujourdhui: Optional[date] = None,
-    date_anniversaire: Optional[date] = None,
-) -> ResultatIntermittent:
-    """
-    activites : liste d'Activite (données brutes).
-    aujourdhui : date de référence (par défaut = today). Sert à la fenêtre glissante.
-    date_anniversaire : échéance des droits (saisie par l'utilisateur), optionnelle.
-
-    Fenêtre glissante : on ne compte que les activités des 365 derniers jours.
-    Ce qui sort de la fenêtre est ignoré (mais reste en base = historique).
-    """
-    if aujourdhui is None:
-        aujourdhui = date.today()
-    borne_basse = aujourdhui - timedelta(days=FENETRE_JOURS)
-
+def _compter_sur_fenetre(activites: list, fin: date) -> tuple:
+    """Retourne (total_heures, detail_lignes) pour la fenêtre se terminant à `fin`."""
+    borne_basse = fin - timedelta(days=FENETRE_JOURS)
     total = 0.0
     detail = []
     for a in activites:
-        # On ne compte que ce qui est dans la fenêtre glissante (et pas dans le futur).
         if a.date is None:
             continue
-        if a.date < borne_basse or a.date > aujourdhui:
+        if a.date < borne_basse or a.date > fin:
             continue
         h = heures_de(a)
         total += h
-        # Trace : quelle règle de conversion a transformé cette activité en heures.
         if a.type_activite == "heures":
             regle_ligne = "Heures réelles (technicien, annexe 8) : comptées telles quelles."
         else:
@@ -193,8 +202,36 @@ def calculer(
             "heures": h,
             "regle": regle_ligne,
         })
+    return round(total, 2), detail
 
-    total = round(total, 2)
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CALCUL PRINCIPAL
+# ─────────────────────────────────────────────────────────────────────────────
+def calculer(
+    activites: list,
+    aujourdhui: Optional[date] = None,
+    date_anniversaire: Optional[date] = None,
+) -> ResultatIntermittent:
+    """
+    activites : liste d'Activite (données brutes).
+    aujourdhui : date de référence (par défaut = today). Sert au compteur "aujourd'hui".
+    date_anniversaire : échéance des droits (saisie par l'utilisateur), optionnelle.
+
+    Deux notions DISTINCTES (cf. F1) :
+      1. COMPTEUR AUJOURD'HUI — heures retenues sur les 365 jours précédant aujourd'hui.
+         "Où j'en suis maintenant."
+      2. PROJECTION À LA DATE ANNIVERSAIRE — heures qui resteraient dans la fenêtre à
+         l'échéance SI RIEN NE CHANGE (aucun nouveau contrat). Calculée seulement si la
+         date anniversaire est connue ET future. C'est un PLANCHER conditionnel, pas une
+         certitude. Si la date manque, la projection n'est pas calculée (l'affichage doit
+         alors demander l'information, jamais l'inventer).
+    """
+    if aujourdhui is None:
+        aujourdhui = date.today()
+
+    # ── 1. COMPTEUR AUJOURD'HUI ──
+    total, detail = _compter_sur_fenetre(activites, aujourdhui)
     manquant = max(0.0, SEUIL_DROITS - total)
     pourcentage = round(total / SEUIL_DROITS * 100, 1) if SEUIL_DROITS else 0.0
     etat, message = etat_hector(total)
@@ -202,6 +239,32 @@ def calculer(
     jours_restants = None
     if date_anniversaire is not None:
         jours_restants = (date_anniversaire - aujourdhui).days
+
+    # ── 2. PROJECTIONS À LA DATE ANNIVERSAIRE (F1) ──
+    # On ne projette QUE si la date anniversaire est connue ET strictement future.
+    projection_disponible = False
+    proj_plancher_h = proj_plancher_manq = proj_plancher_sec = None
+    proj_prevus_h = proj_prevus_manq = proj_prevus_sec = None
+    a_contrats_futurs = False
+    if date_anniversaire is not None and jours_restants is not None and jours_restants > 0:
+        # PLANCHER STRICT : uniquement les contrats déjà faits (<= aujourd'hui).
+        # "Si tu ne retravailles plus, voici ce qui reste dans la fenêtre à l'échéance."
+        activites_passees = [a for a in activites if a.date is not None and a.date <= aujourdhui]
+        ph, _ = _compter_sur_fenetre(activites_passees, date_anniversaire)
+        proj_plancher_h = ph
+        proj_plancher_manq = round(max(0.0, SEUIL_DROITS - ph), 2)
+        proj_plancher_sec = ph >= SEUIL_DROITS
+
+        # AVEC CONTRATS PRÉVUS : on ajoute les contrats futurs déjà saisis
+        # (postérieurs à aujourd'hui mais antérieurs ou égaux à la date anniversaire).
+        activites_futures = [a for a in activites if a.date is not None and aujourdhui < a.date <= date_anniversaire]
+        a_contrats_futurs = len(activites_futures) > 0
+        pp, _ = _compter_sur_fenetre(activites_passees + activites_futures, date_anniversaire)
+        proj_prevus_h = pp
+        proj_prevus_manq = round(max(0.0, SEUIL_DROITS - pp), 2)
+        proj_prevus_sec = pp >= SEUIL_DROITS
+
+        projection_disponible = True
 
     verdict = construire_verdict(total, manquant, jours_restants)
 
@@ -226,6 +289,14 @@ def calculer(
         verdict=verdict,
         jours_avant_anniversaire=jours_restants,
         date_anniversaire=date_anniversaire,
+        projection_disponible=projection_disponible,
+        projection_plancher_heures=proj_plancher_h,
+        projection_plancher_manquant=proj_plancher_manq,
+        projection_plancher_securise=proj_plancher_sec,
+        projection_avec_prevus_heures=proj_prevus_h,
+        projection_avec_prevus_manquant=proj_prevus_manq,
+        projection_avec_prevus_securise=proj_prevus_sec,
+        projection_a_des_contrats_futurs=a_contrats_futurs,
         detail_lignes=detail,
         regles_appliquees=regles_appliquees,
         version_referentiel=VERSION,

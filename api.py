@@ -1784,10 +1784,36 @@ def assistant_chat(
             if res.date_anniversaire:
                 if res.jours_avant_anniversaire is not None and res.jours_avant_anniversaire >= 0:
                     context += f"Sa date anniversaire est le {res.date_anniversaire}, dans {res.jours_avant_anniversaire} jours. "
+                    if getattr(res, "projection_disponible", False):
+                        context += (
+                            f"PROJECTION A SON ECHEANCE (essentiel, distingue bien ces deux chiffres) : "
+                            f"son compteur AUJOURD'HUI est {res.total_heures}h, mais ce qui compte pour "
+                            f"renouveler, c'est ce qu'il aura A SA DATE ANNIVERSAIRE (les vieux contrats de "
+                            f"plus de 12 mois sortent de la fenetre d'ici la). "
+                            f"S'il ne retravaille plus d'ici l'echeance (plancher), il serait a "
+                            f"{res.projection_plancher_heures}h (il manquerait {res.projection_plancher_manquant}h). "
+                        )
+                        if getattr(res, "projection_a_des_contrats_futurs", False):
+                            context += (
+                                f"En comptant ses contrats futurs DEJA SAISIS, il serait a "
+                                f"{res.projection_avec_prevus_heures}h (il manquerait {res.projection_avec_prevus_manquant}h). "
+                                f"Explique-lui la difference : ce qu'il a deja securise vs ce qu'il a prevu. "
+                            )
+                        context += (
+                            "IMPORTANT : ne confonds jamais le compteur d'aujourd'hui avec la projection a "
+                            "l'echeance. Un intermittent peut avoir 'assez' aujourd'hui mais pas assez a sa "
+                            "date anniversaire si de vieux contrats vont sortir. C'est ce risque que tu dois "
+                            "l'aider a voir, sans l'affoler : tu montres le chemin, pas juste l'alerte. "
+                        )
                 else:
-                    context += f"Sa date anniversaire ({res.date_anniversaire}) est passee. "
+                    context += f"Sa date anniversaire ({res.date_anniversaire}) est passee — invite-le a faire le point avec France Travail. "
             else:
-                context += "Il n'a pas encore renseigne sa date anniversaire (tu peux l'inviter a le faire dans son cockpit). "
+                context += (
+                    "Il n'a PAS encore renseigne sa date anniversaire. C'est une info CLE : sans elle, tu ne "
+                    "peux pas lui dire s'il va renouveler (tu connais son compteur du jour, mais pas ce qu'il "
+                    "aura a son echeance). Invite-le gentiment a la renseigner dans son cockpit pour que tu "
+                    "puisses l'aider sur le renouvellement. Ne devine jamais cette date. "
+                )
             context += (
                 "Utilise ces vrais chiffres pour repondre precisement a ses questions sur ses 507h "
                 "(ex: combien d'heures il lui reste a faire, ou il en est, si tel contrat l'aiderait). "
@@ -2068,6 +2094,14 @@ def _resultat_vers_dict(res) -> dict:
         "verdict": res.verdict,
         "jours_avant_anniversaire": res.jours_avant_anniversaire,
         "date_anniversaire": res.date_anniversaire,
+        "projection_disponible": getattr(res, "projection_disponible", False),
+        "projection_plancher_heures": getattr(res, "projection_plancher_heures", None),
+        "projection_plancher_manquant": getattr(res, "projection_plancher_manquant", None),
+        "projection_plancher_securise": getattr(res, "projection_plancher_securise", None),
+        "projection_avec_prevus_heures": getattr(res, "projection_avec_prevus_heures", None),
+        "projection_avec_prevus_manquant": getattr(res, "projection_avec_prevus_manquant", None),
+        "projection_avec_prevus_securise": getattr(res, "projection_avec_prevus_securise", None),
+        "projection_a_des_contrats_futurs": getattr(res, "projection_a_des_contrats_futurs", False),
         "detail_lignes": res.detail_lignes,
         "regles_appliquees": getattr(res, "regles_appliquees", []),
         "version_referentiel": getattr(res, "version_referentiel", ""),
