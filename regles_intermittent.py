@@ -5,29 +5,30 @@
 
  Jumeau de regles_intermittent.js (frontend). Les DEUX fichiers doivent
  toujours porter les mêmes valeurs : c'est l'unique source de vérité du
- régime, déclinée dans les deux langages.
+ régime, déclinée dans les deux langages. Un test de cohérence automatique
+ (test_coherence_intermittent.py + GitHub Actions) échoue si les deux
+ fichiers divergent sur une règle commune.
 
- Chaque règle porte : valeur, libellé, source officielle, version, date
- d'application, statut de vérification (verifie), et un commentaire humain.
+ verifie = True  → confirmé par une source officielle (texte réglementaire,
+                   ARTCENA, France Travail) ET/OU par une intermittente de
+                   longue expérience. La provenance est tracée dans "source".
+ verifie = False → valeur non confirmée, ou point qui demande l'avis d'un
+                   expert / d'un organisme (France Travail, Audiens).
 
- verifie = True  → confirmé par un expert du régime (conseiller France Travail,
-                   comptable spécialisé, syndicat). AUCUNE règle n'est encore ici.
- verifie = False → valeur issue de lectures de sources officielles (Unédic,
-                   France Travail, circulaire Unédic 2018-04) mais PAS encore
-                   confirmée par un expert terrain.
+ Tant que verifie=False, le moteur reste prudent : pas d'affirmation définitive,
+ et toute règle douteuse est exclue du calcul (jamais "devinée").
 
- Tant que verifie=False, le moteur reste prudent : pas d'affirmation définitive
- sur des montants, et toute règle douteuse est exclue du calcul (pas "devinée").
-
- Dernière revue documentaire : 2026-06 (Unédic, France Travail Guide
- Intermittent, Circulaire Unédic n°2018-04, Paramètres Utiles Unédic 04/2025).
+ Dernière revue : 2026-06 (Unédic, France Travail Guide Intermittent, ARTCENA
+ Précis juridique annexes VIII et X, article 3 de l'annexe X, Circulaire
+ Unédic n°2018-04). Validation terrain par une intermittente (20 ans).
 ════════════════════════════════════════════════════════════════════════════
 """
 
 VERSION_REFERENTIEL = {
-    "version": "2026.06",
-    "revue": "2026-06-25",
-    "note": "Revue documentaire. Validation experte du régime non encore réalisée.",
+    "version": "2026.07",
+    "revue": "2026-06-26",
+    "note": "Règles-clés du décompte des heures validées (source officielle + "
+            "intermittente 20 ans). Montants et dispositifs annexes encore à valider.",
 }
 
 REGLES = {
@@ -36,93 +37,89 @@ REGLES = {
     "seuilHeures": {
         "valeur": 507,
         "libelle": "Seuil d'ouverture de droits",
-        "source": "Annexes 8 et 10 au règlement d'assurance chômage ; Unédic",
-        "version": "2026.06",
+        "source": "Annexes 8 et 10 au règlement d'assurance chômage ; ARTCENA ; validé par intermittente (20 ans)",
+        "version": "2026.07",
         "dateAppli": "en vigueur",
-        "verifie": False,
-        "commentaire": "Heures minimales (ou assimilées) à réunir pour ouvrir des droits.",
+        "verifie": True,
+        "commentaire": "Heures minimales (ou assimilées) à réunir pour ouvrir des droits. Confirmé France Travail et ARTCENA.",
     },
     "periodeReferenceJours": {
         "valeur": 365,
-        "libelle": "Période de référence (première admission)",
-        "source": "Annexes 8 et 10 ; Unédic",
-        "version": "2026.06",
+        "libelle": "Période de référence (première admission et réadmission)",
+        "source": "ARTCENA (annexes VIII et X) ; France Travail Guide Intermittent ; validé par intermittente (20 ans)",
+        "version": "2026.07",
         "dateAppli": "en vigueur",
-        "verifie": False,
-        "commentaire": "Les 507h se cherchent sur les 12 mois (365 jours) glissants précédant "
-                       "la dernière fin de contrat retenue.",
+        "verifie": True,
+        "commentaire": "Les 507h se cherchent sur les 12 mois (365 jours) glissants précédant la dernière fin de contrat retenue. Vaut aussi pour la réadmission (date anniversaire au terme d'un délai de 12 mois). En réadmission, si les 507h ne sont pas atteintes, la période PEUT être allongée avec majoration (42h/30j au-delà du 365e jour) — cas spécial NON géré par le moteur pour l'instant.",
     },
     "dureeIndemnisationJours": {
         "valeur": 365,
         "libelle": "Durée d'indemnisation",
-        "source": "Unédic ; France Travail",
-        "version": "2026.06",
+        "source": "Unédic ; France Travail ; validé par intermittente (20 ans)",
+        "version": "2026.07",
         "dateAppli": "en vigueur",
-        "verifie": False,
-        "commentaire": "Droits ouverts 12 mois jusqu'à la date anniversaire (lendemain du "
-                       "dernier jour travaillé ayant ouvert les droits).",
+        "verifie": True,
+        "commentaire": "Droits ouverts jusqu'à une date anniversaire (terme d'un délai de 12 mois après la fin de contrat ayant ouvert les droits), avec réexamen des droits à cette date.",
     },
 
     # ── CONVERSION CACHET → HEURES ──
     "cachetHeures": {
         "valeur": 12,
         "libelle": "Forfait d'un cachet (artiste, annexe 10)",
-        "source": "France Travail — Guide Intermittent ; ipresta.fr (annexe 10)",
-        "version": "2026.06",
+        "source": "Article 3 de l'annexe X ; ARTCENA ; validé par intermittente (20 ans)",
+        "version": "2026.07",
         "dateAppli": "en vigueur",
-        "verifie": False,
-        "statut": "validé provisoirement — à confirmer par expert terrain",
-        "commentaire": "RÈGLE ACTUELLE : un cachet d'artiste (annexe 10) compte 12h dans le "
-                       "décompte des droits. 43 cachets = 516h. Les techniciens (annexe 8) "
-                       "sont décomptés à l'heure réelle. Hector applique 12h à TOUS les "
-                       "cachets, par prudence, tant qu'aucun expert n'a confirmé un autre forfait.",
+        "verifie": True,
+        "commentaire": "Chaque cachet d'artiste (annexe 10) est systématiquement converti en 12h par France Travail (article 3 de l'annexe X). Il n'existe PLUS de distinction entre cachets isolés et groupés : tous comptent 12h. 43 cachets = 516h. Les techniciens (annexe 8) sont décomptés à l'heure réelle.",
     },
     "cachetGroupeHeures_HISTORIQUE": {
         "valeur": 8,
         "libelle": "Cachet groupé = 8h — RÈGLE HISTORIQUE, NE PAS UTILISER",
-        "source": "Wikipédia (source secondaire) — convention ancienne",
+        "source": "Convention ancienne (abrogée) — conservée pour mémoire",
         "version": "obsolète",
         "dateAppli": "ancienne convention",
         "verifie": False,
-        "aValiderUrgent": True,
+        "aValiderUrgent": False,
         "nePasUtiliser": True,
-        "commentaire": "⚠️ HISTORIQUE — conservé pour mémoire uniquement. La règle 'cachet "
-                       "groupé consécutif = 8h' provient d'une source secondaire et correspond "
-                       "vraisemblablement à une convention antérieure. ELLE N'EST PAS utilisée "
-                       "dans le calcul actuel (tous les cachets à 12h). À clarifier avec un "
-                       "conseiller France Travail Spectacle avant toute réintroduction.",
+        "commentaire": "⚠️ HISTORIQUE — conservé pour mémoire uniquement. La distinction 'cachet groupé = 8h' a été SUPPRIMÉE : France Travail convertit désormais TOUS les cachets à 12h (article 3 annexe X, confirmé ARTCENA). Cette règle n'est PAS utilisée dans le calcul.",
     },
 
     # ── CLAUSE DE RATTRAPAGE / FILET ──
     "rattrapageSeuilMin": {
         "valeur": 338,
         "libelle": "Seuil minimal de la clause de rattrapage (filet)",
-        "source": "Circulaire Unédic n°2018-04 du 07/02/2018",
-        "version": "2026.06",
+        "source": "ARTCENA (annexes VIII et X) ; Circulaire Unédic n°2018-04 ; validé par intermittente (20 ans)",
+        "version": "2026.07",
         "dateAppli": "2018-02-07",
-        "verifie": False,
-        "commentaire": "Entre 338h et 506h à la date anniversaire, la clause de rattrapage peut "
-                       "prolonger la période pour compléter les heures manquantes.",
+        "verifie": True,
+        "commentaire": "Au moins 338h au cours des 12 derniers mois précédant la date anniversaire : c'est UNE des deux conditions de la clause de rattrapage (voir rattrapageOuverturesMin pour la seconde). Avoir 338h NE SUFFIT PAS à lui seul.",
     },
     "rattrapageDureeMois": {
         "valeur": 6,
         "libelle": "Durée maximale de la clause de rattrapage",
-        "source": "Circulaire Unédic n°2018-04",
-        "version": "2026.06",
+        "source": "ARTCENA ; Circulaire Unédic n°2018-04 ; validé par intermittente (20 ans)",
+        "version": "2026.07",
         "dateAppli": "2018-02-07",
-        "verifie": False,
-        "commentaire": "6 mois maximum pour compléter. Date anniversaire inchangée. "
-                       "Décision irrévocable une fois activée.",
+        "verifie": True,
+        "commentaire": "Période d'indemnisation maximale de 6 mois au titre de la clause. Date anniversaire inchangée. Décision irrévocable une fois activée.",
     },
     "rattrapageOuverturesMin": {
         "valeur": 5,
-        "libelle": "Condition d'éligibilité — ouvertures de droits",
-        "source": "Circulaire Unédic n°2018-04",
-        "version": "2026.06",
+        "libelle": "Condition d'éligibilité — ouvertures de droits (clause de rattrapage)",
+        "source": "ARTCENA (Précis juridique annexes VIII et X) ; Circulaire Unédic n°2018-04",
+        "version": "2026.07",
         "dateAppli": "2018-02-07",
-        "verifie": False,
-        "commentaire": "Éligibilité : au moins 338h ET 5 ouvertures de droits sur 10 ans.",
+        "verifie": True,
+        "commentaire": "SECONDE condition de la clause, CUMULATIVE avec les 338h : justifier d'au moins 5 années d'affiliation (5 × 507h) OU 5 ouvertures de droits au cours des 10 années précédant la fin de contrat. Le moteur ne dispose pas de l'historique des ouvertures : il ne doit donc PAS affirmer le filet acquis sur la seule base des 338h.",
     },
+
+    # ── À VALIDER PAR EXPERT (non codées tant que non confirmées) ──
+    # Réadmission (cas spéciaux d'allongement), heures assimilées au jour près,
+    # plafonds mensuels, congés spectacles, montants AJ, maintien des droits
+    # retraite, garantie santé : NON inscrits ici tant que France Travail / Audiens
+    # ne les ont pas confirmés. On préfère ne pas gérer un cas plutôt qu'une valeur
+    # fausse. La règle "réadmission = 304 jours / 10 mois" a été SUPPRIMÉE (fausse :
+    # c'est 365 jours, comme la première admission).
 }
 
 
