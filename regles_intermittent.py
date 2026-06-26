@@ -113,13 +113,43 @@ REGLES = {
         "commentaire": "SECONDE condition de la clause, CUMULATIVE avec les 338h : justifier d'au moins 5 années d'affiliation (5 × 507h) OU 5 ouvertures de droits au cours des 10 années précédant la fin de contrat. Le moteur ne dispose pas de l'historique des ouvertures : il ne doit donc PAS affirmer le filet acquis sur la seule base des 338h.",
     },
 
-    # ── À VALIDER PAR EXPERT (non codées tant que non confirmées) ──
-    # Réadmission (cas spéciaux d'allongement), heures assimilées au jour près,
-    # plafonds mensuels, congés spectacles, montants AJ, maintien des droits
-    # retraite, garantie santé : NON inscrits ici tant que France Travail / Audiens
-    # ne les ont pas confirmés. On préfère ne pas gérer un cas plutôt qu'une valeur
-    # fausse. La règle "réadmission = 304 jours / 10 mois" a été SUPPRIMÉE (fausse :
-    # c'est 365 jours, comme la première admission).
+    # ── À VALIDER PAR EXPERT (présentes pour l'affichage front, non utilisées par le moteur) ──
+    # Ces règles sont déclarées ici pour que le .py reste l'UNIQUE source : le .js est
+    # généré à partir de ce fichier (cf. generer_regles_js.py). Elles ne sont PAS utilisées
+    # dans le calcul des heures (verifie:false) et attendent une validation experte.
+    "formationPlafondNouvelleAdmission": {
+        "valeur": 338,
+        "libelle": "Plafond d'heures de formation assimilées (nouvelle admission)",
+        "source": "France Travail ; Unédic — à confirmer expert",
+        "version": "2026.07",
+        "dateAppli": "en vigueur",
+        "verifie": False,
+        "frontOnly": True,
+        "commentaire": "Les heures de formation comptent comme assimilées jusqu'à 2/3 du total requis "
+                       "(≈338h pour une nouvelle admission). À confirmer par un expert avant tout usage.",
+    },
+    "ajMinimale": {
+        "valeur": 31.96,
+        "libelle": "Allocation journalière minimale (paramètre de calcul)",
+        "source": "Unédic — Paramètres Utiles — à confirmer expert",
+        "version": "2026.07",
+        "dateAppli": "à confirmer",
+        "verifie": False,
+        "frontOnly": True,
+        "commentaire": "Paramètre fixe de la formule de l'AJ. Évolue avec le SMIC. Hector ne calcule "
+                       "pas les euros : ne pas utiliser sans validation experte.",
+    },
+    "franchiseCongesParJours": {
+        "valeur": {"jours": 2.5, "parTravailles": 24, "plafond": 30},
+        "libelle": "Franchise congés payés",
+        "source": "Unédic ; ARTCENA — à confirmer expert",
+        "version": "2026.07",
+        "dateAppli": "en vigueur",
+        "verifie": False,
+        "frontOnly": True,
+        "commentaire": "2,5 jours non indemnisés par tranche de 24 jours travaillés, plafonnés à 30 jours. "
+                       "À confirmer par un expert avant tout usage.",
+    },
 }
 
 
