@@ -139,6 +139,10 @@ class IntermittentActivity(Base):
     # true si l'AEM (Attestation Employeur Mensuelle) correspondante a été reçue/scannée.
     # Sert à la check-list d'actualisation ("il te manque une AEM").
     aem_recue = Column(Boolean, nullable=False, default=False)
+    # true si l'activité est une ESTIMATION (heures pas encore confirmées par l'AEM/la paie).
+    # Permet de déclarer au plus juste en attendant le document réel, puis de régulariser.
+    # Affichée avec un badge distinct ; ne doit jamais être présentée comme un chiffre certain.
+    estime = Column(Boolean, nullable=False, default=False)
     # Nom du fichier AEM scanné, le cas échéant.
     aem_filename = Column(String, nullable=True)
     # Clé du fichier original stocké sur Cloudflare R2 (pour consultation / suppression RGPD).

@@ -2062,6 +2062,7 @@ class IntermittentActiviteRequest(BaseModel):
     employeur: Optional[str] = None
     salaire_brut: Optional[float] = None
     aem_recue: Optional[bool] = False
+    estime: Optional[bool] = False
     aem_filename: Optional[str] = None
     aem_r2_key: Optional[str] = None
 
@@ -2133,6 +2134,7 @@ def list_intermittent_activites(
             "nombre": r.nombre,
             "salaire_brut": r.salaire_brut,
             "aem_recue": r.aem_recue,
+            "estime": r.estime,
             "aem_filename": r.aem_filename,
             "a_document": bool(r.aem_r2_key),
             "source": r.source,
@@ -2160,6 +2162,7 @@ def add_intermittent_activite(
         nombre=req.nombre,
         salaire_brut=req.salaire_brut,
         aem_recue=bool(req.aem_recue),
+        estime=bool(req.estime),
         aem_filename=(req.aem_filename or None),
         aem_r2_key=(req.aem_r2_key or None),
         source=("ocr" if req.aem_recue else "manuel"),
@@ -2230,6 +2233,40 @@ async def extract_aem(
     finally:
         # Nettoyage systématique du fichier temporaire (évite l'accumulation sur disque).
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.put("/intermittent/activite/{activite_id}")
+def update_intermittent_activite(
+    activite_id: str,
+    req: IntermittentActiviteRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if req.type_activite not in TYPES_ACTIVITE_INTERMITTENT:
+        raise HTTPException(status_code=400, detail="Type d'activite invalide")
+    if req.nombre is None or req.nombre < 0:
+        raise HTTPException(status_code=400, detail="Nombre invalide")
+    row = (
+        db.query(IntermittentActivity)
+        .filter(
+            IntermittentActivity.id == activite_id,
+            IntermittentActivity.user_id == user.id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Activite introuvable")
+    row.date = req.date
+    row.date_fin = req.date_fin or None
+    row.type_activite = req.type_activite
+    row.nombre = req.nombre
+    row.employeur = req.employeur or None
+    if req.salaire_brut is not None:
+        row.salaire_brut = req.salaire_brut
+    # On met à jour le statut "estimé" (passe à False quand l'utilisateur confirme l'AEM réelle).
+    row.estime = bool(req.estime)
+    db.commit()
+    return {"ok": True}
 
 
 @app.delete("/intermittent/activite/{activite_id}")
