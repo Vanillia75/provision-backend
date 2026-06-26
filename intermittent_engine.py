@@ -40,7 +40,9 @@ VERSION = VERSION_REFERENTIEL["version"]
 DERNIERE_VERIFICATION = VERSION_REFERENTIEL["revue"]
 
 SEUIL_DROITS = valeur_de("seuilHeures")          # 507
-FENETRE_JOURS = valeur_de("periodeReferenceJours")  # 365
+FENETRE_JOURS = valeur_de("periodeReferenceJours")  # 365 (référence ; le calcul de
+# borne se fait en 12 mois CALENDAIRES via borne_basse_12_mois, cf. F2 — cette valeur
+# reste pour la traçabilité réglementaire et l'affichage "sur 12 mois (365 jours)").
 SEUIL_FILET = valeur_de("rattrapageSeuilMin")    # 338
 
 # Conversion cachet → heures. Tous les cachets comptent 12h (la règle historique
@@ -175,18 +177,36 @@ def construire_verdict(total: float, manquant: float, jours_restants: Optional[i
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  BORNE BASSE DE LA FENÊTRE — 12 mois calendaires (F2)
+#  La règle parle de "12 mois précédant la fin de contrat", pas de "365 jours".
+#  Sur une année bissextile, 12 mois = 366 jours ; sur une normale, 365. On recule
+#  donc d'exactement un an de date à date (même jour, année précédente), au lieu
+#  d'un timedelta fixe de 365 jours. Cas particulier : si la fin tombe le 29 février
+#  (année bissextile) et que l'année précédente n'en a pas, on recule au 28 février.
+# ─────────────────────────────────────────────────────────────────────────────
+def borne_basse_12_mois(fin: date) -> date:
+    try:
+        return fin.replace(year=fin.year - 1)
+    except ValueError:  # 29 février → année précédente non bissextile
+        return fin.replace(year=fin.year - 1, month=2, day=28)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  COMPTAGE SUR UNE FENÊTRE — brique réutilisable (aujourd'hui OU date anniversaire)
-#  Compte les heures des activités tombant dans (fin - 365j, fin].
+#  Fenêtre = les 12 mois calendaires précédant `fin`, BORNES INCLUSES :
+#  on compte tout contrat dont la date est dans [borne_basse, fin] (les deux jours
+#  extrêmes comptent — interprétation la plus protectrice pour l'intermittent).
 #  Ne compte jamais une activité postérieure à `fin`.
 # ─────────────────────────────────────────────────────────────────────────────
 def _compter_sur_fenetre(activites: list, fin: date) -> tuple:
-    """Retourne (total_heures, detail_lignes) pour la fenêtre se terminant à `fin`."""
-    borne_basse = fin - timedelta(days=FENETRE_JOURS)
+    """Retourne (total_heures, detail_lignes) pour la fenêtre de 12 mois finissant à `fin`."""
+    borne_basse = borne_basse_12_mois(fin)
     total = 0.0
     detail = []
     for a in activites:
         if a.date is None:
             continue
+        # Bornes INCLUSES des deux côtés : borne_basse <= date <= fin.
         if a.date < borne_basse or a.date > fin:
             continue
         h = heures_de(a)
