@@ -188,45 +188,74 @@ def bank_callback(
 def _fetch_balance(profile: Profile, db: Session):
     """
     Lit les comptes de l'utilisateur chez Powens et renvoie le solde du compte
-    courant principal (le plus gros solde en EUR par défaut). Met aussi à jour
-    profile.solde_bancaire pour que le reste de l'app le voie comme d'habitude.
+    que l'utilisateur a coché dans la webview Powens. Les comptes décochés sont
+    marqués "disabled" par Powens : on ne garde donc que les comptes actifs.
+    Met à jour profile.solde_bancaire pour que le reste de l'app le voie.
     Renvoie None si rien n'est disponible.
     """
     if not profile.powens_token:
+        print("[powens] _fetch_balance: pas de powens_token sur le profil")
         return None
 
     try:
         resp = http_requests.get(
             f"{POWENS_API_BASE}/users/me/accounts",
             headers={"Authorization": f"Bearer {profile.powens_token}"},
+            params={"all": "1"},
             timeout=POWENS_TIMEOUT,
         )
-    except http_requests.RequestException:
+    except http_requests.RequestException as e:
+        print(f"[powens] _fetch_balance: erreur réseau /accounts : {e}")
         return None
 
     if resp.status_code != 200:
+        print(f"[powens] _fetch_balance: /accounts a renvoyé {resp.status_code} — {resp.text[:300]}")
         return None
 
     accounts = resp.json().get("accounts", [])
-    # On ne garde que les comptes courants (type "checking") en euros, non désactivés.
-    candidats = [
+    print(f"[powens] _fetch_balance: {len(accounts)} compte(s) reçu(s) de Powens")
+    for a in accounts:
+        print(f"[powens]   compte id={a.get('id')} name={a.get('name')!r} "
+              f"type={a.get('type')!r} disabled={a.get('disabled')!r} "
+              f"balance={a.get('balance')} currency={(a.get('currency') or {}).get('id')}")
+
+    # IMPORTANT (RGPD Powens) : le champ "disabled" est une DATE (ou null), pas un
+    # booléen. Un compte est ACTIF si disabled est null/None. La webview Powens
+    # active les comptes que l'utilisateur a cochés ; les autres restent "disabled".
+    # On garde donc les comptes avec disabled == null ET un solde présent.
+    actifs = [
         a for a in accounts
-        if a.get("type") == "checking"
-        and not a.get("disabled")
-        and (a.get("currency") or {}).get("id", "EUR") == "EUR"
+        if a.get("disabled") in (None, False)
+        and a.get("balance") is not None
     ]
-    if not candidats:
-        # repli : tout compte non désactivé avec un solde
-        candidats = [a for a in accounts if not a.get("disabled") and a.get("balance") is not None]
-    if not candidats:
+    print(f"[powens] _fetch_balance: {len(actifs)} compte(s) actif(s) (coché(s))")
+
+    # Repli : si aucun "actif" mais des comptes existent avec un solde, on prend
+    # ceux qui ont un solde (certaines configs ne marquent pas disabled).
+    if not actifs:
+        actifs = [a for a in accounts if a.get("balance") is not None]
+        print(f"[powens] _fetch_balance: repli sur {len(actifs)} compte(s) avec solde")
+
+    if not actifs:
+        print("[powens] _fetch_balance: aucun compte exploitable → solde non mis à jour")
         return None
 
-    # Compte principal = plus gros solde.
-    principal = max(candidats, key=lambda a: a.get("balance") or 0)
+    # Si l'utilisateur n'a coché qu'un compte (cas attendu), il est seul → on le prend.
+    # S'il en a coché plusieurs, on privilégie un compte courant ; sinon le plus gros.
+    def est_courant(a):
+        t = (a.get("type") or "").lower()
+        return t in ("checking", "current", "compte courant")
+
+    courants = [a for a in actifs if est_courant(a)]
+    pool = courants if courants else actifs
+    principal = max(pool, key=lambda a: a.get("balance") or 0)
+
     solde = principal.get("balance")
     if solde is None:
         return None
 
+    print(f"[powens] _fetch_balance: compte retenu = {principal.get('name')!r} "
+          f"solde={solde}")
     profile.solde_bancaire = float(solde)
     db.commit()
     return float(solde)
