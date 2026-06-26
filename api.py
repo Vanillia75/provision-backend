@@ -1795,9 +1795,12 @@ def assistant_chat(
                         )
                         if getattr(res, "projection_a_des_contrats_futurs", False):
                             context += (
-                                f"En comptant ses contrats futurs DEJA SAISIS, il serait a "
+                                f"En comptant ses contrats futurs DEJA SAISIS (qui sont, par convention du dossier, "
+                                f"des contrats DEJA SIGNES donc certains), il serait a "
                                 f"{res.projection_avec_prevus_heures}h (il manquerait {res.projection_avec_prevus_manquant}h). "
-                                f"Explique-lui la difference : ce qu'il a deja securise vs ce qu'il a prevu. "
+                                f"Explique-lui la difference : ce qu'il a deja realise/securise vs ce qu'il a deja signe. "
+                                f"Les contrats seulement POSSIBLES ne sont jamais dans le dossier : pour ceux-la, oriente-le "
+                                f"vers le simulateur 'Que se passe-t-il si'. Ne melange jamais le certain et l'hypothetique. "
                             )
                         context += (
                             "IMPORTANT : ne confonds jamais le compteur d'aujourd'hui avec la projection a "
