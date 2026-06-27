@@ -1,0 +1,13 @@
+# Fichiers compilés Python (régénérés automatiquement)
+__pycache__/
+*.pyc
+*.pyo
+
+# Variables d'environnement (secrets : clés API, URL base…)
+.env
+.env.local
+
+# Logs et fichiers système
+*.log
+.DS_Store
+Thumbs.db

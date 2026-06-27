@@ -28,6 +28,7 @@ from auth import (
 from emailing import send_reset_password_email, send_verification_email, send_invoice_email
 from invoice_pdf import generate_invoice_pdf
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
+from projection import projeter_tresorerie
 from invoice_extractor import extract_invoice_data
 from aem_extractor import extract_aem_data
 import r2_storage
@@ -1675,6 +1676,83 @@ def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(g
             "date_limite_declaration": result.periode_precedente.date_limite_declaration,
             "jours_restants": result.periode_precedente.jours_restants,
         },
+    }
+
+
+@app.get("/projection")
+def get_projection(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Projection de trésorerie auto-entrepreneur : « vais-je m'en sortir le mois prochain ? »
+    Calcule deux scénarios (plancher / optimiste) à partir des factures, devis, solde et
+    train de vie déjà en base — aucune donnée stockée, tout recalculé à la demande."""
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile or not profile.onboarding_complete:
+        raise HTTPException(status_code=400, detail="Profil non configure")
+
+    # La projection est propre à l'auto-entrepreneur (l'intermittent a son cockpit 507h).
+    if profile.statut != "auto_entrepreneur":
+        return {"disponible": False, "message": "Ce statut utilise un autre tableau de bord."}
+
+    # Sans solde renseigné, rien à projeter : l'appli affichera « renseigne ton solde ».
+    if profile.solde_bancaire is None:
+        return {"disponible": False}
+
+    # Entrées certaines : factures émises mais pas encore payées.
+    factures = [
+        {
+            "montant": inv.montant,
+            "statut": inv.statut,
+            "date_echeance": inv.date_echeance,
+            "date_paiement": inv.date_paiement,
+            "numero": inv.numero,
+        }
+        for inv in db.query(ClientInvoice)
+        .filter(
+            ClientInvoice.user_id == user.id,
+            ClientInvoice.statut.in_(("envoyee", "impayee")),
+        )
+        .all()
+    ]
+
+    # Entrées probables : devis acceptés (le pipeline).
+    devis = [
+        {"montant": q.montant, "statut": q.statut, "date_validite": q.date_validite}
+        for q in db.query(Quote)
+        .filter(Quote.user_id == user.id, Quote.statut == "accepte")
+        .all()
+    ]
+
+    try:
+        p = projeter_tresorerie(
+            solde=profile.solde_bancaire,
+            depenses_mensuelles=profile.depenses_mensuelles,
+            activite=profile.activite,
+            acre=profile.acre,
+            versement_liberatoire=profile.versement_liberatoire,
+            factures=factures,
+            devis=devis,
+            today=date.today(),
+        )
+    except Exception as e:
+        # Filet : une erreur de calcul ne doit jamais casser le dashboard.
+        raise HTTPException(status_code=422, detail=f"Projection indisponible : {e}")
+
+    return {
+        "disponible": p.disponible,
+        "horizon": p.horizon,
+        "horizon_label": p.horizon_label,
+        "solde_actuel": p.solde_actuel,
+        "plancher": p.plancher,
+        "optimiste": p.optimiste,
+        "nb_mois": p.nb_mois,
+        "detail": {
+            "factures_a_encaisser": {"montant": p.factures_montant, "count": p.factures_count},
+            "devis_probables": {"montant": p.devis_montant, "count": p.devis_count},
+            "train_de_vie": p.train_de_vie,
+            "charges": p.charges,
+        },
+        "ton": p.ton,
+        "message": p.message,
+        "leviers": p.leviers,
     }
 
 
