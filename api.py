@@ -285,6 +285,14 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
     if not profile:
         return {"onboarding_complete": False}
 
+    prem = billing.is_premium(db, user)
+    # Quotas freemium : exposés UNIQUEMENT pour les comptes gratuits (un abonné n'a pas de limite).
+    # used = consommation du mois, limit = vraie valeur d'env (le front masque la jauge si limit > 100).
+    quotas = None if prem else {
+        t: {"used": billing.usage_this_month(db, user.id, t), "limit": billing.free_quota_for(t)}
+        for t in ("chat", "doc_scan", "aem_scan")
+    }
+
     return {
         "statut": profile.statut,
         "activite": profile.activite,
@@ -306,8 +314,9 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "tmi": profile.tmi,
         "email": user.email,
         "email_verified": user.email_verified,
-        "is_premium": billing.is_premium(db, user),
+        "is_premium": prem,
         "premium_source": billing.premium_source(db, user),   # "stripe" | "comp" | None
+        "quotas": quotas,
     }
 
 
