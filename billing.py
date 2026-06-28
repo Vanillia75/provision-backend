@@ -269,6 +269,7 @@ def process_webhook(db: Session, payload: bytes, sig_header: str):
 #  Codes promo (influenceurs + testeurs)
 # ════════════════════════════════════════════════════════════════════════
 def _valid_promo(db: Session, code: str) -> PromoCode | None:
+    code = (code or "").strip().upper()   # robustesse : codes saisis en minuscules sur mobile
     pc = db.query(PromoCode).filter(PromoCode.code == code, PromoCode.active == True).first()  # noqa: E712
     if not pc:
         return None
