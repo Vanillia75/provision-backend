@@ -105,6 +105,16 @@ def get_or_create_subscription(db: Session, user: User) -> Subscription:
     return sub
 
 
+def _g(obj, key, default=None):
+    """Lecture robuste d'un champ Stripe : marche que `obj` soit un dict OU un objet
+    Stripe (StripeObject de stripe-python v15 n'expose plus .get(), seulement l'attribut)."""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
 def _ts_to_dt(ts):
     return datetime.utcfromtimestamp(ts) if ts else None
 
@@ -112,9 +122,9 @@ def _ts_to_dt(ts):
 def _apply_stripe_subscription(db: Session, stripe_sub: dict):
     """Met à jour notre Subscription à partir d'un objet subscription Stripe.
     Idempotent : on ne fait que refléter l'état envoyé par Stripe."""
-    customer_id = stripe_sub.get("customer")
-    sub_id = stripe_sub.get("id")
-    status = stripe_sub.get("status")
+    customer_id = _g(stripe_sub, "customer")
+    sub_id = _g(stripe_sub, "id")
+    status = _g(stripe_sub, "status")
 
     row = (
         db.query(Subscription).filter(Subscription.stripe_subscription_id == sub_id).first()
@@ -123,12 +133,21 @@ def _apply_stripe_subscription(db: Session, stripe_sub: dict):
     if not row:
         return  # aucun user rattaché (ne devrait pas arriver après checkout.completed)
 
+    # current_period_end : au top-level dans les anciennes versions API, sur l'item d'abonnement
+    # dans les versions récentes (2025+). On tente les deux.
+    cpe = _g(stripe_sub, "current_period_end")
+    if cpe is None:
+        items = _g(stripe_sub, "items")
+        data = _g(items, "data") or []
+        if data:
+            cpe = _g(data[0], "current_period_end")
+
     row.stripe_customer_id = customer_id
     row.stripe_subscription_id = sub_id
     row.status = status
     row.plan = "premium" if status in GRANTING_STATUSES else "free"
-    row.current_period_end = _ts_to_dt(stripe_sub.get("current_period_end"))
-    row.cancel_at_period_end = bool(stripe_sub.get("cancel_at_period_end"))
+    row.current_period_end = _ts_to_dt(cpe)
+    row.cancel_at_period_end = bool(_g(stripe_sub, "cancel_at_period_end"))
     row.source = "stripe"
     row.updated_at = datetime.utcnow()
     db.commit()
@@ -212,9 +231,9 @@ def process_webhook(db: Session, payload: bytes, sig_header: str):
     obj = event["data"]["object"]
 
     if etype == "checkout.session.completed":
-        user_id = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("user_id")
-        customer_id = obj.get("customer")
-        sub_id = obj.get("subscription")
+        user_id = _g(obj, "client_reference_id") or _g(_g(obj, "metadata"), "user_id")
+        customer_id = _g(obj, "customer")
+        sub_id = _g(obj, "subscription")
         row = db.query(Subscription).filter(Subscription.user_id == user_id).first() if user_id else None
         if row:
             row.stripe_customer_id = customer_id
