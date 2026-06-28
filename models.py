@@ -280,3 +280,65 @@ class LoginAttempt(Base):
     echecs = Column(Float, nullable=False, default=0)        # nb d'échecs consécutifs
     dernier_echec = Column(DateTime, nullable=True)          # horodatage du dernier échec
     bloque_jusqua = Column(DateTime, nullable=True)          # blocage temporaire jusqu'à
+
+
+# ============================================================================
+#  SUBSCRIPTION — abonnement Stripe d'un utilisateur (1 ligne par user).
+#  SOURCE DE VÉRITÉ du premium, lue par is_premium() (billing.py).
+#  - source="stripe" : abonnement payant classique.
+#  - source="comp"   : premium offert (code testeur), SANS Stripe.
+#  Le premium n'est jamais activé ici à la main : uniquement via le webhook
+#  signé (paiement) ou activate_comp_premium (code testeur).
+# ============================================================================
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+
+    stripe_customer_id = Column(String, nullable=True, index=True)
+    stripe_subscription_id = Column(String, nullable=True, index=True)
+
+    plan = Column(String, nullable=False, default="free")        # "free" | "premium"
+    status = Column(String, nullable=True)                       # statut Stripe, ou "comp"
+    current_period_end = Column(DateTime, nullable=True)         # fin de période payée / offerte
+    cancel_at_period_end = Column(Boolean, nullable=False, default=False)
+    source = Column(String, nullable=False, default="stripe")    # "stripe" | "comp"
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User")
+
+
+# ============================================================================
+#  PROMO CODE — codes maison (influenceurs ET testeurs, même schéma).
+#  - kind="influencer" : réduction appliquée VIA Stripe (stripe_coupon_id).
+#  - kind="tester"     : premium offert DIRECTEMENT, sans carte ni Stripe.
+# ============================================================================
+class PromoCode(Base):
+    __tablename__ = "promo_codes"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    code = Column(String, unique=True, nullable=False, index=True)
+    type = Column(String, nullable=False)                # "free_months" | "percent_off"
+    value = Column(Float, nullable=True)                 # nb de mois OU pourcentage
+    kind = Column(String, nullable=False)                # "influencer" | "tester"
+    influencer_name = Column(String, nullable=True)
+    stripe_coupon_id = Column(String, nullable=True)     # coupon Stripe (codes influenceurs)
+    max_uses = Column(Integer, nullable=True)            # None = illimité
+    times_used = Column(Integer, nullable=False, default=0)
+    active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================================
+#  STRIPE EVENT — déduplication des webhooks (idempotence).
+#  On enregistre l'id de chaque event traité : un même event reçu 2x est ignoré.
+# ============================================================================
+class StripeEvent(Base):
+    __tablename__ = "stripe_events"
+
+    event_id = Column(String, primary_key=True)          # "evt_..."
+    type = Column(String, nullable=True)
+    received_at = Column(DateTime, default=datetime.utcnow)

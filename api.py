@@ -11,7 +11,7 @@ import requests as http_requests
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request, Body
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
@@ -34,6 +34,7 @@ from aem_extractor import extract_aem_data
 import r2_storage
 import intermittent_engine as ie
 from insee_lookup import lookup_siret, SiretLookupError
+import billing
 
 Base.metadata.create_all(bind=engine)
 
@@ -46,6 +47,8 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 # Surchageables par variable d'environnement sans toucher au code.
 AI_CHAT_DAILY_LIMIT = int(os.environ.get("AI_CHAT_DAILY_LIMIT", "40"))
 AI_AEM_DAILY_LIMIT = int(os.environ.get("AI_AEM_DAILY_LIMIT", "15"))
+# Garde-fou anti-abus journalier des scans de justificatifs AE (OCR local, peu coûteux).
+AI_DOC_SCAN_DAILY_LIMIT = int(os.environ.get("AI_DOC_SCAN_DAILY_LIMIT", "30"))
 
 # Taille maximale d'un fichier AEM uploadé (anti-DoS disque/mémoire/coût Vision).
 AEM_MAX_BYTES = int(os.environ.get("AEM_MAX_BYTES", str(10 * 1024 * 1024)))  # 10 Mo
@@ -303,6 +306,7 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "tmi": profile.tmi,
         "email": user.email,
         "email_verified": user.email_verified,
+        "is_premium": billing.is_premium(db, user),
     }
 
 
@@ -516,10 +520,14 @@ def delete_income(
 async def extract_invoice(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
     if not file.filename.lower().endswith(allowed_ext):
         raise HTTPException(status_code=400, detail="Format de fichier non supporte")
+
+    # Quota freemium : scans factures + frais partagent le compteur mensuel "doc_scan".
+    _consommer_quota(db, user, "doc_scan", AI_DOC_SCAN_DAILY_LIMIT)
 
     tmp_dir = tempfile.mkdtemp()
     file_path = os.path.join(tmp_dir, file.filename)
@@ -685,6 +693,30 @@ def _verifier_et_incrementer_quota_ia(db: Session, user_id: str, type_appel: str
     else:
         db.add(AIUsage(user_id=user_id, jour=aujourdhui, type_appel=type_appel, count=1))
     db.commit()
+
+
+def _consommer_quota(db: Session, user: User, type_appel: str, limite_jour: int):
+    """Applique le quota freemium d'une fonction IA/scan.
+
+    - Premium (is_premium == True) : seul le garde-fou anti-abus JOURNALIER s'applique.
+    - Gratuit : limite MENSUELLE d'abord (402 si atteinte → le front propose le Premium),
+      puis le même garde-fou journalier.
+    Le compteur du jour est incrémenté dans tous les cas (alimente le total mensuel).
+    is_premium() reste la SEULE source de vérité.
+    """
+    if not billing.is_premium(db, user):
+        deja_ce_mois = billing.usage_this_month(db, user.id, type_appel)
+        if deja_ce_mois >= billing.free_quota_for(type_appel):
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "code": "quota_gratuit_atteint",
+                    "fonction": type_appel,
+                    "message": "Tu as atteint ton quota gratuit du mois pour cette fonction. "
+                               "Passe en Premium pour la débloquer.",
+                },
+            )
+    _verifier_et_incrementer_quota_ia(db, user.id, type_appel, limite_jour)
 
 
 def _montant_lignes(lignes: list) -> float:
@@ -1416,10 +1448,14 @@ def delete_expense(
 async def extract_expense(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
     if not file.filename.lower().endswith(allowed_ext):
         raise HTTPException(status_code=400, detail="Format de fichier non supporte")
+
+    # Quota freemium : scans factures + frais partagent le compteur mensuel "doc_scan".
+    _consommer_quota(db, user, "doc_scan", AI_DOC_SCAN_DAILY_LIMIT)
 
     tmp_dir = tempfile.mkdtemp()
     file_path = os.path.join(tmp_dir, file.filename)
@@ -1774,8 +1810,8 @@ def assistant_chat(
     if not ANTHROPIC_API_KEY:
         raise HTTPException(status_code=500, detail="Assistant IA non configure")
 
-    # Plafond anti-abus : borne le coût des appels IA par utilisateur et par jour.
-    _verifier_et_incrementer_quota_ia(db, user.id, "chat", AI_CHAT_DAILY_LIMIT)
+    # Quota freemium (mensuel pour les gratuits) + garde-fou anti-abus journalier.
+    _consommer_quota(db, user, "chat", AI_CHAT_DAILY_LIMIT)
 
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     context = ""
@@ -2263,8 +2299,8 @@ async def extract_aem(
     if not file.filename or not file.filename.lower().endswith(allowed_ext):
         raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
 
-    # Plafond anti-abus : borne le coût des appels Vision par utilisateur et par jour.
-    _verifier_et_incrementer_quota_ia(db, user.id, "aem_scan", AI_AEM_DAILY_LIMIT)
+    # Quota freemium (mensuel pour les gratuits) + garde-fou anti-abus journalier.
+    _consommer_quota(db, user, "aem_scan", AI_AEM_DAILY_LIMIT)
 
     tmp_dir = tempfile.mkdtemp()
     file_path = os.path.join(tmp_dir, os.path.basename(file.filename))
@@ -2499,6 +2535,71 @@ def simuler_contrat_intermittent(
         date_anniversaire=date_anniv,
     )
     return sim
+
+
+# ════════════════════════════════════════════════════════════════════════
+#  BILLING — abonnement Stripe. Toute la logique vit dans billing.py.
+#  Garde-fou clé : le premium ne s'active QUE via /billing/webhook (signé).
+# ════════════════════════════════════════════════════════════════════════
+class CheckoutRequest(BaseModel):
+    promo_code: Optional[str] = None
+
+
+class PromoRequest(BaseModel):
+    code: str
+
+
+@app.post("/billing/create-checkout-session")
+def billing_create_checkout(
+    req: CheckoutRequest = Body(default=CheckoutRequest()),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Crée une Checkout Session Stripe (abonnement récurrent). Renvoie l'URL à ouvrir."""
+    try:
+        url = billing.create_checkout_session(db, user, req.promo_code)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Stripe: {e}")
+    return {"url": url}
+
+
+@app.post("/billing/create-portal-session")
+def billing_create_portal(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Customer Portal : l'utilisateur gère / annule lui-même son abonnement."""
+    try:
+        url = billing.create_portal_session(db, user)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Stripe: {e}")
+    return {"url": url}
+
+
+@app.post("/billing/webhook")
+async def billing_webhook(request: Request, db: Session = Depends(get_db)):
+    """Webhook Stripe — signature vérifiée + idempotence (dans billing.process_webhook).
+    SEUL endroit qui active/désactive le premium suite à un paiement."""
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    try:
+        return billing.process_webhook(db, payload, sig)
+    except Exception as e:
+        # Signature invalide / payload illisible / erreur de traitement → 400.
+        # Stripe réémettra l'event (le traitement est idempotent).
+        raise HTTPException(status_code=400, detail=f"Webhook rejeté: {type(e).__name__}")
+
+
+@app.post("/billing/apply-promo")
+def billing_apply_promo(
+    req: PromoRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Code maison : 'tester' active le premium directement, 'influencer' renvoie le coupon."""
+    return billing.apply_promo(db, user, (req.code or "").strip())
 
 
 @app.get("/health")
