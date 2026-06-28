@@ -28,6 +28,19 @@ STRIPE_PRICE_PREMIUM = os.environ.get("STRIPE_PRICE_PREMIUM", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://hector-app.fr")
 
+# Domaines autorisés pour le retour de paiement. On renvoie l'utilisateur EXACTEMENT sur
+# le domaine d'où il vient (pour préserver sa session/localStorage), mais jamais sur une
+# URL arbitraire (sécurité : pas d'open redirect via Stripe).
+ALLOWED_RETURN_ORIGINS = {
+    "https://hector-app.fr",
+    "https://www.hector-app.fr",
+    "http://localhost:5173",
+}
+
+
+def _safe_return_base(origin: str | None) -> str:
+    return origin if (origin and origin in ALLOWED_RETURN_ORIGINS) else FRONTEND_URL
+
 # ── Quotas freemium MENSUELS (surchargeables par env) ──
 FREE_AEM_SCAN_PER_MONTH = int(os.environ.get("FREE_AEM_SCAN_PER_MONTH", "2"))
 FREE_CHAT_PER_MONTH = int(os.environ.get("FREE_CHAT_PER_MONTH", "3"))
@@ -136,17 +149,22 @@ def activate_comp_premium(db: Session, user: User, months: int = 12):
 # ════════════════════════════════════════════════════════════════════════
 #  Checkout & Portal
 # ════════════════════════════════════════════════════════════════════════
-def create_checkout_session(db: Session, user: User, promo_code: str | None = None) -> str:
+def create_checkout_session(db: Session, user: User, promo_code: str | None = None,
+                            app_mode: str | None = None, origin: str | None = None) -> str:
     """Crée une Checkout Session (abonnement récurrent) et renvoie son URL.
-    NB : l'activation du premium se fera au WEBHOOK, pas au retour de cette URL."""
+    NB : l'activation du premium se fera au WEBHOOK, pas au retour de cette URL.
+    `app_mode` (auto_entrepreneur/intermittent) et `origin` permettent de revenir sur le
+    bon domaine ET dans le bon mode après le paiement."""
     sub = get_or_create_subscription(db, user)
 
+    base = _safe_return_base(origin)
+    mode_q = f"&mode={app_mode}" if app_mode else ""
     params = {
         "mode": "subscription",
         "line_items": [{"price": STRIPE_PRICE_PREMIUM, "quantity": 1}],
         "client_reference_id": user.id,
-        "success_url": f"{FRONTEND_URL}/?billing=success",
-        "cancel_url": f"{FRONTEND_URL}/?billing=cancel",
+        "success_url": f"{base}/?billing=success{mode_q}",
+        "cancel_url": f"{base}/?billing=cancel",
         "metadata": {"user_id": user.id},
         "subscription_data": {"metadata": {"user_id": user.id}},
     }

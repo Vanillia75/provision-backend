@@ -2543,6 +2543,8 @@ def simuler_contrat_intermittent(
 # ════════════════════════════════════════════════════════════════════════
 class CheckoutRequest(BaseModel):
     promo_code: Optional[str] = None
+    mode: Optional[str] = None      # "auto_entrepreneur" | "intermittent" (pour revenir dans le bon mode)
+    origin: Optional[str] = None    # origine du front (pour revenir sur le bon domaine)
 
 
 class PromoRequest(BaseModel):
@@ -2557,7 +2559,7 @@ def billing_create_checkout(
 ):
     """Crée une Checkout Session Stripe (abonnement récurrent). Renvoie l'URL à ouvrir."""
     try:
-        url = billing.create_checkout_session(db, user, req.promo_code)
+        url = billing.create_checkout_session(db, user, req.promo_code, app_mode=req.mode, origin=req.origin)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Stripe: {e}")
     return {"url": url}
@@ -2587,9 +2589,13 @@ async def billing_webhook(request: Request, db: Session = Depends(get_db)):
     try:
         return billing.process_webhook(db, payload, sig)
     except Exception as e:
+        # On LOGGE l'exception exacte (visible dans les logs Railway) pour diagnostic.
+        import traceback
+        print(f"[WEBHOOK ERROR] {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc()
         # Signature invalide / payload illisible / erreur de traitement → 400.
         # Stripe réémettra l'event (le traitement est idempotent).
-        raise HTTPException(status_code=400, detail=f"Webhook rejeté: {type(e).__name__}")
+        raise HTTPException(status_code=400, detail=f"Webhook rejeté: {type(e).__name__}: {e}")
 
 
 @app.post("/billing/apply-promo")
