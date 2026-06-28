@@ -153,16 +153,27 @@ def _apply_stripe_subscription(db: Session, stripe_sub: dict):
     db.commit()
 
 
-def activate_comp_premium(db: Session, user: User, months: int = 12):
-    """Premium OFFERT (code testeur) : actif tout de suite, SANS Stripe."""
+def activate_comp_premium(db: Session, user: User, months=None):
+    """Premium OFFERT (code testeur) : actif tout de suite, SANS Stripe.
+    months=None => premium À VIE : current_period_end reste NULL, donc is_premium()
+    renvoie True indéfiniment (aucune expiration)."""
     sub = get_or_create_subscription(db, user)
     sub.plan = "premium"
     sub.status = "comp"
     sub.source = "comp"
-    sub.current_period_end = datetime.utcnow() + timedelta(days=30 * months)
+    sub.current_period_end = None if months is None else (datetime.utcnow() + timedelta(days=30 * months))
     sub.cancel_at_period_end = False
     sub.updated_at = datetime.utcnow()
     db.commit()
+
+
+def premium_source(db: Session, user: User):
+    """'stripe' | 'comp' | None — d'où vient le premium (pour adapter l'UI :
+    un premium 'comp' (offert) n'a pas d'abonnement Stripe à gérer)."""
+    if not is_premium(db, user):
+        return None
+    sub = db.query(Subscription).filter(Subscription.user_id == user.id).first()
+    return sub.source if sub else None
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -276,11 +287,15 @@ def apply_promo(db: Session, user: User, code: str) -> dict:
         return {"ok": False, "reason": "code_invalide"}
 
     if pc.kind == "tester":
-        months = int(pc.value) if (pc.type == "free_months" and pc.value) else 12
-        activate_comp_premium(db, user, months=months)
-        pc.times_used += 1
+        if pc.type == "lifetime":
+            activate_comp_premium(db, user, months=None)   # premium à vie
+            months = None
+        else:
+            months = int(pc.value) if pc.value else 12
+            activate_comp_premium(db, user, months=months)
+        pc.times_used += 1   # usage unique : avec max_uses=1, le code devient invalide ensuite
         db.commit()
-        return {"ok": True, "kind": "tester", "premium": True, "months": months}
+        return {"ok": True, "kind": "tester", "premium": True, "months": months, "lifetime": pc.type == "lifetime"}
 
     # influenceur : on ne touche pas au premium ici, on l'appliquera au Checkout.
     return {"ok": True, "kind": "influencer", "premium": False, "coupon": pc.stripe_coupon_id}

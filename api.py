@@ -307,6 +307,7 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "email": user.email,
         "email_verified": user.email_verified,
         "is_premium": billing.is_premium(db, user),
+        "premium_source": billing.premium_source(db, user),   # "stripe" | "comp" | None
     }
 
 
