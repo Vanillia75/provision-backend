@@ -14,6 +14,7 @@ is_premium() est la SEULE source de vérité pour les quotas.
 """
 
 import os
+import re
 from datetime import datetime, timedelta
 
 import stripe
@@ -268,14 +269,24 @@ def process_webhook(db: Session, payload: bytes, sig_header: str):
 # ════════════════════════════════════════════════════════════════════════
 #  Codes promo (influenceurs + testeurs)
 # ════════════════════════════════════════════════════════════════════════
+def _canon(code: str) -> str:
+    """Forme canonique d'un code : alphanumérique seul, en majuscules.
+    Insensible à la casse, aux espaces ET aux séparateurs.
+    "vip-0001", "VIP 0001", "VIP-0001", "VIP0001", "vip_0001" → tous "VIP0001"."""
+    return re.sub(r"[^A-Z0-9]", "", (code or "").upper())
+
+
 def _valid_promo(db: Session, code: str) -> PromoCode | None:
-    code = (code or "").strip().upper()   # robustesse : codes saisis en minuscules sur mobile
-    pc = db.query(PromoCode).filter(PromoCode.code == code, PromoCode.active == True).first()  # noqa: E712
-    if not pc:
+    canon = _canon(code)
+    if not canon:
         return None
-    if pc.max_uses is not None and pc.times_used >= pc.max_uses:
-        return None
-    return pc
+    # Table minuscule (quelques dizaines de codes) → comparaison sur forme canonique.
+    for pc in db.query(PromoCode).filter(PromoCode.active == True).all():  # noqa: E712
+        if _canon(pc.code) == canon:
+            if pc.max_uses is not None and pc.times_used >= pc.max_uses:
+                return None
+            return pc
+    return None
 
 
 def apply_promo(db: Session, user: User, code: str) -> dict:
