@@ -908,7 +908,9 @@ def delete_invoice(
 def _build_emitter_info(profile: Optional[Profile]) -> dict:
     if not profile:
         return {"nom": None, "adresse": None, "siret": None, "mention": None}
-    nom = profile.entreprise or f"{profile.prenom or ''} {profile.nom or ''}".strip() or None
+    # Nom émetteur : nom commercial saisi, sinon raison sociale (lookup SIRET/INSEE écrit
+    # `raison_sociale`, pas `entreprise`), sinon « Prénom Nom ».
+    nom = profile.entreprise or profile.raison_sociale or f"{profile.prenom or ''} {profile.nom or ''}".strip() or None
     # Mention légale « EI » obligatoire pour les entrepreneurs individuels (auto-entrepreneurs).
     nom = append_ei_mention(nom, profile.statut)
     mention = (
@@ -1033,9 +1035,14 @@ def send_invoice(
     if not inv.client_email:
         raise HTTPException(status_code=400, detail="Aucun email client renseigne sur cette facture")
 
-    # Mention légale « EI » sur l'émetteur de l'email, alignée sur le PDF.
+    # Émetteur de l'email : on PRÉSERVE un nom éventuellement fourni par le front (en lui
+    # ajoutant la mention « EI ») ; s'il est vide, on le dérive du profil serveur (repli sur
+    # raison_sociale + EI), comme le PDF. Aucune saisie n'est jamais écrasée.
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
-    req.emitter_nom = append_ei_mention(req.emitter_nom, profile.statut if profile else None)
+    req.emitter_nom = (
+        append_ei_mention(req.emitter_nom, profile.statut if profile else None)
+        if req.emitter_nom else _build_emitter_info(profile)["nom"]
+    )
 
     html = _build_invoice_email_html(inv, req)
     ok = send_invoice_email(inv.client_email, f"Facture {inv.numero}", html)
@@ -1300,9 +1307,14 @@ def send_quote(
     if not q.client_email:
         raise HTTPException(status_code=400, detail="Aucun email client renseigne sur ce devis")
 
-    # Mention légale « EI » sur l'émetteur de l'email, alignée sur le PDF.
+    # Émetteur de l'email : on PRÉSERVE un nom éventuellement fourni par le front (en lui
+    # ajoutant la mention « EI ») ; s'il est vide, on le dérive du profil serveur (repli sur
+    # raison_sociale + EI), comme le PDF. Aucune saisie n'est jamais écrasée.
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
-    req.emitter_nom = append_ei_mention(req.emitter_nom, profile.statut if profile else None)
+    req.emitter_nom = (
+        append_ei_mention(req.emitter_nom, profile.statut if profile else None)
+        if req.emitter_nom else _build_emitter_info(profile)["nom"]
+    )
 
     html = _build_quote_email_html(q, req)
     ok = send_invoice_email(q.client_email, f"Devis {q.numero}", html)
