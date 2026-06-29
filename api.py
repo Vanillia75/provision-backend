@@ -20,13 +20,14 @@ from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
 from database import Base, engine, get_db
-from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt
+from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt, FiscalSettings
 from auth import (
     hash_password, verify_password, create_token, get_current_user,
     create_purpose_token, verify_purpose_token,
 )
 from emailing import send_reset_password_email, send_verification_email, send_invoice_email
 from invoice_pdf import generate_invoice_pdf
+from legal_mentions import get_franchise_vat_mention, append_ei_mention, resolve_fiscal_settings
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from projection import projeter_tresorerie
 from invoice_extractor import extract_invoice_data
@@ -908,11 +909,24 @@ def _build_emitter_info(profile: Optional[Profile]) -> dict:
     if not profile:
         return {"nom": None, "adresse": None, "siret": None, "mention": None}
     nom = profile.entreprise or f"{profile.prenom or ''} {profile.nom or ''}".strip() or None
+    # Mention légale « EI » obligatoire pour les entrepreneurs individuels (auto-entrepreneurs).
+    nom = append_ei_mention(nom, profile.statut)
     mention = (
         "Auto-entrepreneur, dispensé d'immatriculation au RCS et au RM"
         if profile.statut == "auto_entrepreneur" else None
     )
     return {"nom": nom, "adresse": profile.adresse, "siret": profile.siret, "mention": mention}
+
+
+def _read_fiscal_settings(db: Session, user_id: str) -> dict:
+    """
+    Lecture des paramètres fiscaux de facturation d'un utilisateur, avec fallback
+    franchise si aucune ligne n'existe. Réservé à la FACTURATION (les moteurs
+    fiscaux n'y touchent jamais). Préparé pour la PR 2 : dans cette PR, la
+    facturation reste toujours en franchise et ne branche pas encore sur ce mode.
+    """
+    row = db.query(FiscalSettings).filter(FiscalSettings.user_id == user_id).first()
+    return resolve_fiscal_settings(row)
 
 
 @app.get("/invoices/{invoice_id}/pdf")
@@ -1000,7 +1014,7 @@ def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest") -> 
       <div style="text-align:right; margin-top:16px; font-size:16px; font-weight:700; color:#0A2540;">
         Total TTC : {inv.montant:.2f} €
       </div>
-      <p style="color:#8BA5C0; font-size:11px; margin-top:24px;">TVA non applicable — article 293 B du CGI.</p>
+      <p style="color:#8BA5C0; font-size:11px; margin-top:24px;">{e(get_franchise_vat_mention(inv.date_emission))}</p>
       {f'<p style="color:#6B7A8D; font-size:12px;">{e(inv.notes)}</p>' if inv.notes else ""}
     </div>
     """
@@ -1018,6 +1032,10 @@ def send_invoice(
         raise HTTPException(status_code=404, detail="Facture introuvable")
     if not inv.client_email:
         raise HTTPException(status_code=400, detail="Aucun email client renseigne sur cette facture")
+
+    # Mention légale « EI » sur l'émetteur de l'email, alignée sur le PDF.
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    req.emitter_nom = append_ei_mention(req.emitter_nom, profile.statut if profile else None)
 
     html = _build_invoice_email_html(inv, req)
     ok = send_invoice_email(inv.client_email, f"Facture {inv.numero}", html)
@@ -1263,7 +1281,7 @@ def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest") -> str:
       <div style="text-align:right; margin-top:16px; font-size:16px; font-weight:700; color:#0A2540;">
         Total TTC : {q.montant:.2f} €
       </div>
-      <p style="color:#8BA5C0; font-size:11px; margin-top:24px;">TVA non applicable — article 293 B du CGI.</p>
+      <p style="color:#8BA5C0; font-size:11px; margin-top:24px;">{e(get_franchise_vat_mention(q.date_emission))}</p>
       {f'<p style="color:#6B7A8D; font-size:12px;">{e(q.notes)}</p>' if q.notes else ""}
     </div>
     """
@@ -1281,6 +1299,10 @@ def send_quote(
         raise HTTPException(status_code=404, detail="Devis introuvable")
     if not q.client_email:
         raise HTTPException(status_code=400, detail="Aucun email client renseigne sur ce devis")
+
+    # Mention légale « EI » sur l'émetteur de l'email, alignée sur le PDF.
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    req.emitter_nom = append_ei_mention(req.emitter_nom, profile.statut if profile else None)
 
     html = _build_quote_email_html(q, req)
     ok = send_invoice_email(q.client_email, f"Devis {q.numero}", html)

@@ -12,6 +12,8 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
+from legal_mentions import get_franchise_vat_mention
+
 INK = colors.HexColor("#0A2540")
 GREY = colors.HexColor("#6B7A8D")
 LIGHT = colors.HexColor("#F7F9F5")
@@ -107,7 +109,7 @@ def generate_invoice_pdf(invoice: dict, emitter: dict) -> bytes:
     totals_table = Table(
         [
             ["Total HT", f"{montant:.2f} €"],
-            ["TVA non applicable — art. 293 B du CGI", "0,00 €"],
+            [get_franchise_vat_mention(invoice.get("date_emission")), "0,00 €"],
             ["Total TTC", f"{montant:.2f} €"],
         ],
         colWidths=[140 * mm, 30 * mm],

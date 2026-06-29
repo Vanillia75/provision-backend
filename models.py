@@ -44,6 +44,9 @@ class User(Base):
     ai_usage = relationship(
         "AIUsage", back_populates="user", cascade="all, delete-orphan"
     )
+    fiscal_settings = relationship(
+        "FiscalSettings", uselist=False, back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Profile(Base):
@@ -86,6 +89,28 @@ class Profile(Base):
     powens_connection_id = Column(Integer, nullable=True)
 
     user = relationship("User", back_populates="profile")
+
+
+class FiscalSettings(Base):
+    """
+    Paramètres fiscaux liés à la FACTURATION uniquement, isolés du moteur fiscal.
+
+    Relation 1-1 avec l'utilisateur. Lu UNIQUEMENT par la facturation (jamais par
+    tax_engine.py ni intermittent_engine.py). Un compte sans ligne ici est traité
+    en franchise (voir legal_mentions.resolve_fiscal_settings). Table additive :
+    sa création ne touche aucune table existante.
+    """
+    __tablename__ = "fiscal_settings"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id"), unique=True, nullable=False)
+
+    # "franchise" (par défaut) | "assujetti"
+    vat_mode = Column(String, nullable=False, default="franchise")
+    vat_rate = Column(Float, nullable=False, default=20.0)
+    vat_number = Column(String, nullable=True)
+
+    user = relationship("User", back_populates="fiscal_settings")
 
 
 class IncomeEntry(Base):
