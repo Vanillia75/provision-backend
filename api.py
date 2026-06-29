@@ -412,6 +412,7 @@ class SettingsRequest(BaseModel):
     reserve_securite: Optional[float] = None
     tmi: Optional[str] = None
     versement_liberatoire: Optional[bool] = None
+    activite: Optional[str] = None
 
 
 @app.post("/profile/settings")
@@ -431,6 +432,10 @@ def save_settings(
         profile.tmi = req.tmi
     if req.versement_liberatoire is not None:
         profile.versement_liberatoire = req.versement_liberatoire
+    if req.activite is not None:
+        if req.activite not in ("vente", "services", "bnc"):
+            raise HTTPException(status_code=400, detail="Activité inconnue")
+        profile.activite = req.activite
 
     db.commit()
     return {"ok": True}
@@ -1653,6 +1658,7 @@ def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(g
         return {
             "statut": profile.statut,
             "disponible": False,
+            "reason": "statut_a_venir",
             "message": f"Le statut {profile.statut.upper()} arrive bientot. "
             f"On vous previent des qu'il est pret.",
         }
@@ -1663,15 +1669,17 @@ def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(g
         return {
             "statut": profile.statut,
             "disponible": False,
+            "reason": "statut_autre",
             "message": "Ce statut utilise un autre tableau de bord.",
         }
 
     # Garde-fou : sans activite renseignee, tax_engine ne peut pas calculer.
-    # On invite a completer le profil plutot que de planter le dashboard.
+    # reason="activite_manquante" → le front affiche la modale de choix d'activite (jamais "pas de revenu").
     if not profile.activite:
         return {
             "statut": profile.statut,
             "disponible": False,
+            "reason": "activite_manquante",
             "message": "Renseigne ton type d'activite dans ton profil pour activer ton estimation.",
         }
 
