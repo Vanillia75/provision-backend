@@ -61,6 +61,7 @@ class Profile(Base):
     # Date anniversaire des droits intermittent (échéance de renouvellement).
     # Saisie par l'utilisateur. Nullable : seuls les profils intermittents l'utilisent.
     date_anniversaire = Column(Date, nullable=True)
+    montant_journalier = Column(Float, nullable=True)   # allocation journalière lue sur l'ARE, jamais recalculée
     onboarding_complete = Column(Boolean, default=False)
 
     siret = Column(String, nullable=True, index=True)

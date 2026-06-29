@@ -57,6 +57,88 @@ Règles importantes :
 - Réponds en JSON pur (une liste []), rien d'autre."""
 
 
+PROMPT_ARE = """Tu lis une attestation/notification France Travail (ARE — Allocation de Retour à l'Emploi) d'un intermittent du spectacle français.
+
+Trouve DEUX informations :
+1. La DATE ANNIVERSAIRE : la date de prochain réexamen / renouvellement / réadmission des droits. Elle est souvent libellée "date anniversaire", "date de fin de droits", "fin de droits", "prochaine date de réexamen". Format YYYY-MM-DD.
+2. Le MONTANT JOURNALIER brut de l'allocation : l'allocation journalière (AJ), parfois "montant journalier brut" ou "allocation journalière brute", en euros.
+
+Réponds STRICTEMENT en JSON, sans aucun texte autour, sans Markdown :
+{"date_anniversaire": "YYYY-MM-DD" ou null, "montant_journalier": nombre ou null}
+
+Règles :
+- Si une info est absente ou illisible, mets null. Ne devine jamais.
+- "montant_journalier" : un nombre (ex : 52.34), sans symbole € ni texte.
+- Réponds en JSON pur, rien d'autre."""
+
+
+def extract_are_data(file_path: str) -> dict:
+    """Lit une attestation ARE via Claude Vision → {date_anniversaire, montant_journalier, filename}."""
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("Lecture d'attestation indisponible : clé API non configurée.")
+
+    import requests
+
+    media_type, b64, kind = _encode_file(file_path)
+    if kind == "document":
+        source_block = {"type": "document", "source": {"type": "base64", "media_type": media_type, "data": b64}}
+    else:
+        source_block = {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}}
+
+    resp = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json={
+            "model": MODEL,
+            "max_tokens": 600,
+            "messages": [{"role": "user", "content": [source_block, {"type": "text", "text": PROMPT_ARE}]}],
+        },
+        timeout=60,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"Lecture impossible (code {resp.status_code}).")
+
+    body = resp.json()
+    parts = [b.get("text", "") for b in body.get("content", []) if b.get("type") == "text"]
+    raw = _clean_json("".join(parts))
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        raise RuntimeError("Je n'ai pas réussi à lire cette attestation. Essaie une photo plus nette, ou saisis à la main.")
+
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    if not isinstance(data, dict):
+        raise RuntimeError("Lecture impossible : format inattendu. Saisis à la main.")
+
+    # Normalisation : date stricte YYYY-MM-DD, montant en float.
+    da = data.get("date_anniversaire")
+    date_anniv = None
+    if isinstance(da, str) and da.strip():
+        try:
+            datetime.strptime(da.strip()[:10], "%Y-%m-%d")
+            date_anniv = da.strip()[:10]
+        except ValueError:
+            date_anniv = None
+
+    mj = data.get("montant_journalier")
+    montant = None
+    if isinstance(mj, (int, float)):
+        montant = float(mj)
+    elif isinstance(mj, str):
+        s = mj.replace("€", "").replace(",", ".").strip()
+        try:
+            montant = float(s)
+        except ValueError:
+            montant = None
+
+    return {"date_anniversaire": date_anniv, "montant_journalier": montant, "filename": os.path.basename(file_path)}
+
+
 def _encode_file(file_path: str):
     """Retourne (media_type, base64, kind) où kind est 'image' ou 'document' (pdf)."""
     ext = os.path.splitext(file_path)[1].lower()

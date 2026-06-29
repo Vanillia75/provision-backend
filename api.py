@@ -30,7 +30,7 @@ from invoice_pdf import generate_invoice_pdf
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from projection import projeter_tresorerie
 from invoice_extractor import extract_invoice_data
-from aem_extractor import extract_aem_data
+from aem_extractor import extract_aem_data, extract_are_data
 import r2_storage
 import intermittent_engine as ie
 from insee_lookup import lookup_siret, SiretLookupError
@@ -2193,6 +2193,7 @@ class IntermittentActiviteRequest(BaseModel):
 
 class DateAnniversaireRequest(BaseModel):
     date_anniversaire: Optional[date] = None
+    montant_journalier: Optional[float] = None
 
 
 class SimulationContratRequest(BaseModel):
@@ -2359,6 +2360,52 @@ async def extract_aem(
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+@app.post("/intermittent/are/extract")
+async def extract_are(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Lit une attestation France Travail (ARE) via Claude Vision : date anniversaire +
+    montant journalier. Ne stocke rien — le front affiche pour vérification, puis confirme
+    via /profile/date-anniversaire. Action ponctuelle → simple garde-fou anti-abus journalier
+    (pas de quota freemium, pour ne pas pénaliser l'inscription)."""
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+    if not file.filename or not file.filename.lower().endswith(allowed_ext):
+        raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
+
+    _verifier_et_incrementer_quota_ia(db, user.id, "are_scan", AI_AEM_DAILY_LIMIT)
+
+    tmp_dir = tempfile.mkdtemp()
+    file_path = os.path.join(tmp_dir, os.path.basename(file.filename))
+    try:
+        taille = 0
+        with open(file_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1 Mo
+                if not chunk:
+                    break
+                taille += len(chunk)
+                if taille > AEM_MAX_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Fichier trop volumineux (max {AEM_MAX_BYTES // (1024*1024)} Mo). "
+                               "Réduis la taille de la photo et réessaie.",
+                    )
+                f.write(chunk)
+
+        try:
+            data = extract_are_data(file_path)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=str(e) or "Impossible de lire cette attestation.")
+
+        return data
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 @app.put("/intermittent/activite/{activite_id}")
 def update_intermittent_activite(
     activite_id: str,
@@ -2456,8 +2503,12 @@ def save_date_anniversaire(
     if not profile:
         raise HTTPException(status_code=404, detail="Profil introuvable")
     profile.date_anniversaire = req.date_anniversaire
+    # Montant journalier : on ne l'écrase que s'il est fourni (None côté requête = champ
+    # absent → on garde l'existant ; le front l'envoie explicitement quand il vient de l'ARE).
+    if req.montant_journalier is not None:
+        profile.montant_journalier = req.montant_journalier
     db.commit()
-    return {"ok": True, "date_anniversaire": profile.date_anniversaire}
+    return {"ok": True, "date_anniversaire": profile.date_anniversaire, "montant_journalier": profile.montant_journalier}
 
 
 # Statuts de compte gérés par H€CTOR (verticales du moteur de décision).
@@ -2518,7 +2569,10 @@ def get_intermittent_cockpit(
         aujourdhui=date.today(),
         date_anniversaire=date_anniv,
     )
-    return _resultat_vers_dict(res)
+    out = _resultat_vers_dict(res)
+    # Montant journalier (lu sur l'ARE, stocké sur le profil) — affiché tel quel au cockpit.
+    out["montant_journalier"] = profile.montant_journalier if profile else None
+    return out
 
 
 @app.post("/intermittent/simuler")
