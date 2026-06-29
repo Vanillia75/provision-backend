@@ -411,6 +411,7 @@ def save_solde(
 class SettingsRequest(BaseModel):
     reserve_securite: Optional[float] = None
     tmi: Optional[str] = None
+    versement_liberatoire: Optional[bool] = None
 
 
 @app.post("/profile/settings")
@@ -428,6 +429,8 @@ def save_settings(
         profile.reserve_securite = req.reserve_securite
     if req.tmi is not None:
         profile.tmi = req.tmi
+    if req.versement_liberatoire is not None:
+        profile.versement_liberatoire = req.versement_liberatoire
 
     db.commit()
     return {"ok": True}
