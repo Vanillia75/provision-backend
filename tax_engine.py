@@ -37,6 +37,7 @@ AUTO_ENTREPRENEUR_RATES = {
         "liberatoire": 0.01,    # 1 %
         "plafond": 203100,
         "seuil_tva": 85000,
+        "seuil_tva_majore": 93500,
     },
     "services": {
         "cotisations": 0.212,   # 21,2 %
@@ -44,6 +45,7 @@ AUTO_ENTREPRENEUR_RATES = {
         "liberatoire": 0.017,   # 1,7 %
         "plafond": 83600,
         "seuil_tva": 37500,
+        "seuil_tva_majore": 41250,
     },
     "bnc": {
         "cotisations": 0.256,   # 25,6 % (hausse 2026 : 24,6 % → 25,6 % au 01/01/2026)
@@ -51,6 +53,7 @@ AUTO_ENTREPRENEUR_RATES = {
         "liberatoire": 0.022,   # 2,2 %
         "plafond": 83600,
         "seuil_tva": 37500,
+        "seuil_tva_majore": 41250,
     },
 }
 
