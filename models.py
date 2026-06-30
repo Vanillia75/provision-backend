@@ -215,6 +215,10 @@ class ClientInvoice(Base):
     vat_rate = Column(Float, nullable=True)
     vat_number = Column(String, nullable=True)
 
+    # Le TTC encaissé a-t-il été ajouté au solde bancaire (sur confirmation explicite) ?
+    # NULL/false = pas intégré (factures anciennes incluses). Empêche tout double-ajout.
+    solde_integre = Column(Boolean, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="client_invoices")

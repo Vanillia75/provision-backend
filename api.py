@@ -802,6 +802,7 @@ def _invoice_to_dict(inv: ClientInvoice) -> dict:
         "vat_mode": inv.vat_mode,
         "vat_rate": inv.vat_rate,
         "vat_number": inv.vat_number,
+        "solde_integre": bool(inv.solde_integre),
     }
 
 
@@ -941,6 +942,70 @@ def update_invoice_status(
     db.commit()
     db.refresh(inv)
     return _invoice_to_dict(inv)
+
+
+def _invoice_ttc(inv: ClientInvoice) -> float:
+    """TTC encaissé d'une facture, calculé sur son régime TVA FIGÉ (snapshot).
+    En franchise : TTC = HT. En assujetti : TTC = HT × (1 + taux). montant reste le HT."""
+    return compute_invoice_totals(inv.montant, resolve_fiscal_settings(inv))["ttc"]
+
+
+@app.post("/invoices/{invoice_id}/integrate-solde")
+def integrate_invoice_solde(
+    invoice_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Ajoute le TTC encaissé d'une facture PAYÉE au solde bancaire (incrément), sur action
+    EXPLICITE de l'utilisateur. Idempotent : refuse si déjà intégrée. N'affecte JAMAIS le
+    CA URSSAF (/estimate lit `montant` = HT, jamais le solde).
+    """
+    inv = db.query(ClientInvoice).filter(ClientInvoice.id == invoice_id, ClientInvoice.user_id == user.id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    if inv.statut != "payee":
+        raise HTTPException(status_code=400, detail="La facture doit être payée pour être ajoutée au solde")
+    if inv.solde_integre:
+        raise HTTPException(status_code=409, detail="Cette facture a déjà été ajoutée au solde")
+
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=400, detail="Profil introuvable")
+
+    ttc = _invoice_ttc(inv)
+    profile.solde_bancaire = round((profile.solde_bancaire or 0) + ttc, 2)
+    inv.solde_integre = True
+    db.commit()
+    return {"solde_bancaire": profile.solde_bancaire, "montant_ajoute": ttc}
+
+
+@app.post("/invoices/{invoice_id}/retire-solde")
+def retire_invoice_solde(
+    invoice_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Retire du solde le TTC d'une facture précédemment intégrée (ex. on la dé-paie), sur
+    action EXPLICITE. Idempotent : refuse si pas intégrée. Le TTC vient du snapshot figé,
+    donc le retrait égale exactement l'ajout.
+    """
+    inv = db.query(ClientInvoice).filter(ClientInvoice.id == invoice_id, ClientInvoice.user_id == user.id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    if not inv.solde_integre:
+        raise HTTPException(status_code=409, detail="Cette facture n'a pas été ajoutée au solde")
+
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=400, detail="Profil introuvable")
+
+    ttc = _invoice_ttc(inv)
+    profile.solde_bancaire = round((profile.solde_bancaire or 0) - ttc, 2)
+    inv.solde_integre = False
+    db.commit()
+    return {"solde_bancaire": profile.solde_bancaire, "montant_retire": ttc}
 
 
 @app.delete("/invoices/{invoice_id}")
