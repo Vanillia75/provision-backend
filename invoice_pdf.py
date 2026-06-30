@@ -21,16 +21,20 @@ LINE = colors.HexColor("#DDE5EE")
 LINE_LIGHT = colors.HexColor("#EEF2F7")
 
 
-def generate_invoice_pdf(invoice: dict, emitter: dict, fiscal: dict = None) -> bytes:
+def generate_invoice_pdf(invoice: dict, emitter: dict, fiscal: dict = None, kind: str = "facture") -> bytes:
     """
-    invoice : dict produit par _invoice_to_dict (numero, client_nom, client_email,
-        client_adresse, date_emission, date_echeance, montant, lignes, notes)
+    invoice : dict produit par _invoice_to_dict / _quote_to_dict (numero, client_*,
+        date_emission, date_echeance OU date_validite, montant, lignes, notes)
     emitter : dict avec les cles "nom", "adresse", "siret", "mention" (mention
         juridique optionnelle, ex: dispense d'immatriculation)
     fiscal  : dict des parametres TVA (vat_mode, vat_rate, vat_number). None => franchise.
         Sert UNIQUEMENT a l'affichage des totaux ; `invoice["montant"]` reste le HT.
+    kind    : "facture" (defaut) ou "devis". Ne change QUE le titre et la ligne de dates ;
+        tout le reste (emetteur, client, totaux, mentions) est identique. Le defaut garantit
+        que le PDF facture reste inchange.
     Renvoie les octets bruts du PDF genere.
     """
+    is_devis = (kind == "devis")
     totals = compute_invoice_totals(invoice.get("montant", 0) or 0, fiscal, invoice.get("date_emission"))
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -50,7 +54,7 @@ def generate_invoice_pdf(invoice: dict, emitter: dict, fiscal: dict = None) -> b
     # les balises (<b>, <br/>...). On échappe pour éviter toute injection de balise.
     e = lambda v: html.escape(str(v)) if v is not None else ""
 
-    story.append(Paragraph(f"Facture {e(invoice.get('numero', ''))}", title_style))
+    story.append(Paragraph(f"{'Devis' if is_devis else 'Facture'} {e(invoice.get('numero', ''))}", title_style))
     story.append(Spacer(1, 6 * mm))
 
     emitter_html = f"<b>{e(emitter.get('nom')) or '—'}</b><br/>{e(emitter.get('adresse'))}"
@@ -87,10 +91,16 @@ def generate_invoice_pdf(invoice: dict, emitter: dict, fiscal: dict = None) -> b
     story.append(Spacer(1, 8 * mm))
 
     date_emission = invoice.get("date_emission")
-    meta = f"Émise le {date_emission.strftime('%d/%m/%Y')}" if date_emission else ""
-    date_echeance = invoice.get("date_echeance")
-    if date_echeance:
-        meta += f" — Échéance le {date_echeance.strftime('%d/%m/%Y')}"
+    if is_devis:
+        meta = f"Émis le {date_emission.strftime('%d/%m/%Y')}" if date_emission else ""
+        date_validite = invoice.get("date_validite")
+        if date_validite:
+            meta += f" — Valable jusqu'au {date_validite.strftime('%d/%m/%Y')}"
+    else:
+        meta = f"Émise le {date_emission.strftime('%d/%m/%Y')}" if date_emission else ""
+        date_echeance = invoice.get("date_echeance")
+        if date_echeance:
+            meta += f" — Échéance le {date_echeance.strftime('%d/%m/%Y')}"
     story.append(Paragraph(meta, label_style))
     story.append(Spacer(1, 6 * mm))
 

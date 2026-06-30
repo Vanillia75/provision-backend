@@ -1056,6 +1056,34 @@ def get_invoice_pdf(
     )
 
 
+@app.get("/quotes/{quote_id}/pdf")
+def get_quote_pdf(
+    quote_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(Quote).filter(Quote.id == quote_id, Quote.user_id == user.id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Devis introuvable")
+
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    emitter = _build_emitter_info(profile)
+    # Régime TVA FIGÉ sur le devis (snapshot) — même immuabilité que la facture.
+    fiscal = resolve_fiscal_settings(q)
+
+    try:
+        pdf_bytes = generate_invoice_pdf(_quote_to_dict(q), emitter, fiscal, kind="devis")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la generation du PDF : {e}")
+
+    filename = f"devis-{q.numero}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 class SendInvoiceRequest(BaseModel):
     emitter_nom: Optional[str] = None
     emitter_adresse: Optional[str] = None
