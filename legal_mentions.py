@@ -60,11 +60,13 @@ def resolve_fiscal_settings(row) -> dict:
     par défaut. Aucun calcul n'est déclenché ici.
     """
     if row is None:
-        return {"vat_mode": FRANCHISE, "vat_rate": 20.0, "vat_number": None}
+        return {"vat_mode": FRANCHISE, "vat_rate": 20.0, "vat_number": None, "facture_numero_depart": None}
     return {
         "vat_mode": row.vat_mode or FRANCHISE,
         "vat_rate": row.vat_rate if row.vat_rate is not None else 20.0,
         "vat_number": row.vat_number,
+        # getattr : `row` peut être une facture (snapshot) sans ce champ → None, sans planter.
+        "facture_numero_depart": getattr(row, "facture_numero_depart", None),
     }
 
 

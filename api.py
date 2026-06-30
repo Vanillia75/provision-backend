@@ -28,6 +28,7 @@ from auth import (
 from emailing import send_reset_password_email, send_verification_email, send_invoice_email
 from invoice_pdf import generate_invoice_pdf
 from legal_mentions import get_franchise_vat_mention, append_ei_mention, resolve_fiscal_settings, compute_invoice_totals, format_vat_rate
+from numerotation import compute_next_numero
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from projection import projeter_tresorerie
 from invoice_extractor import extract_invoice_data
@@ -773,12 +774,10 @@ def _client_fields(client_type, client_siret, client_tva) -> dict:
 
 def _next_numero(db: Session, user_id: str) -> str:
     year = date.today().year
-    count = (
-        db.query(ClientInvoice)
-        .filter(ClientInvoice.user_id == user_id, ClientInvoice.numero.like(f"F-{year}-%"))
-        .count()
-    )
-    return f"F-{year}-{count + 1:03d}"
+    numeros = [r[0] for r in db.query(ClientInvoice.numero).filter(ClientInvoice.user_id == user_id).all()]
+    fs = db.query(FiscalSettings).filter(FiscalSettings.user_id == user_id).first()
+    floor = fs.facture_numero_depart if fs else None
+    return compute_next_numero("F", year, numeros, floor)
 
 
 def _invoice_to_dict(inv: ClientInvoice) -> dict:
@@ -1093,6 +1092,45 @@ def save_fiscal_settings(
     return resolve_fiscal_settings(row)
 
 
+class FactureNumeroRequest(BaseModel):
+    numero_depart: Optional[str] = None  # "42" ou "F-2026-042" ; vide/None = pas de reprise
+
+
+@app.post("/profile/facture-numero")
+def save_facture_numero_depart(
+    req: FactureNumeroRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Définit le PLANCHER de numérotation des factures (reprise d'une séquence existante).
+    N'édite PAS les factures existantes ; sert seulement de point de départ au générateur.
+    Endpoint dédié (séparé de la TVA) pour ne jamais l'effacer par mégarde.
+    """
+    row = db.query(FiscalSettings).filter(FiscalSettings.user_id == user.id).first()
+    if not row:
+        row = FiscalSettings(user_id=user.id)
+        db.add(row)
+
+    raw = (req.numero_depart or "").strip()
+    if not raw:
+        row.facture_numero_depart = None
+    else:
+        # Accepte "42", "042" ou "F-2026-042" → normalise en "F-{année}-{NNN}".
+        m = re.match(r"^(?:F-(\d{4})-)?0*(\d+)$", raw)
+        if not m:
+            raise HTTPException(status_code=400, detail="Numéro de départ invalide (ex. 42 ou F-2026-042)")
+        annee = int(m.group(1)) if m.group(1) else date.today().year
+        compteur = int(m.group(2))
+        if compteur < 1:
+            raise HTTPException(status_code=400, detail="Le numéro de départ doit être supérieur à 0")
+        row.facture_numero_depart = f"F-{annee}-{compteur:03d}"
+
+    db.commit()
+    db.refresh(row)
+    return resolve_fiscal_settings(row)
+
+
 @app.get("/invoices/{invoice_id}/pdf")
 def get_invoice_pdf(
     invoice_id: str,
@@ -1305,13 +1343,11 @@ class QuoteStatusRequest(BaseModel):
 
 
 def _next_numero_devis(db: Session, user_id: str) -> str:
+    # Devis : générateur robuste (max+1 + anti-doublon), SANS plancher de départ
+    # (la reprise de séquence ne concerne que les factures, document fiscal).
     year = date.today().year
-    count = (
-        db.query(Quote)
-        .filter(Quote.user_id == user_id, Quote.numero.like(f"D-{year}-%"))
-        .count()
-    )
-    return f"D-{year}-{count + 1:03d}"
+    numeros = [r[0] for r in db.query(Quote.numero).filter(Quote.user_id == user_id).all()]
+    return compute_next_numero("D", year, numeros)
 
 
 def _quote_to_dict(q: Quote) -> dict:

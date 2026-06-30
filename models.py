@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date
-from sqlalchemy import Column, String, Float, Boolean, DateTime, Date, ForeignKey, JSON, Integer
+from sqlalchemy import Column, String, Float, Boolean, DateTime, Date, ForeignKey, JSON, Integer, Index
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -110,6 +110,11 @@ class FiscalSettings(Base):
     vat_rate = Column(Float, nullable=False, default=20.0)
     vat_number = Column(String, nullable=True)
 
+    # Point de départ de la numérotation des FACTURES (reprise d'une séquence existante).
+    # Numéro complet attendu, ex. "F-2026-042". NULL = pas de reprise (séquence auto).
+    # Sert de PLANCHER au générateur ; on ne descend jamais en dessous, jamais d'édition libre.
+    facture_numero_depart = Column(String, nullable=True)
+
     user = relationship("User", back_populates="fiscal_settings")
 
 
@@ -184,6 +189,8 @@ class IntermittentActivity(Base):
 # Statuts possibles : "brouillon", "envoyee", "payee", "impayee"
 class ClientInvoice(Base):
     __tablename__ = "client_invoices"
+    # Garde-fou DB : un numéro de facture est unique par utilisateur (anti-doublon).
+    __table_args__ = (Index("uq_client_invoices_user_numero", "user_id", "numero", unique=True),)
 
     id = Column(String, primary_key=True, default=gen_uuid)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
@@ -263,6 +270,8 @@ class Contact(Base):
 # Statuts possibles : "brouillon", "envoye", "accepte", "refuse", "expire"
 class Quote(Base):
     __tablename__ = "quotes"
+    # Garde-fou DB : un numéro de devis est unique par utilisateur (anti-doublon).
+    __table_args__ = (Index("uq_quotes_user_numero", "user_id", "numero", unique=True),)
 
     id = Column(String, primary_key=True, default=gen_uuid)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
