@@ -17,6 +17,8 @@ from legal_mentions import (
     get_franchise_vat_mention,
     append_ei_mention,
     resolve_fiscal_settings,
+    compute_invoice_totals,
+    format_vat_rate,
     FRANCHISE,
     ASSUJETTI,
 )
@@ -85,6 +87,74 @@ def test_ei_reservee_aux_entrepreneurs_individuels():
 def test_ei_nom_vide_inchange():
     assert append_ei_mention(None, "auto_entrepreneur") is None
     assert append_ei_mention("", "auto_entrepreneur") == ""
+
+
+# ── Calcul des totaux : franchise = taux 0 (HT = TTC) ──
+def test_totals_franchise_defaut():
+    t = compute_invoice_totals(100, None)            # pas de fiscal → franchise
+    assert t["mode"] == FRANCHISE
+    assert t["ht"] == 100 and t["tva"] == 0 and t["ttc"] == 100
+    assert "293 B" in t["mention"]
+    assert t["vat_number"] is None
+
+
+def test_totals_franchise_explicite():
+    t = compute_invoice_totals(100, {"vat_mode": "franchise"})
+    assert t["ttc"] == t["ht"] == 100 and t["tva"] == 0
+
+
+# ── Calcul des totaux : assujetti ──
+def test_totals_assujetti_20():
+    t = compute_invoice_totals(100, {"vat_mode": ASSUJETTI, "vat_rate": 20, "vat_number": "FR123"})
+    assert t["mode"] == ASSUJETTI
+    assert t["ht"] == 100 and t["tva"] == 20.0 and t["ttc"] == 120.0
+    assert t["mention"] is None              # JAMAIS de 293 B en assujetti
+    assert t["vat_number"] == "FR123"
+
+
+def test_totals_assujetti_55():
+    t = compute_invoice_totals(200, {"vat_mode": ASSUJETTI, "vat_rate": 5.5})
+    assert t["tva"] == 11.0 and t["ttc"] == 211.0
+
+
+def test_totals_assujetti_defaut_rate_20():
+    # vat_rate absent en assujetti → 20 % par défaut
+    t = compute_invoice_totals(50, {"vat_mode": ASSUJETTI})
+    assert t["tva"] == 10.0 and t["ttc"] == 60.0
+
+
+# ── GARDE-FOU : le HT (= montant) n'est JAMAIS modifié, quel que soit le mode ──
+def test_ht_jamais_modifie():
+    for fiscal in (None, {"vat_mode": "franchise"}, {"vat_mode": ASSUJETTI, "vat_rate": 20}):
+        assert compute_invoice_totals(137.5, fiscal)["ht"] == 137.5
+
+
+def test_format_vat_rate():
+    assert format_vat_rate(20) == "20"
+    assert format_vat_rate(10.0) == "10"
+    assert format_vat_rate(5.5) == "5,5"
+
+
+# ── Snapshot figé sur la facture (conformité : facture émise immuable) ──
+# resolve_fiscal_settings est duck-typée : elle lit aussi le snapshot d'une facture/devis.
+def test_snapshot_facture_ancienne_null_est_franchise():
+    # Facture créée AVANT la fonctionnalité (colonnes NULL) → franchise, à vie, jamais rétroactif.
+    vieille_facture = SimpleNamespace(vat_mode=None, vat_rate=None, vat_number=None)
+    assert resolve_fiscal_settings(vieille_facture)["vat_mode"] == FRANCHISE
+
+
+def test_snapshot_facture_franchise_reste_franchise():
+    # Facture émise en franchise : même si l'utilisateur passe assujetti ensuite,
+    # son snapshot reste franchise (la lecture se fait sur la facture, pas le réglage courant).
+    facture_franchise = SimpleNamespace(vat_mode="franchise", vat_rate=20.0, vat_number=None)
+    t = compute_invoice_totals(100, resolve_fiscal_settings(facture_franchise))
+    assert t["mode"] == FRANCHISE and t["ttc"] == 100 and "293 B" in t["mention"]
+
+
+def test_snapshot_facture_assujettie_figee():
+    facture = SimpleNamespace(vat_mode="assujetti", vat_rate=20.0, vat_number="FR123")
+    t = compute_invoice_totals(100, resolve_fiscal_settings(facture))
+    assert t["mode"] == ASSUJETTI and t["ttc"] == 120.0 and t["vat_number"] == "FR123"
 
 
 if __name__ == "__main__":

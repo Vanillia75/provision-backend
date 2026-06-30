@@ -203,6 +203,13 @@ class ClientInvoice(Base):
     lignes = Column(JSON, nullable=True)
     notes = Column(String, nullable=True)
 
+    # Régime TVA FIGÉ au moment de l'émission (conformité : une facture émise est immuable).
+    # NULL = facture antérieure à cette fonctionnalité → traitée en franchise (fallback).
+    # `montant` reste toujours le HT ; ces champs ne servent qu'à l'affichage TVA/TTC.
+    vat_mode = Column(String, nullable=True)
+    vat_rate = Column(Float, nullable=True)
+    vat_number = Column(String, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="client_invoices")
@@ -267,6 +274,11 @@ class Quote(Base):
 
     # Renseigne l'id de la facture creee si ce devis a ete converti
     converted_invoice_id = Column(String, nullable=True)
+
+    # Régime TVA figé (même logique que ClientInvoice). NULL → franchise (fallback).
+    vat_mode = Column(String, nullable=True)
+    vat_rate = Column(Float, nullable=True)
+    vat_number = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 

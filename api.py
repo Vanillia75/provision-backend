@@ -27,7 +27,7 @@ from auth import (
 )
 from emailing import send_reset_password_email, send_verification_email, send_invoice_email
 from invoice_pdf import generate_invoice_pdf
-from legal_mentions import get_franchise_vat_mention, append_ei_mention, resolve_fiscal_settings
+from legal_mentions import get_franchise_vat_mention, append_ei_mention, resolve_fiscal_settings, compute_invoice_totals, format_vat_rate
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from projection import projeter_tresorerie
 from invoice_extractor import extract_invoice_data
@@ -318,6 +318,8 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "is_premium": prem,
         "premium_source": billing.premium_source(db, user),   # "stripe" | "comp" | None
         "quotas": quotas,
+        # Paramètres TVA de facturation (table isolée fiscal_settings, fallback franchise).
+        "fiscal_settings": _read_fiscal_settings(db, user.id),
     }
 
 
@@ -771,6 +773,10 @@ def _invoice_to_dict(inv: ClientInvoice) -> dict:
         "statut": inv.statut,
         "lignes": inv.lignes,
         "notes": inv.notes,
+        # Régime TVA figé (snapshot). NULL → le front applique le fallback franchise.
+        "vat_mode": inv.vat_mode,
+        "vat_rate": inv.vat_rate,
+        "vat_number": inv.vat_number,
     }
 
 
@@ -827,6 +833,7 @@ def create_invoice(
         lignes=lignes_dicts,
         notes=req.notes,
     )
+    _snapshot_fiscal(inv, db, user.id)   # fige le régime TVA courant sur la facture
     db.add(inv)
     db.commit()
     db.refresh(inv)
@@ -861,6 +868,11 @@ def update_invoice(
         inv.lignes = lignes_dicts
         inv.montant = _montant_lignes(lignes_dicts)
 
+    # Tant que la facture est un BROUILLON, son régime suit le réglage courant.
+    # Une fois émise (Envoyée/Payée), elle n'est plus modifiable ici → snapshot intact.
+    if inv.statut == "brouillon":
+        _snapshot_fiscal(inv, db, user.id)
+
     db.commit()
     db.refresh(inv)
     return _invoice_to_dict(inv)
@@ -880,11 +892,16 @@ def update_invoice_status(
     if not inv:
         raise HTTPException(status_code=404, detail="Facture introuvable")
 
+    was_brouillon = inv.statut == "brouillon"
     inv.statut = req.statut
     if req.statut == "payee" and not inv.date_paiement:
         inv.date_paiement = date.today()
     elif req.statut != "payee":
         inv.date_paiement = None
+
+    # Émission (sortie de brouillon) : on fige définitivement le régime TVA du moment.
+    if was_brouillon and req.statut != "brouillon":
+        _snapshot_fiscal(inv, db, user.id)
 
     db.commit()
     db.refresh(inv)
@@ -924,10 +941,55 @@ def _read_fiscal_settings(db: Session, user_id: str) -> dict:
     """
     Lecture des paramètres fiscaux de facturation d'un utilisateur, avec fallback
     franchise si aucune ligne n'existe. Réservé à la FACTURATION (les moteurs
-    fiscaux n'y touchent jamais). Préparé pour la PR 2 : dans cette PR, la
-    facturation reste toujours en franchise et ne branche pas encore sur ce mode.
+    fiscaux n'y touchent jamais).
     """
     row = db.query(FiscalSettings).filter(FiscalSettings.user_id == user_id).first()
+    return resolve_fiscal_settings(row)
+
+
+def _snapshot_fiscal(obj, db: Session, user_id: str) -> None:
+    """
+    Fige sur la facture/devis `obj` le régime TVA COURANT de l'utilisateur.
+    Appelé à la création et tant que le document est en brouillon ; au passage à
+    « émise » (Envoyée/Payée), c'est ce snapshot qui devient définitif et immuable.
+    """
+    f = _read_fiscal_settings(db, user_id)
+    obj.vat_mode = f["vat_mode"]
+    obj.vat_rate = f["vat_rate"]
+    obj.vat_number = f["vat_number"]
+
+
+class FiscalRequest(BaseModel):
+    vat_mode: str = "franchise"
+    vat_rate: Optional[float] = None
+    vat_number: Optional[str] = None
+
+
+@app.post("/profile/fiscal")
+def save_fiscal_settings(
+    req: FiscalRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Écrit les paramètres TVA dans la table ISOLÉE fiscal_settings (upsert sur user_id).
+    N'écrit JAMAIS dans Profile. Sans effet sur le moteur fiscal / le CA URSSAF.
+    """
+    if req.vat_mode not in ("franchise", "assujetti"):
+        raise HTTPException(status_code=400, detail="Mode TVA inconnu")
+
+    row = db.query(FiscalSettings).filter(FiscalSettings.user_id == user.id).first()
+    if not row:
+        row = FiscalSettings(user_id=user.id)
+        db.add(row)
+
+    row.vat_mode = req.vat_mode
+    if req.vat_rate is not None:
+        row.vat_rate = req.vat_rate
+    row.vat_number = (req.vat_number or "").strip() or None
+
+    db.commit()
+    db.refresh(row)
     return resolve_fiscal_settings(row)
 
 
@@ -943,9 +1005,11 @@ def get_invoice_pdf(
 
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     emitter = _build_emitter_info(profile)
+    # Régime TVA FIGÉ sur la facture (snapshot) — pas le réglage courant. NULL → franchise.
+    fiscal = resolve_fiscal_settings(inv)
 
     try:
-        pdf_bytes = generate_invoice_pdf(_invoice_to_dict(inv), emitter)
+        pdf_bytes = generate_invoice_pdf(_invoice_to_dict(inv), emitter, fiscal)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la generation du PDF : {e}")
 
@@ -964,10 +1028,28 @@ class SendInvoiceRequest(BaseModel):
     message: Optional[str] = None
 
 
-def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest") -> str:
+def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest", fiscal: dict = None) -> str:
     # Tout ce qui vient de l'utilisateur est échappé avant d'entrer dans le HTML
     # de l'email envoyé au client (anti-injection / anti-phishing).
     e = lambda v: html.escape(str(v)) if v is not None else ""
+
+    # Totaux d'affichage (inv.montant reste le HT). En assujetti : ligne TVA + TTC, pas de 293 B.
+    totals = compute_invoice_totals(inv.montant, fiscal, inv.date_emission)
+    if totals["mode"] == "assujetti":
+        totaux_html = (
+            '<div style="text-align:right; margin-top:16px; font-size:13px; color:#0A2540;">'
+            f'Total HT : {totals["ht"]:.2f} €<br/>'
+            f'TVA ({format_vat_rate(totals["rate"])} %) : {totals["tva"]:.2f} €<br/>'
+            f'<span style="font-size:16px; font-weight:700;">Total TTC : {totals["ttc"]:.2f} €</span></div>'
+        )
+        mention_html = ""
+    else:
+        totaux_html = (
+            '<div style="text-align:right; margin-top:16px; font-size:16px; font-weight:700; color:#0A2540;">'
+            f'Total TTC : {totals["ttc"]:.2f} €</div>'
+        )
+        mention_html = f'<p style="color:#8BA5C0; font-size:11px; margin-top:24px;">{e(totals["mention"])}</p>'
+    vat_html = f'<br/>N° TVA : {e(totals["vat_number"])}' if totals.get("vat_number") else ""
 
     lignes_html = ""
     for l in (inv.lignes or []):
@@ -996,7 +1078,7 @@ def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest") -> 
       <div style="background:#F7F9F5; border-radius:10px; padding:16px; margin:16px 0; font-size:13px; color:#5B6573;">
         <strong>{e(req.emitter_nom)}</strong><br/>
         {e(req.emitter_adresse)}<br/>
-        {f"SIRET : {e(req.emitter_siret)}" if req.emitter_siret else ""}
+        {f"SIRET : {e(req.emitter_siret)}" if req.emitter_siret else ""}{vat_html}
       </div>
       <p style="color:#6B7A8D; font-size:13px;">
         Émise le {inv.date_emission.strftime("%d/%m/%Y")} — destinée à {e(inv.client_nom)}
@@ -1013,10 +1095,8 @@ def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest") -> 
         </thead>
         <tbody>{lignes_html}</tbody>
       </table>
-      <div style="text-align:right; margin-top:16px; font-size:16px; font-weight:700; color:#0A2540;">
-        Total TTC : {inv.montant:.2f} €
-      </div>
-      <p style="color:#8BA5C0; font-size:11px; margin-top:24px;">{e(get_franchise_vat_mention(inv.date_emission))}</p>
+      {totaux_html}
+      {mention_html}
       {f'<p style="color:#6B7A8D; font-size:12px;">{e(inv.notes)}</p>' if inv.notes else ""}
     </div>
     """
@@ -1044,7 +1124,12 @@ def send_invoice(
         if req.emitter_nom else _build_emitter_info(profile)["nom"]
     )
 
-    html = _build_invoice_email_html(inv, req)
+    # Envoi = émission : si c'était un brouillon, on fige le régime TVA du moment AVANT
+    # de construire l'email. Une facture déjà émise garde son snapshot (immuable).
+    if inv.statut == "brouillon":
+        _snapshot_fiscal(inv, db, user.id)
+    fiscal = resolve_fiscal_settings(inv)
+    html = _build_invoice_email_html(inv, req, fiscal)
     ok = send_invoice_email(inv.client_email, f"Facture {inv.numero}", html)
     if not ok:
         raise HTTPException(status_code=502, detail="Erreur lors de l'envoi de l'email")
@@ -1109,6 +1194,9 @@ def _quote_to_dict(q: Quote) -> dict:
         "lignes": q.lignes,
         "notes": q.notes,
         "converted_invoice_id": q.converted_invoice_id,
+        "vat_mode": q.vat_mode,
+        "vat_rate": q.vat_rate,
+        "vat_number": q.vat_number,
     }
 
 
@@ -1165,6 +1253,7 @@ def create_quote(
         lignes=lignes_dicts,
         notes=req.notes,
     )
+    _snapshot_fiscal(q, db, user.id)   # fige le régime TVA courant sur le devis
     db.add(q)
     db.commit()
     db.refresh(q)
@@ -1199,6 +1288,10 @@ def update_quote(
         q.lignes = lignes_dicts
         q.montant = _montant_lignes(lignes_dicts)
 
+    # Tant que le devis est un brouillon, son régime suit le réglage courant.
+    if q.statut == "brouillon":
+        _snapshot_fiscal(q, db, user.id)
+
     db.commit()
     db.refresh(q)
     return _quote_to_dict(q)
@@ -1218,7 +1311,11 @@ def update_quote_status(
     if not q:
         raise HTTPException(status_code=404, detail="Devis introuvable")
 
+    was_brouillon = q.statut == "brouillon"
     q.statut = req.statut
+    # Émission (sortie de brouillon) : on fige définitivement le régime TVA du moment.
+    if was_brouillon and req.statut != "brouillon":
+        _snapshot_fiscal(q, db, user.id)
     db.commit()
     db.refresh(q)
     return _quote_to_dict(q)
@@ -1238,8 +1335,26 @@ def delete_quote(
     return {"ok": True}
 
 
-def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest") -> str:
+def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest", fiscal: dict = None) -> str:
     e = lambda v: html.escape(str(v)) if v is not None else ""
+
+    # Totaux d'affichage (q.montant reste le HT). En assujetti : ligne TVA + TTC, pas de 293 B.
+    totals = compute_invoice_totals(q.montant, fiscal, q.date_emission)
+    if totals["mode"] == "assujetti":
+        totaux_html = (
+            '<div style="text-align:right; margin-top:16px; font-size:13px; color:#0A2540;">'
+            f'Total HT : {totals["ht"]:.2f} €<br/>'
+            f'TVA ({format_vat_rate(totals["rate"])} %) : {totals["tva"]:.2f} €<br/>'
+            f'<span style="font-size:16px; font-weight:700;">Total TTC : {totals["ttc"]:.2f} €</span></div>'
+        )
+        mention_html = ""
+    else:
+        totaux_html = (
+            '<div style="text-align:right; margin-top:16px; font-size:16px; font-weight:700; color:#0A2540;">'
+            f'Total TTC : {totals["ttc"]:.2f} €</div>'
+        )
+        mention_html = f'<p style="color:#8BA5C0; font-size:11px; margin-top:24px;">{e(totals["mention"])}</p>'
+    vat_html = f'<br/>N° TVA : {e(totals["vat_number"])}' if totals.get("vat_number") else ""
 
     lignes_html = ""
     for l in (q.lignes or []):
@@ -1268,7 +1383,7 @@ def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest") -> str:
       <div style="background:#F7F9F5; border-radius:10px; padding:16px; margin:16px 0; font-size:13px; color:#5B6573;">
         <strong>{e(req.emitter_nom)}</strong><br/>
         {e(req.emitter_adresse)}<br/>
-        {f"SIRET : {e(req.emitter_siret)}" if req.emitter_siret else ""}
+        {f"SIRET : {e(req.emitter_siret)}" if req.emitter_siret else ""}{vat_html}
       </div>
       <p style="color:#6B7A8D; font-size:13px;">
         Émis le {q.date_emission.strftime("%d/%m/%Y")} — destiné à {e(q.client_nom)}
@@ -1285,10 +1400,8 @@ def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest") -> str:
         </thead>
         <tbody>{lignes_html}</tbody>
       </table>
-      <div style="text-align:right; margin-top:16px; font-size:16px; font-weight:700; color:#0A2540;">
-        Total TTC : {q.montant:.2f} €
-      </div>
-      <p style="color:#8BA5C0; font-size:11px; margin-top:24px;">{e(get_franchise_vat_mention(q.date_emission))}</p>
+      {totaux_html}
+      {mention_html}
       {f'<p style="color:#6B7A8D; font-size:12px;">{e(q.notes)}</p>' if q.notes else ""}
     </div>
     """
@@ -1316,7 +1429,11 @@ def send_quote(
         if req.emitter_nom else _build_emitter_info(profile)["nom"]
     )
 
-    html = _build_quote_email_html(q, req)
+    # Envoi = émission : si brouillon, on fige le régime TVA AVANT de construire l'email.
+    if q.statut == "brouillon":
+        _snapshot_fiscal(q, db, user.id)
+    fiscal = resolve_fiscal_settings(q)
+    html = _build_quote_email_html(q, req, fiscal)
     ok = send_invoice_email(q.client_email, f"Devis {q.numero}", html)
     if not ok:
         raise HTTPException(status_code=502, detail="Erreur lors de l'envoi de l'email")
@@ -1353,6 +1470,7 @@ def convert_quote_to_invoice(
         lignes=q.lignes,
         notes=q.notes,
     )
+    _snapshot_fiscal(inv, db, user.id)   # nouvelle facture (brouillon) → fige le régime courant
     db.add(inv)
     q.statut = "accepte"
     db.commit()

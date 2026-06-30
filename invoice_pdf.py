@@ -12,7 +12,7 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-from legal_mentions import get_franchise_vat_mention
+from legal_mentions import compute_invoice_totals, format_vat_rate
 
 INK = colors.HexColor("#0A2540")
 GREY = colors.HexColor("#6B7A8D")
@@ -21,14 +21,17 @@ LINE = colors.HexColor("#DDE5EE")
 LINE_LIGHT = colors.HexColor("#EEF2F7")
 
 
-def generate_invoice_pdf(invoice: dict, emitter: dict) -> bytes:
+def generate_invoice_pdf(invoice: dict, emitter: dict, fiscal: dict = None) -> bytes:
     """
     invoice : dict produit par _invoice_to_dict (numero, client_nom, client_email,
         client_adresse, date_emission, date_echeance, montant, lignes, notes)
     emitter : dict avec les cles "nom", "adresse", "siret", "mention" (mention
         juridique optionnelle, ex: dispense d'immatriculation)
+    fiscal  : dict des parametres TVA (vat_mode, vat_rate, vat_number). None => franchise.
+        Sert UNIQUEMENT a l'affichage des totaux ; `invoice["montant"]` reste le HT.
     Renvoie les octets bruts du PDF genere.
     """
+    totals = compute_invoice_totals(invoice.get("montant", 0) or 0, fiscal, invoice.get("date_emission"))
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
@@ -53,6 +56,8 @@ def generate_invoice_pdf(invoice: dict, emitter: dict) -> bytes:
     emitter_html = f"<b>{e(emitter.get('nom')) or '—'}</b><br/>{e(emitter.get('adresse'))}"
     if emitter.get("siret"):
         emitter_html += f"<br/>SIRET : {e(emitter['siret'])}"
+    if totals.get("vat_number"):
+        emitter_html += f"<br/>N° TVA : {e(totals['vat_number'])}"
     if emitter.get("mention"):
         emitter_html += f"<br/>{e(emitter['mention'])}"
 
@@ -105,25 +110,38 @@ def generate_invoice_pdf(invoice: dict, emitter: dict) -> bytes:
     story.append(lignes_table)
     story.append(Spacer(1, 4 * mm))
 
-    montant = invoice.get("montant", 0) or 0
+    # Ligne du milieu : en franchise, mention 293 B + 0,00 € (discrète) ;
+    # en assujetti, vraie ligne « TVA (X %) : montant ».
+    if totals["mode"] == "assujetti":
+        mid_label = f"TVA ({format_vat_rate(totals['rate'])} %)"
+        mid_value = f"{totals['tva']:.2f} €"
+    else:
+        mid_label = totals["mention"]
+        mid_value = "0,00 €"
+
     totals_table = Table(
         [
-            ["Total HT", f"{montant:.2f} €"],
-            [get_franchise_vat_mention(invoice.get("date_emission")), "0,00 €"],
-            ["Total TTC", f"{montant:.2f} €"],
+            ["Total HT", f"{totals['ht']:.2f} €"],
+            [mid_label, mid_value],
+            ["Total TTC", f"{totals['ttc']:.2f} €"],
         ],
         colWidths=[140 * mm, 30 * mm],
     )
-    totals_table.setStyle(TableStyle([
+    totals_style = [
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("TEXTCOLOR", (0, 1), (-1, 1), GREY),
-        ("FONTSIZE", (0, 1), (-1, 1), 8),
         ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
         ("FONTSIZE", (0, 2), (-1, 2), 11),
         ("LINEABOVE", (0, 2), (-1, 2), 0.75, INK),
         ("TOPPADDING", (0, 2), (-1, 2), 6),
-    ]))
+    ]
+    if totals["mode"] != "assujetti":
+        # La mention 293 B reste discrète (grise, plus petite).
+        totals_style += [
+            ("TEXTCOLOR", (0, 1), (-1, 1), GREY),
+            ("FONTSIZE", (0, 1), (-1, 1), 8),
+        ]
+    totals_table.setStyle(TableStyle(totals_style))
     story.append(totals_table)
 
     if invoice.get("notes"):
