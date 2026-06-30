@@ -2034,6 +2034,11 @@ def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(g
             "date_limite_declaration": result.periode_precedente.date_limite_declaration,
             "jours_restants": result.periode_precedente.jours_restants,
         },
+        # ── Champs ADDITIFs (bug 1.5) — le dashboard les consommera au Temps 2. ──
+        # Les clés ci-dessus sont INCHANGÉES → pas de régression d'affichage entre T1 et T2.
+        "provision_periode_courante": result.provision_periode_courante,
+        "regularisations_periodes_passees": result.regularisations_periodes_passees,
+        "total_a_prevoir": result.total_a_prevoir,
     }
 
 

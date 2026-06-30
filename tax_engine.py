@@ -85,6 +85,14 @@ class TaxEstimate:
     ca_annuel: float
     plafond: float
     pourcentage_plafond: float
+    # ── Champs ADDITIFs (bug 1.5) : ne modifient AUCUN champ ci-dessus. ──
+    # provision_periode_courante = montant_a_provisionner (réexposé sous un nom clair).
+    # regularisations_periodes_passees = CA des périodes ANTÉRIEURES de l'année en cours
+    #   (chacune isolée dans sa propre période, jamais fondue dans la période courante).
+    # total_a_prevoir = provision_periode_courante + Σ régularisations.
+    provision_periode_courante: float = 0.0
+    regularisations_periodes_passees: list = field(default_factory=list)
+    total_a_prevoir: float = 0.0
 
 
 def _last_day_of_month(d: date) -> date:
@@ -118,6 +126,14 @@ def _period_bounds(periodicite: str, reference_day: date) -> tuple[date, date, s
     else:
         raise ValueError(f"Periodicite inconnue : {periodicite}")
     return start, end, label
+
+
+def _period_key(periodicite: str, d: date) -> str:
+    """Clé canonique de la période d'ENCAISSEMENT d'une date (ex. "2026-05" ou "2026-T2").
+    Chaque date appartient à exactement une période → attribution unique, anti-double-comptage."""
+    if periodicite == "mensuelle":
+        return f"{d.year:04d}-{d.month:02d}"
+    return f"{d.year:04d}-T{(d.month - 1) // 3 + 1}"
 
 
 def _build_period_window(periodicite: str, reference_day: date, today: date) -> PeriodWindow:
@@ -172,6 +188,39 @@ def estimate_auto_entrepreneur(
     ca_annuel = sum(amount for (d, amount) in incomes if d.year == today.year)
     pourcentage_plafond = round((ca_annuel / rates["plafond"]) * 100, 1) if rates["plafond"] else 0.0
 
+    # ── Bug 1.5 (ADDITIF, ne modifie rien ci-dessus) : régularisations des périodes ──
+    # passées de l'année en cours. Chaque revenu tombe dans EXACTEMENT une période
+    # d'encaissement (clé canonique) → aucun euro compté deux fois. La période courante
+    # reste portée par ca_courante / montant_total (inchangés) ; on isole ici les antérieures.
+    provision_periode_courante = montant_total  # identique à montant_a_provisionner
+    current_key = _period_key(periodicite, today)
+    ca_par_periode = {}  # clé -> [ca cumulé, fenêtre de la période]
+    for (d, amount) in incomes:
+        if d.year != today.year:
+            continue  # régularisations bornées à l'année en cours (comme ca_annuel)
+        k = _period_key(periodicite, d)
+        if k not in ca_par_periode:
+            ca_par_periode[k] = [0.0, _build_period_window(periodicite, d, today)]
+        ca_par_periode[k][0] += amount
+    regularisations = []
+    for k, (ca, window) in ca_par_periode.items():
+        # uniquement les périodes STRICTEMENT antérieures à la période courante, avec du CA
+        if k == current_key or window.start >= periode_courante.start or ca <= 0:
+            continue
+        regularisations.append({
+            "periode": k,
+            "label": window.label,
+            "ca": round(ca, 2),
+            # Même base que montant_a_provisionner (cotisations + CFP + libératoire éventuel).
+            # NB : on applique le taux_global COURANT ; les variations historiques de taux
+            # (ex. BNC 24,6 %→25,6 % au 01/01/2026) ne sont pas modélisées (hors périmètre 1.5).
+            "cotisations": round(ca * taux_global, 2),
+            "taux_global_pct": round(taux_global * 100, 2),
+            "date_limite_declaration": window.date_limite_declaration,
+        })
+    regularisations.sort(key=lambda r: r["periode"])
+    total_a_prevoir = round(provision_periode_courante + sum(r["cotisations"] for r in regularisations), 2)
+
     return TaxEstimate(
         statut="auto_entrepreneur",
         activite=activite,
@@ -190,6 +239,9 @@ def estimate_auto_entrepreneur(
         ca_annuel=round(ca_annuel, 2),
         plafond=rates["plafond"],
         pourcentage_plafond=pourcentage_plafond,
+        provision_periode_courante=provision_periode_courante,
+        regularisations_periodes_passees=regularisations,
+        total_a_prevoir=total_a_prevoir,
     )
 
 
