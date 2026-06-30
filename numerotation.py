@@ -33,3 +33,21 @@ def compute_next_numero(prefix: str, year: int, existing_numeros, floor_numero: 
         nxt += 1
         numero = f"{prefix}-{year}-{nxt:03d}"
     return numero
+
+
+def normalize_numero_depart(raw, year: int):
+    """
+    Normalise une saisie de plancher en "F-{année}-NNN" (compteur sur 3 chiffres).
+    Accepte "42", "042", "F-2026-042". Retourne None si vide. Lève ValueError si invalide.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    m = re.match(r"^(?:F-(\d{4})-)?0*(\d+)$", raw)
+    if not m:
+        raise ValueError("Numéro de départ invalide (ex. 42 ou F-2026-042)")
+    annee = int(m.group(1)) if m.group(1) else year
+    compteur = int(m.group(2))
+    if compteur < 1:
+        raise ValueError("Le numéro de départ doit être supérieur à 0")
+    return f"F-{annee}-{compteur:03d}"

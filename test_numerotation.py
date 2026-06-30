@@ -3,7 +3,7 @@ Bug 2.6 — générateur de numéro robuste (max+1 + plancher de départ + anti-
 Tests PURS sur _compute_next_numero (aucune DB).
 """
 
-from numerotation import compute_next_numero as nxt
+from numerotation import compute_next_numero as nxt, normalize_numero_depart
 
 
 # 1. Génération normale → séquence continue (008 → 009).
@@ -50,6 +50,24 @@ def test_anti_doublon_invariant():
 def test_isolation_prefixe_annee():
     assert nxt("D", 2026, ["D-2026-004", "F-2026-099"]) == "D-2026-005"
     assert nxt("F", 2026, ["F-2025-200"]) == "F-2026-001"  # année passée ignorée
+
+
+# Bug du fix 2.6 : la saisie « 100 » doit se normaliser en "F-2026-100" (pas None).
+def test_normalisation_numero_depart():
+    assert normalize_numero_depart("100", 2026) == "F-2026-100"
+    assert normalize_numero_depart("042", 2026) == "F-2026-042"
+    assert normalize_numero_depart("F-2026-150", 2026) == "F-2026-150"
+    assert normalize_numero_depart("", 2026) is None
+    assert normalize_numero_depart(None, 2026) is None
+    assert normalize_numero_depart("  ", 2026) is None
+    # le plancher normalisé sert ensuite de départ au générateur
+    assert nxt("F", 2026, [], floor_numero=normalize_numero_depart("100", 2026)) == "F-2026-100"
+    for bad in ("abc", "F-2026-", "0", "-5"):
+        try:
+            normalize_numero_depart(bad, 2026)
+            assert False, f"aurait dû rejeter {bad!r}"
+        except ValueError:
+            pass
 
 
 if __name__ == "__main__":

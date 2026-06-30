@@ -28,7 +28,7 @@ from auth import (
 from emailing import send_reset_password_email, send_verification_email, send_invoice_email
 from invoice_pdf import generate_invoice_pdf
 from legal_mentions import get_franchise_vat_mention, append_ei_mention, resolve_fiscal_settings, compute_invoice_totals, format_vat_rate
-from numerotation import compute_next_numero
+from numerotation import compute_next_numero, normalize_numero_depart
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from projection import projeter_tresorerie
 from invoice_extractor import extract_invoice_data
@@ -1093,7 +1093,7 @@ def save_fiscal_settings(
 
 
 class FactureNumeroRequest(BaseModel):
-    numero_depart: Optional[str] = None  # "42" ou "F-2026-042" ; vide/None = pas de reprise
+    facture_numero_depart: Optional[str] = None  # "42" ou "F-2026-042" ; vide/None = pas de reprise
 
 
 @app.post("/profile/facture-numero")
@@ -1112,19 +1112,10 @@ def save_facture_numero_depart(
         row = FiscalSettings(user_id=user.id)
         db.add(row)
 
-    raw = (req.numero_depart or "").strip()
-    if not raw:
-        row.facture_numero_depart = None
-    else:
-        # Accepte "42", "042" ou "F-2026-042" → normalise en "F-{année}-{NNN}".
-        m = re.match(r"^(?:F-(\d{4})-)?0*(\d+)$", raw)
-        if not m:
-            raise HTTPException(status_code=400, detail="Numéro de départ invalide (ex. 42 ou F-2026-042)")
-        annee = int(m.group(1)) if m.group(1) else date.today().year
-        compteur = int(m.group(2))
-        if compteur < 1:
-            raise HTTPException(status_code=400, detail="Le numéro de départ doit être supérieur à 0")
-        row.facture_numero_depart = f"F-{annee}-{compteur:03d}"
+    try:
+        row.facture_numero_depart = normalize_numero_depart(req.facture_numero_depart, date.today().year)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     db.commit()
     db.refresh(row)
