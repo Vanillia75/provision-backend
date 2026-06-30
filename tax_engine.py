@@ -212,8 +212,12 @@ def estimate_auto_entrepreneur(
             "label": window.label,
             "ca": round(ca, 2),
             # Même base que montant_a_provisionner (cotisations + CFP + libératoire éventuel).
-            # NB : on applique le taux_global COURANT ; les variations historiques de taux
-            # (ex. BNC 24,6 %→25,6 % au 01/01/2026) ne sont pas modélisées (hors périmètre 1.5).
+            # NB : on applique le taux_global COURANT. OK en 2026 : le taux de cotisation est
+            # constant sur une année civile, et les régularisations sont bornées à l'année en cours
+            # (d.year == today.year). Ne deviendrait FAUX que si un taux changeait EN COURS d'année :
+            # une période passée de la même année utiliserait alors le taux courant au lieu de son
+            # taux d'époque. (Les hausses connues, ex. BNC 24,6 %→25,6 %, s'appliquent au 01/01 →
+            # pas de bascule intra-année, donc aucun impact aujourd'hui.)
             "cotisations": round(ca * taux_global, 2),
             "taux_global_pct": round(taux_global * 100, 2),
             "date_limite_declaration": window.date_limite_declaration,

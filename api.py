@@ -1992,6 +1992,9 @@ def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(g
         .filter(ClientInvoice.user_id == user.id, ClientInvoice.statut == "payee")
         .all()
     )
+    # Une facture est rattachée à sa date d'ENCAISSEMENT (date_paiement). Celle-ci est toujours
+    # posée au passage « payee » (create_invoice + update_invoice_status) → le repli sur
+    # date_emission est un simple filet défensif qui ne se déclenche pas en pratique.
     incomes += [(inv.date_paiement or inv.date_emission, inv.montant) for inv in paid_invoices]
 
     try:
