@@ -192,6 +192,11 @@ class ClientInvoice(Base):
     client_nom = Column(String, nullable=False)
     client_email = Column(String, nullable=True)
     client_adresse = Column(String, nullable=True)
+    # Type de client + identifiants pro (facultatifs, affichés sur le doc si renseignés).
+    # NULL → traité comme « particulier » (factures antérieures à cette fonctionnalité).
+    client_type = Column(String, nullable=True, default="particulier")
+    client_siret = Column(String, nullable=True)
+    client_tva = Column(String, nullable=True)
 
     date_emission = Column(Date, nullable=False)
     date_echeance = Column(Date, nullable=True)
@@ -262,6 +267,10 @@ class Quote(Base):
     client_nom = Column(String, nullable=False)
     client_email = Column(String, nullable=True)
     client_adresse = Column(String, nullable=True)
+    # Type de client + identifiants pro (mêmes champs que ClientInvoice). NULL → particulier.
+    client_type = Column(String, nullable=True, default="particulier")
+    client_siret = Column(String, nullable=True)
+    client_tva = Column(String, nullable=True)
 
     date_emission = Column(Date, nullable=False)
     date_validite = Column(Date, nullable=True)

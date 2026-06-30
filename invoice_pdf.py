@@ -64,6 +64,13 @@ def generate_invoice_pdf(invoice: dict, emitter: dict, fiscal: dict = None) -> b
     client_html = f"<b>{e(invoice.get('client_nom', ''))}</b><br/>{e(invoice.get('client_adresse'))}"
     if invoice.get("client_email"):
         client_html += f"<br/>{e(invoice['client_email'])}"
+    # SIRET / n° TVA du client : uniquement pour un client professionnel, et seulement
+    # si renseignés (un particulier ou une facture ancienne n'affiche rien). NULL → particulier.
+    if invoice.get("client_type") == "professionnel":
+        if invoice.get("client_siret"):
+            client_html += f"<br/>SIRET : {e(invoice['client_siret'])}"
+        if invoice.get("client_tva"):
+            client_html += f"<br/>N° TVA : {e(invoice['client_tva'])}"
 
     info_table = Table(
         [

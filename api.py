@@ -664,6 +664,9 @@ class InvoiceCreateRequest(BaseModel):
     client_nom: str
     client_email: Optional[str] = None
     client_adresse: Optional[str] = None
+    client_type: Optional[str] = None      # "particulier" | "professionnel"
+    client_siret: Optional[str] = None
+    client_tva: Optional[str] = None
     date_emission: date
     date_echeance: Optional[date] = None
     lignes: list[FactureLigne] = []
@@ -675,6 +678,9 @@ class InvoiceUpdateRequest(BaseModel):
     client_nom: Optional[str] = None
     client_email: Optional[str] = None
     client_adresse: Optional[str] = None
+    client_type: Optional[str] = None
+    client_siret: Optional[str] = None
+    client_tva: Optional[str] = None
     date_emission: Optional[date] = None
     date_echeance: Optional[date] = None
     lignes: Optional[list[FactureLigne]] = None
@@ -749,6 +755,22 @@ def _montant_lignes(lignes: list) -> float:
     return round(total, 2)
 
 
+def _client_fields(client_type, client_siret, client_tva) -> dict:
+    """
+    Normalise les champs client d'une facture/devis. Un PROFESSIONNEL garde son
+    SIRET / n° TVA (facultatifs) ; un PARTICULIER les ignore (forcés à None), même
+    s'ils sont envoyés. Type inconnu / absent → « particulier ».
+    """
+    ctype = client_type if client_type in ("particulier", "professionnel") else "particulier"
+    if ctype != "professionnel":
+        return {"client_type": "particulier", "client_siret": None, "client_tva": None}
+    return {
+        "client_type": "professionnel",
+        "client_siret": (client_siret or "").strip() or None,
+        "client_tva": (client_tva or "").strip() or None,
+    }
+
+
 def _next_numero(db: Session, user_id: str) -> str:
     year = date.today().year
     count = (
@@ -766,6 +788,9 @@ def _invoice_to_dict(inv: ClientInvoice) -> dict:
         "client_nom": inv.client_nom,
         "client_email": inv.client_email,
         "client_adresse": inv.client_adresse,
+        "client_type": inv.client_type,
+        "client_siret": inv.client_siret,
+        "client_tva": inv.client_tva,
         "date_emission": inv.date_emission,
         "date_echeance": inv.date_echeance,
         "date_paiement": inv.date_paiement,
@@ -818,6 +843,7 @@ def create_invoice(
 
     lignes_dicts = [l.dict() for l in req.lignes]
     montant = _montant_lignes(lignes_dicts)
+    cf = _client_fields(req.client_type, req.client_siret, req.client_tva)
 
     inv = ClientInvoice(
         user_id=user.id,
@@ -825,6 +851,9 @@ def create_invoice(
         client_nom=req.client_nom,
         client_email=req.client_email,
         client_adresse=req.client_adresse,
+        client_type=cf["client_type"],
+        client_siret=cf["client_siret"],
+        client_tva=cf["client_tva"],
         date_emission=req.date_emission,
         date_echeance=req.date_echeance,
         montant=montant,
@@ -857,6 +886,12 @@ def update_invoice(
         inv.client_email = req.client_email
     if req.client_adresse is not None:
         inv.client_adresse = req.client_adresse
+    # Type client fourni → on (re)normalise : passer en particulier efface SIRET/TVA.
+    if req.client_type is not None:
+        cf = _client_fields(req.client_type, req.client_siret, req.client_tva)
+        inv.client_type = cf["client_type"]
+        inv.client_siret = cf["client_siret"]
+        inv.client_tva = cf["client_tva"]
     if req.date_emission is not None:
         inv.date_emission = req.date_emission
     if req.date_echeance is not None:
@@ -1149,6 +1184,9 @@ class QuoteCreateRequest(BaseModel):
     client_nom: str
     client_email: Optional[str] = None
     client_adresse: Optional[str] = None
+    client_type: Optional[str] = None
+    client_siret: Optional[str] = None
+    client_tva: Optional[str] = None
     date_emission: date
     date_validite: Optional[date] = None
     lignes: list[FactureLigne] = []
@@ -1160,6 +1198,9 @@ class QuoteUpdateRequest(BaseModel):
     client_nom: Optional[str] = None
     client_email: Optional[str] = None
     client_adresse: Optional[str] = None
+    client_type: Optional[str] = None
+    client_siret: Optional[str] = None
+    client_tva: Optional[str] = None
     date_emission: Optional[date] = None
     date_validite: Optional[date] = None
     lignes: Optional[list[FactureLigne]] = None
@@ -1187,6 +1228,9 @@ def _quote_to_dict(q: Quote) -> dict:
         "client_nom": q.client_nom,
         "client_email": q.client_email,
         "client_adresse": q.client_adresse,
+        "client_type": q.client_type,
+        "client_siret": q.client_siret,
+        "client_tva": q.client_tva,
         "date_emission": q.date_emission,
         "date_validite": q.date_validite,
         "montant": q.montant,
@@ -1239,6 +1283,7 @@ def create_quote(
 
     lignes_dicts = [l.dict() for l in req.lignes]
     montant = _montant_lignes(lignes_dicts)
+    cf = _client_fields(req.client_type, req.client_siret, req.client_tva)
 
     q = Quote(
         user_id=user.id,
@@ -1246,6 +1291,9 @@ def create_quote(
         client_nom=req.client_nom,
         client_email=req.client_email,
         client_adresse=req.client_adresse,
+        client_type=cf["client_type"],
+        client_siret=cf["client_siret"],
+        client_tva=cf["client_tva"],
         date_emission=req.date_emission,
         date_validite=req.date_validite,
         montant=montant,
@@ -1277,6 +1325,11 @@ def update_quote(
         q.client_email = req.client_email
     if req.client_adresse is not None:
         q.client_adresse = req.client_adresse
+    if req.client_type is not None:
+        cf = _client_fields(req.client_type, req.client_siret, req.client_tva)
+        q.client_type = cf["client_type"]
+        q.client_siret = cf["client_siret"]
+        q.client_tva = cf["client_tva"]
     if req.date_emission is not None:
         q.date_emission = req.date_emission
     if req.date_validite is not None:
@@ -1463,6 +1516,9 @@ def convert_quote_to_invoice(
         client_nom=q.client_nom,
         client_email=q.client_email,
         client_adresse=q.client_adresse,
+        client_type=q.client_type,
+        client_siret=q.client_siret,
+        client_tva=q.client_tva,
         date_emission=date.today(),
         date_echeance=None,
         montant=q.montant,
