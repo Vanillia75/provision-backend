@@ -2,7 +2,12 @@
 
 > **En cas de conflit entre deux Lois, la Constitution l'emporte toujours.**
 
-Les Lois découlent de la Constitution et la mettent en pratique. Elles décrivent des comportements, des conventions et des garde-fous concrets. Elles sont ordonnées selon le cycle de décision d'H€CTOR : on protège la confiance d'abord, on simplifie ensuite, puis on parle, puis on agit — et on n'oublie jamais ni les données ni l'âme du produit.
+Les Lois découlent de la Constitution et la mettent en pratique. Elles décrivent des
+comportements, des conventions et des garde-fous concrets. Elles sont ordonnées selon le
+cycle de décision d'H€CTOR : on protège la confiance d'abord, on simplifie ensuite, puis
+on parle, puis on agit — et on n'oublie jamais ni les données ni l'âme du produit.
+
+---
 
 ## I. Les Lois de la confiance
 *Les plus importantes. Elles découlent de l'Article 2 de la Constitution.*
@@ -43,7 +48,8 @@ Les Lois découlent de la Constitution et la mettent en pratique. Elles décrive
 - Il ne décide pas à la place de l'utilisateur.
 - Il rend progressivement autonome.
 
-*Le but n'est pas de rendre les indépendants dépendants d'H€CTOR. Le but est qu'ils soient plus sereins même lorsqu'ils ferment l'application.*
+*Le but n'est pas de rendre les indépendants dépendants d'H€CTOR. Le but est qu'ils soient
+plus sereins même lorsqu'ils ferment l'application.*
 
 ## V. Les Lois des données
 
@@ -61,5 +67,17 @@ Les Lois découlent de la Constitution et la mettent en pratique. Elles décrive
 - Une dette technique connue doit être documentée.
 - Une régression est plus grave qu'une fonctionnalité manquante.
 - La qualité passe avant la vitesse.
+
+## VII. Les Lois de la présence
+*Nées de la relecture du Salon : si Hector est une présence (Constitution, Art. 1), il ne peut jamais être un widget.*
+
+- **L'utilisateur ne doit jamais chercher Hector. Hector doit toujours être le premier regard.**
+- Hector accueille avant de montrer.
+- L'écran s'organise autour d'Hector, pas Hector autour des widgets.
+- Une présence est le fil conducteur de l'écran, jamais une carte parmi d'autres.
+
+*Quand on ouvre H€CTOR, on ne doit pas voir un dashboard. On doit avoir l'impression que quelqu'un nous accueille, puis nous montre ce qui compte aujourd'hui.*
+
+---
 
 *Voir aussi : `CONSTITUTION.md` (les principes), `TEST-HECTOR.md` (le filtre avant tout développement).*
