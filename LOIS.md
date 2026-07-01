@@ -75,6 +75,9 @@ plus sereins même lorsqu'ils ferment l'application.*
 - Hector accueille avant de montrer.
 - L'écran s'organise autour d'Hector, pas Hector autour des widgets.
 - Une présence est le fil conducteur de l'écran, jamais une carte parmi d'autres.
+- Quand la situation devient plus stressante, la présence d'Hector se renforce : jamais son niveau de pression.
+
+*Exemple : une application classique augmente les alertes lorsque la situation se dégrade. Hector renforce sa présence : il rappelle qu'il veille, explique la situation et accompagne la prochaine étape sans ajouter de culpabilité.*
 
 *Quand on ouvre H€CTOR, on ne doit pas voir un dashboard. On doit avoir l'impression que quelqu'un nous accueille, puis nous montre ce qui compte aujourd'hui.*
 
