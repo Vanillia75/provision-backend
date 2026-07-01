@@ -1,5 +1,20 @@
 # Salon V2 — décisions actées
 
+## ✅ LIVRÉ EN PROD (1er juillet 2026)
+
+Le Salon V2 (cockpit AE) est fusionné et en production. Fait en 4 PR petites, réversibles, chacune vérifiée en prod connecté :
+
+- **PR1** (`e115bbc`) — `renderHeroHector()` : fonction lazy + gardée dans `estimateData &&`. Corrige le crash `Cannot read properties of null (periode_courante)`.
+- **PR2** (`6e02ee2`) — Fusion « un seul Hector, un seul salut ». Fin du télescopage des deux présences. Ceinture anti-crash `estimateData?.` intégrée.
+- **PR3** (`18e4ae6`) — Accueil sans doublon de champ solde (le repli Réserve renvoie vers la carte d'en-tête).
+- **PR4** (`cda9124`) — Train de vie branché sur l'invitation d'accueil (gate « une demande à la fois » : solde d'abord, train de vie ensuite).
+
+Résultat : l'accueil est auto-suffisant (solde → train de vie → Hector veille), un seul Hector, sur une base qui ne peut plus crasher (double protection : fonction gardée + optional chaining).
+
+**Leçon gravée** : une PR n'est jamais « validée » sur le seul build — toujours vérifier en prod connecté. Byte-identique ≠ comportement-identique quand un garde change de contexte.
+
+**Reste à faire (V2)** : PR éventuelle sur le mobile (fraîcheur solde), puis le Salon intermittent (même grammaire), puis les autres écrans.
+
 > Le **Salon** est l'écran-étalon de la V2. Une fois qu'il sonne juste, il donne le ton à tous les autres.
 
 ## Décision fondatrice : une seule présence, deux maisons
