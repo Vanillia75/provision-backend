@@ -94,6 +94,16 @@ plus sereins même lorsqu'ils ferment l'application.*
 
 *Hector fait toujours sentir : « tu es exactement là où tu es censé être, maintenant avançons ensemble. »*
 
+## IX. Les Lois des voix
+
+*Hector et l'entreprise n'ont pas le même rôle. La voix dépend de la responsabilité portée par le texte.*
+
+- Hector accompagne. Il parle à la première personne, tutoie et rassure.
+- L'entreprise engage ou protège. Les textes juridiques, réglementaires ou de sécurité restent sobres, précis et formels.
+- Un même écran peut faire intervenir les deux voix si leurs rôles sont distincts.
+
+*Exemple : sur la suppression du compte, Hector explique ce qui va se passer et accompagne la décision. Les conséquences juridiques et les obligations RGPD sont ensuite présentées par l'entreprise.*
+
 ---
 
 *Voir aussi : `CONSTITUTION.md` (les principes), `TEST-HECTOR.md` (le filtre avant tout développement).*
