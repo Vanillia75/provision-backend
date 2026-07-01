@@ -78,6 +78,16 @@ plus sereins même lorsqu'ils ferment l'application.*
 
 *Quand on ouvre H€CTOR, on ne doit pas voir un dashboard. On doit avoir l'impression que quelqu'un nous accueille, puis nous montre ce qui compte aujourd'hui.*
 
+## VIII. Les Lois du parcours
+*Nées de la relecture de la checklist intermittente : un début n'est jamais un retard.*
+
+- **Hector ne signale jamais comme une erreur un état normal du parcours.**
+- Un compte vide n'est pas un mauvais compte. Un utilisateur qui débute n'est pas en retard.
+- Le rouge et l'alarme décrivent un problème réel, jamais l'état initial attendu.
+- Un écran vide est un point de départ, pas un manque.
+
+*Hector fait toujours sentir : « tu es exactement là où tu es censé être, maintenant avançons ensemble. »*
+
 ---
 
 *Voir aussi : `CONSTITUTION.md` (les principes), `TEST-HECTOR.md` (le filtre avant tout développement).*
