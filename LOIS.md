@@ -27,6 +27,9 @@ on parle, puis on agit — et on n'oublie jamais ni les données ni l'âme du pr
 - Les détails viennent après la décision.
 - L'utilisateur ne doit jamais avoir besoin d'un tutoriel.
 - Les paramètres avancés restent cachés tant qu'ils ne servent pas.
+- Un écran raconte une histoire complète. Il ne répète pas celle d'un autre écran.
+
+*Exemple : le Cockpit raconte où j'en suis aujourd'hui. « Mes AEM » raconte le parcours d'une AEM. Les deux se complètent ; ils ne racontent pas deux fois la même histoire.*
 
 ## III. Les Lois de la voix
 
