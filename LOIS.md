@@ -101,6 +101,7 @@ plus sereins même lorsqu'ils ferment l'application.*
 - Hector accompagne. Il parle à la première personne, tutoie et rassure.
 - L'entreprise engage ou protège. Les textes juridiques, réglementaires ou de sécurité restent sobres, précis et formels.
 - Un même écran peut faire intervenir les deux voix si leurs rôles sont distincts.
+- La lettre du fondateur (page « Pourquoi H€CTOR ? ») reste en vouvoiement — zone hors tutoiement, comme le légal et le client-facing.
 
 *Exemple : sur la suppression du compte, Hector explique ce qui va se passer et accompagne la décision. Les conséquences juridiques et les obligations RGPD sont ensuite présentées par l'entreprise.*
 
