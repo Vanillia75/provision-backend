@@ -60,6 +60,11 @@ PLAFOND_FORMATION = valeur_de("formationPlafondNouvelleAdmission")  # 338
 HEURES_ARRET_PAR_JOUR = valeur_de("assimilationArretParJour")  # 5
 TYPES_ARRET_ASSIMILE = ("arret_maternite", "arret_accident", "arret_ald", "arret_suspension")
 
+# Arrêts NEUTRALISÉS (mécanisme B, le « fractionnement ») : maladie ordinaire hors
+# contrat + paternité, indemnisés. Ils n'ajoutent AUCUNE heure mais ALLONGENT la
+# fenêtre de 365 jours d'autant. Cf. MOTEUR_PERIODE_REFERENCE_SOURCES.md (guide FT p.5).
+TYPES_ARRET_NEUTRALISE = ("arret_maladie_ordinaire", "arret_paternite")
+
 # Paliers d'évolution d'Hector (seuil en heures → état). Trié croissant.
 # Le palier "filet" est aligné sur le seuil de la clause de rattrapage (référentiel).
 PALIERS_HECTOR = [
@@ -130,6 +135,9 @@ class ResultatIntermittent:
     # branche non validée sur cas réel + conditions non vérifiables → l'affichage doit
     # marquer le compteur comme ESTIMATION (cf. MOTEUR_ARRETS_SOURCES.md).
     arret_estimation: bool = False
+    # Nombre de jours dont la période de référence a été ALLONGÉE par des arrêts
+    # neutralisés (fractionnement — maladie ordinaire, paternité). 0 = fenêtre normale.
+    jours_allonges: int = 0
     detail_lignes: list = field(default_factory=list)  # pour la transparence
     regles_appliquees: list = field(default_factory=list)  # trace réglementaire (Pourquoi ?)
     version_referentiel: str = ""
@@ -158,6 +166,10 @@ def heures_de(activite: Activite) -> float:
     # calendaire, sans plafond. `nombre` = nombre de jours d'arrêt.
     if t in TYPES_ARRET_ASSIMILE:
         return n * HEURES_ARRET_PAR_JOUR
+    # Arrêt neutralisé (maladie ordinaire, paternité) : 0h — il allonge la fenêtre
+    # (géré dans _compter_sur_fenetre), il n'ajoute pas d'heures.
+    if t in TYPES_ARRET_NEUTRALISE:
+        return 0.0
     # Type inconnu : on ne devine pas, on compte 0 (le moteur n'invente jamais).
     return 0.0
 
@@ -222,9 +234,25 @@ def borne_basse_12_mois(fin: date) -> date:
 #  extrêmes comptent — interprétation la plus protectrice pour l'intermittent).
 #  Ne compte jamais une activité postérieure à `fin`.
 # ─────────────────────────────────────────────────────────────────────────────
+def _jours_neutralises(activites: list, borne_basse: date, fin: date) -> int:
+    """Nombre de jours d'arrêts NEUTRALISÉS (maladie ordinaire, paternité) tombant dans
+    la fenêtre de base [borne_basse, fin]. Ces jours allongent la fenêtre d'autant."""
+    total = 0.0
+    for a in activites:
+        if a.date is None or a.type_activite not in TYPES_ARRET_NEUTRALISE:
+            continue
+        if borne_basse <= a.date <= fin:
+            total += max(0.0, float(a.nombre or 0))
+    return int(round(total))
+
+
 def _compter_sur_fenetre(activites: list, fin: date) -> tuple:
-    """Retourne (total_heures, detail_lignes) pour la fenêtre de 12 mois finissant à `fin`."""
-    borne_basse = borne_basse_12_mois(fin)
+    """Retourne (total_heures, detail_lignes, jours_allonges) pour la fenêtre de 12 mois
+    finissant à `fin`, allongée par d'éventuels arrêts neutralisés (fractionnement)."""
+    borne_base = borne_basse_12_mois(fin)
+    # Fractionnement : la fenêtre recule du nombre de jours d'arrêts neutralisés.
+    jours_allonges = _jours_neutralises(activites, borne_base, fin)
+    borne_basse = borne_base - timedelta(days=jours_allonges)
     total = 0.0
     formation_retenue = 0.0  # cumul des heures de formation DÉJÀ comptées (plafond global 338h)
     detail = []
@@ -247,6 +275,9 @@ def _compter_sur_fenetre(activites: list, fin: date) -> tuple:
                                 f"{h:g}h retenues.")
         elif a.type_activite in TYPES_ARRET_ASSIMILE:
             regle_ligne = ("Arrêt assimilé (5h/jour, estimation) — " + tracer("assimilationArretParJour"))
+        elif a.type_activite in TYPES_ARRET_NEUTRALISE:
+            regle_ligne = ("Arrêt neutralisé (0h) : allonge la période de référence "
+                           f"de {int(round(float(a.nombre or 0)))} jour(s) — le « fractionnement ». Estimation.")
         elif a.type_activite == "heures":
             regle_ligne = "Heures réelles (technicien, annexe 8) : comptées telles quelles."
         else:
@@ -259,7 +290,7 @@ def _compter_sur_fenetre(activites: list, fin: date) -> tuple:
             "heures": h,
             "regle": regle_ligne,
         })
-    return round(total, 2), detail
+    return round(total, 2), detail, jours_allonges
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -288,10 +319,13 @@ def calculer(
         aujourdhui = date.today()
 
     # ── 1. COMPTEUR AUJOURD'HUI ──
-    total, detail = _compter_sur_fenetre(activites, aujourdhui)
-    # Un arrêt assimilé a-t-il réellement contribué au total affiché (dans la fenêtre) ?
-    # Si oui, le compteur est une ESTIMATION (branche non validée + conditions non vérifiables).
-    arret_estimation = any(l["type"] in TYPES_ARRET_ASSIMILE and l["heures"] > 0 for l in detail)
+    total, detail, jours_allonges = _compter_sur_fenetre(activites, aujourdhui)
+    # Estimation dès qu'un arrêt a joué : soit un arrêt assimilé a ajouté des heures,
+    # soit un arrêt neutralisé a allongé la fenêtre (fractionnement).
+    arret_estimation = (
+        any(l["type"] in TYPES_ARRET_ASSIMILE and l["heures"] > 0 for l in detail)
+        or jours_allonges > 0
+    )
     manquant = max(0.0, SEUIL_DROITS - total)
     pourcentage = round(total / SEUIL_DROITS * 100, 1) if SEUIL_DROITS else 0.0
     etat, message = etat_hector(total)
@@ -310,7 +344,7 @@ def calculer(
         # PLANCHER STRICT : uniquement les contrats déjà faits (<= aujourd'hui).
         # "Si tu ne retravailles plus, voici ce qui reste dans la fenêtre à l'échéance."
         activites_passees = [a for a in activites if a.date is not None and a.date <= aujourdhui]
-        ph, _ = _compter_sur_fenetre(activites_passees, date_anniversaire)
+        ph, _, _ = _compter_sur_fenetre(activites_passees, date_anniversaire)
         proj_plancher_h = ph
         proj_plancher_manq = round(max(0.0, SEUIL_DROITS - ph), 2)
         proj_plancher_sec = ph >= SEUIL_DROITS
@@ -319,7 +353,7 @@ def calculer(
         # (postérieurs à aujourd'hui mais antérieurs ou égaux à la date anniversaire).
         activites_futures = [a for a in activites if a.date is not None and aujourdhui < a.date <= date_anniversaire]
         a_contrats_futurs = len(activites_futures) > 0
-        pp, _ = _compter_sur_fenetre(activites_passees + activites_futures, date_anniversaire)
+        pp, _, _ = _compter_sur_fenetre(activites_passees + activites_futures, date_anniversaire)
         proj_prevus_h = pp
         proj_prevus_manq = round(max(0.0, SEUIL_DROITS - pp), 2)
         proj_prevus_sec = pp >= SEUIL_DROITS
@@ -341,8 +375,12 @@ def calculer(
     if any(a.type_activite == "formation" for a in activites if a.date is not None):
         regles_appliquees.append(tracer("formationPlafondNouvelleAdmission"))
     # Idem pour l'arrêt : la trace ne le mentionne que s'il a réellement compté.
-    if arret_estimation:
+    if any(l["type"] in TYPES_ARRET_ASSIMILE and l["heures"] > 0 for l in detail):
         regles_appliquees.append("Arrêt assimilé (5h/jour, estimation) — " + tracer("assimilationArretParJour"))
+    if jours_allonges > 0:
+        regles_appliquees.append(
+            f"Fractionnement : la période de référence est allongée de {jours_allonges} jour(s) "
+            "au titre d'arrêts neutralisés (maladie ordinaire/paternité). Guide France Travail p.5. Estimation.")
 
     return ResultatIntermittent(
         total_heures=total,
@@ -365,6 +403,7 @@ def calculer(
         projection_avec_prevus_securise=proj_prevus_sec,
         projection_a_des_contrats_futurs=a_contrats_futurs,
         arret_estimation=arret_estimation,
+        jours_allonges=jours_allonges,
         detail_lignes=detail,
         regles_appliquees=regles_appliquees,
         version_referentiel=VERSION,
