@@ -1706,7 +1706,12 @@ def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest", fiscal: dict = 
           <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:right; font-weight:600;">{total_ligne:.2f} €</td>
         </tr>"""
 
-    message_html = f'<p style="color:#3D4452;">{e(req.message)}</p>' if req.message else ""
+    # Les sauts de ligne du message deviennent de vrais retours dans l'email
+    # (sinon « Bonjour X, » et la suite se retrouvent collés sur une ligne).
+    message_html = (
+        f'<p style="color:#3D4452; line-height:1.6;">{e(req.message).replace(chr(10), "<br/>")}</p>'
+        if req.message else ""
+    )
     validite_html = (
         f'<p style="color:#6B7A8D; font-size:13px;">Devis valable jusqu\'au {q.date_validite.strftime("%d/%m/%Y")}</p>'
         if q.date_validite else ""
@@ -1770,7 +1775,14 @@ def send_quote(
         _snapshot_fiscal(q, db, user.id)
     fiscal = resolve_fiscal_settings(q)
     html = _build_quote_email_html(q, req, fiscal)
-    ok = send_invoice_email(q.client_email, f"Devis {q.numero}", html)
+    # Expéditeur = le nom de l'utilisateur (signature du profil, repli sur le nom
+    # émetteur) ; Reply-To = son email. Même circuit que la facture : le client reçoit
+    # un mail de la personne qu'il connaît et peut lui répondre directement.
+    ok = send_invoice_email(
+        q.client_email, f"Devis {q.numero}", html,
+        from_name=_signature_relance(profile) or req.emitter_nom,
+        reply_to=user.email,
+    )
     if not ok:
         raise HTTPException(status_code=502, detail="Erreur lors de l'envoi de l'email")
 
