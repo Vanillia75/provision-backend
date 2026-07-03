@@ -88,8 +88,10 @@ Disponible aujourd'hui :
   AJ nette officielle **51,18 €**. Calcul avec les formules du §1 + §3 : A=19,64 +
   B=10,42 + C=22,37 = 52,43 € brute ; retenue 0,93 % × SJM 134,23 = 1,25 € →
   **51,18 € nette. Écart : 0,000 %** (objectif ±5 %).
-  Enseignement : arrondir CHAQUE partie (A, B, C, retenue) au centime — c'est le
-  schéma d'arrondi de France Travail. Ce cas devient un test unitaire obligatoire.
+  Enseignement — schéma d'arrondi de France Travail (décodé sur exemple 6 + cas réel) :
+  les parties A, B, C sont **TRONQUÉES** au centime (39,8094 → 39,80, pas 39,81) ;
+  la retenue retraite est **ARRONDIE** au centime (1,2483 → 1,25). Ce cas est un
+  test unitaire obligatoire (`test_allocation.py`).
 - 👍 Souhaitable : 1-2 notifications supplémentaires (autres profils : annexe 8,
   SR > plafond, AJ > 60 € avec CSG) pour couvrir les autres branches du calcul.
 

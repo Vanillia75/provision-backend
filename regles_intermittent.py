@@ -135,13 +135,93 @@ REGLES = {
     "ajMinimale": {
         "valeur": 31.96,
         "libelle": "Allocation journalière minimale (paramètre de calcul)",
-        "source": "Unédic — Paramètres Utiles — à confirmer expert",
+        "source": "Unédic — Paramètres utiles avril 2025 ; Guide France Travail Intermittents "
+                  "(31,96 € depuis le 01/07/2023). Cf. MOTEUR_AJ_SOURCES.md.",
         "version": "2026.07",
-        "dateAppli": "à confirmer",
+        "dateAppli": "2023-07-01",
+        "verifie": True,
+        "commentaire": "Paramètre fixe des formules A, B, C de l'AJ. Évolue avec le SMIC : "
+                       "à réviser à chaque revalorisation (dernier contrôle 2026-07-03). "
+                       "Validé par backtest réel à 0,00 € d'écart (cf. MOTEUR_AJ_SOURCES.md §6).",
+    },
+
+    # ── MOTEUR ALLOCATION JOURNALIÈRE (chantier AJ — cf. MOTEUR_AJ_SOURCES.md) ──
+    # Source commune : Guide officiel France Travail « Intermittents du spectacle »
+    # p.11 (formules), p.12 (brut→net), p.16-17 (mois type) ; Unédic Paramètres utiles
+    # avril 2025. Backtest réel n°1 (annexe 10) : 0,00 € d'écart le 2026-07-03.
+    "allocationParametresAnnexe8": {
+        "valeur": {
+            "coefSR": 0.42, "plafondSR": 14400, "coefSRAuDela": 0.05, "diviseurA": 5000,
+            "coefNHT": 0.26, "seuilNHT": 720, "coefNHTAuDela": 0.08, "diviseurB": 507,
+            "coefC": 0.40, "plancherAJ": 38.0, "diviseurSJM": 8,
+            "seuilJoursMois": 26, "coefDecalage": 1.4,
+        },
+        "libelle": "Paramètres de l'allocation journalière — annexe 8 (techniciens)",
+        "source": "Guide France Travail Intermittents p.11, 12, 16-17 (exemples 6 et 12 vérifiés)",
+        "version": "2026.07",
+        "dateAppli": "en vigueur",
+        "verifie": True,
+        "commentaire": "A = AJmin×[0,42×SR(≤14400)+0,05×au-delà]/5000 ; B = AJmin×[0,26×NHT(≤720h)"
+                       "+0,08×au-delà]/507 ; C = AJmin×0,40. Plancher 38 €. SJM = SR/(NHT/8). "
+                       "Mois : jours travaillés = heures/8, seuil 26 j, décalage ×1,4.",
+    },
+    "allocationParametresAnnexe10": {
+        "valeur": {
+            "coefSR": 0.36, "plafondSR": 13700, "coefSRAuDela": 0.05, "diviseurA": 5000,
+            "coefNHT": 0.26, "seuilNHT": 690, "coefNHTAuDela": 0.08, "diviseurB": 507,
+            "coefC": 0.70, "plancherAJ": 44.0, "diviseurSJM": 10,
+            "seuilJoursMois": 27, "coefDecalage": 1.3,
+        },
+        "libelle": "Paramètres de l'allocation journalière — annexe 10 (artistes)",
+        "source": "Guide France Travail Intermittents p.11, 12, 16-17 ; backtest réel 0,00 € d'écart (2026-07-03)",
+        "version": "2026.07",
+        "dateAppli": "en vigueur",
+        "verifie": True,
+        "commentaire": "A = AJmin×[0,36×SR(≤13700)+0,05×au-delà]/5000 ; B = AJmin×[0,26×NHT(≤690h)"
+                       "+0,08×au-delà]/507 ; C = AJmin×0,70. Plancher 44 €. SJM = SR/(NHT/10). "
+                       "Mois : jours travaillés = heures/10, seuil 27 j, décalage ×1,3.",
+    },
+    "allocationPlafondAJ": {
+        "valeur": 174.80,
+        "libelle": "Plafond de l'allocation journalière (annexes 8 et 10)",
+        "source": "Guide France Travail Intermittents p.11 (depuis le 01/01/2024)",
+        "version": "2026.07",
+        "dateAppli": "2024-01-01",
+        "verifie": True,
+        "commentaire": "L'AJ calculée ne peut dépasser ce montant. Revalorisé périodiquement : à réviser.",
+    },
+    "allocationRetenueRetraiteComp": {
+        "valeur": {"taux": 0.0093, "seuilExoneration": 31.96, "seuilCsg": 60.0},
+        "libelle": "Retenue retraite complémentaire sur l'AJ (0,93 % du SJM)",
+        "source": "Guide France Travail Intermittents p.12 ; validé par backtest réel (retenue 1,25 € exacte)",
+        "version": "2026.07",
+        "dateAppli": "en vigueur",
+        "verifie": True,
+        "commentaire": "AJ ≤ 31,96 € : aucune retenue. 31,96 < AJ ≤ 60 € : retenue 0,93 % × SJM. "
+                       "AJ > 60 € : s'ajoutent CSG et CRDS (cf. allocationCsgCrds).",
+    },
+    "allocationCsgCrds": {
+        "valeur": {"csgPlein": 0.062, "csgReduit": 0.038, "crds": 0.005, "assiette": 0.9825},
+        "libelle": "CSG/CRDS sur l'AJ au-delà de 60 €",
+        "source": "Guide France Travail p.12 (taux) ; assiette 98,25 % = règle générale CSG — À CONFIRMER pour l'ARE spectacle",
+        "version": "2026.07",
+        "dateAppli": "en vigueur",
         "verifie": False,
-        "frontOnly": True,
-        "commentaire": "Paramètre fixe de la formule de l'AJ. Évolue avec le SMIC. Hector ne calcule "
-                       "pas les euros : ne pas utiliser sans validation experte.",
+        "commentaire": "Taux sourcés (6,2 % ou 3,8 % selon revenu fiscal, CRDS 0,5 %) mais l'assiette "
+                       "exacte et les arrondis ne sont pas confirmés par un cas réel : le moteur doit "
+                       "marquer le net comme ESTIMATION quand l'AJ dépasse 60 €, tant qu'un backtest "
+                       "réel n'a pas validé cette branche.",
+    },
+    "pmssMensuel": {
+        "valeur": {"montant": 3925.0, "annee": 2025, "coefPlafondCumul": 1.18},
+        "libelle": "Plafond mensuel de la sécurité sociale (pour le plafond de cumul ARE + salaires)",
+        "source": "Unédic — Paramètres utiles avril 2025 (PMSS 2025 = 3 925 €) ; guide FT p.17 (cumul ≤ 118 % du PMSS)",
+        "version": "2026.07",
+        "dateAppli": "2025-01-01",
+        "verifie": True,
+        "commentaire": "Cumul mensuel ARE + rémunérations brutes plafonné à 118 % du PMSS. "
+                       "Valeur 2025 — à réviser chaque 1er janvier (l'exemple 12 du guide utilise "
+                       "le PMSS 2024 = 3 864 € → plafond 4 559,52 €, vérifié).",
     },
     "franchiseCongesParJours": {
         "valeur": {"jours": 2.5, "parTravailles": 24, "plafond": 30},
