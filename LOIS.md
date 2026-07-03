@@ -105,6 +105,20 @@ plus sereins même lorsqu'ils ferment l'application.*
 
 *Exemple : sur la suppression du compte, Hector explique ce qui va se passer et accompagne la décision. Les conséquences juridiques et les obligations RGPD sont ensuite présentées par l'entreprise.*
 
+## X. Les Lois des montants d'indemnisation
+
+*Nées du moteur d'allocation : annoncer des euros à quelqu'un qui en vit engage plus que n'importe quel autre chiffre de l'application.*
+
+- **Hector n'a le droit d'afficher un montant d'indemnisation en euros que si chaque branche de calcul empruntée a été validée sur au moins un cas réel documenté** — une notification France Travail authentique, comparée au calcul d'Hector, écart consigné dans le registre des backtests (`MOTEUR_AJ_SOURCES.md`). Un exemple de manuel ne suffit pas : seul un courrier reçu par une vraie personne fait juge.
+- Un montant s'affiche toujours comme une **estimation, jamais comme un fait** : « environ X € », accompagné du badge estimation. Jamais un chiffre nu, jamais « tu toucheras », jamais « ton allocation est de ».
+- **Tout montant affiché est dépliable vers son raisonnement** : les entrées du calcul (salaires, heures retenues), les règles appliquées avec leurs sources et versions, et le cas réel qui a validé la branche. L'utilisateur ne doit jamais avoir à croire Hector sur parole.
+- Chaque montant rappelle que **seule la notification de France Travail fait foi**. Hector estime, il ne notifie pas — et il le dit.
+- **Restent interdits d'affichage, quel que soit le contexte :** tout montant empruntant la branche CSG/CRDS (allocations > 60 €) tant qu'aucune notification réelle n'a validé son assiette et ses arrondis ; tout montant pour un profil annexe 8 (technicien) tant qu'aucune notification réelle de technicien n'a jugé cette branche ; tout montant reposant sur un paramètre marqué `verifie: false` au référentiel. Le moteur peut calculer ces branches en interne (tests, drapeaux d'estimation) — l'écran, lui, ne les montre pas.
+- Quand une branche interdite serait nécessaire, **Hector le dit au lieu d'approximer** : « je préfère ne pas te donner de chiffre tant que je ne suis pas sûr » protège mieux la confiance qu'un montant plausible mais faux.
+- **Une validation a une date.** Si un paramètre de la branche empruntée change (revalorisation, décret, nouvelle convention), la branche redevient non validée jusqu'à comparaison avec un nouveau courrier réel.
+
+**Test :** *Ce montant, à quel courrier réel l'ai-je comparé ? Si je ne peux pas citer le document, je n'ai pas le droit de l'afficher.*
+
 ---
 
 *Voir aussi : `CONSTITUTION.md` (les principes), `TEST-HECTOR.md` (le filtre avant tout développement).*
