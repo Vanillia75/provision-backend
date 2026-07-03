@@ -119,14 +119,18 @@ REGLES = {
     # dans le calcul des heures (verifie:false) et attendent une validation experte.
     "formationPlafondNouvelleAdmission": {
         "valeur": 338,
-        "libelle": "Plafond d'heures de formation assimilées (nouvelle admission)",
-        "source": "France Travail ; Unédic — à confirmer expert",
+        "libelle": "Plafond d'heures de formation suivie assimilées",
+        "source": "Unédic — annexes VIII et X au règlement d'assurance chômage (heures de "
+                  "formation assimilées dans la limite des 2/3 du nombre d'heures requis) ; "
+                  "ARTCENA, Précis juridique annexes VIII et X. Sourcé le 2026-07-03.",
         "version": "2026.07",
         "dateAppli": "en vigueur",
-        "verifie": False,
-        "frontOnly": True,
-        "commentaire": "Les heures de formation comptent comme assimilées jusqu'à 2/3 du total requis "
-                       "(≈338h pour une nouvelle admission). À confirmer par un expert avant tout usage.",
+        "verifie": True,
+        "commentaire": "Les heures de formation SUIVIE comptent comme des heures de travail dans la "
+                       "limite des 2/3 du seuil requis : 2/3 × 507 = 338h. Plafond GLOBAL sur la fenêtre "
+                       "de 12 mois (pas par formation). Conséquence : la formation seule ne peut jamais "
+                       "ouvrir des droits (338 < 507). NB : l'enseignement DISPENSÉ (70h, 120h si ≥50 ans) "
+                       "est une règle distincte, volontairement NON codée pour l'instant.",
     },
     "ajMinimale": {
         "valeur": 31.96,

@@ -49,6 +49,11 @@ SEUIL_FILET = valeur_de("rattrapageSeuilMin")    # 338
 # "cachet groupé = 8h" est abandonnée, cf. regles_intermittent.py).
 HEURES_CACHET = valeur_de("cachetHeures")        # 12
 
+# Heures de formation SUIVIE : assimilées dans la limite des 2/3 du seuil requis
+# (338h). Plafond GLOBAL par fenêtre de 12 mois — la formation seule ne peut
+# jamais ouvrir des droits (338 < 507). Cf. regles_intermittent.py.
+PLAFOND_FORMATION = valeur_de("formationPlafondNouvelleAdmission")  # 338
+
 # Paliers d'évolution d'Hector (seuil en heures → état). Trié croissant.
 # Le palier "filet" est aligné sur le seuil de la clause de rattrapage (référentiel).
 PALIERS_HECTOR = [
@@ -134,6 +139,11 @@ def heures_de(activite: Activite) -> float:
         return n * HEURES_CACHET
     if t == "heures":
         return n
+    # Formation suivie : heure pour heure ICI (conversion brute). Le plafond des
+    # 338h est GLOBAL par fenêtre : il s'applique dans _compter_sur_fenetre, pas
+    # ligne par ligne — sinon deux formations de 200h passeraient (400 > 338).
+    if t == "formation":
+        return n
     # Type inconnu : on ne devine pas, on compte 0 (le moteur n'invente jamais).
     return 0.0
 
@@ -202,6 +212,7 @@ def _compter_sur_fenetre(activites: list, fin: date) -> tuple:
     """Retourne (total_heures, detail_lignes) pour la fenêtre de 12 mois finissant à `fin`."""
     borne_basse = borne_basse_12_mois(fin)
     total = 0.0
+    formation_retenue = 0.0  # cumul des heures de formation DÉJÀ comptées (plafond global 338h)
     detail = []
     for a in activites:
         if a.date is None:
@@ -210,11 +221,21 @@ def _compter_sur_fenetre(activites: list, fin: date) -> tuple:
         if a.date < borne_basse or a.date > fin:
             continue
         h = heures_de(a)
-        total += h
-        if a.type_activite == "heures":
+        if a.type_activite == "formation":
+            # Plafond GLOBAL sur la fenêtre : on ne retient que ce qui reste sous 338h.
+            reste = max(0.0, PLAFOND_FORMATION - formation_retenue)
+            brut = h
+            h = min(brut, reste)
+            formation_retenue += h
+            regle_ligne = tracer("formationPlafondNouvelleAdmission")
+            if h < brut:
+                regle_ligne += (f" Plafond atteint sur cette fenêtre : {brut:g}h déclarées, "
+                                f"{h:g}h retenues.")
+        elif a.type_activite == "heures":
             regle_ligne = "Heures réelles (technicien, annexe 8) : comptées telles quelles."
         else:
             regle_ligne = tracer("cachetHeures")
+        total += h
         detail.append({
             "date": a.date.isoformat(),
             "type": a.type_activite,
@@ -296,6 +317,10 @@ def calculer(
         tracer("periodeReferenceJours"),
         tracer("rattrapageSeuilMin"),
     ]
+    # La règle formation n'apparaît dans la trace que si une formation a réellement
+    # servi au calcul (pas de bruit réglementaire pour ceux que ça ne concerne pas).
+    if any(a.type_activite == "formation" for a in activites if a.date is not None):
+        regles_appliquees.append(tracer("formationPlafondNouvelleAdmission"))
 
     return ResultatIntermittent(
         total_heures=total,

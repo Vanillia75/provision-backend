@@ -2630,7 +2630,7 @@ def assistant_chat(
 #  appeler le moteur. Aucun calcul d'indemnisation en euros (niveau B = plus tard).
 # ════════════════════════════════════════════════════════════════════════════
 
-TYPES_ACTIVITE_INTERMITTENT = ("heures", "cachet_isole", "cachet_groupe")
+TYPES_ACTIVITE_INTERMITTENT = ("heures", "cachet_isole", "cachet_groupe", "formation")
 
 
 class IntermittentActiviteRequest(BaseModel):
