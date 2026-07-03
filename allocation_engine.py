@@ -45,6 +45,32 @@ def _params(annexe: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  LOI X — DROIT D'AFFICHER UN MONTANT.
+#  Un montant en euros ne peut être MONTRÉ à l'utilisateur que si la branche de
+#  calcul empruntée a été validée sur un cas réel documenté (une vraie notification
+#  France Travail comparée au calcul d'Hector — registre : MOTEUR_AJ_SOURCES.md §6).
+#  Aujourd'hui, une seule branche est validée : annexe 10 (artistes), AJ ≤ 60 €
+#  (backtest n°1, 2026-07-03, 0,00 € d'écart). Tout le reste — annexe 8, AJ > 60 €
+#  (donc CSG, dont l'assiette n'est pas confirmée) — reste CALCULÉ en interne mais
+#  JAMAIS affiché. Le moteur calcule ; la Loi décide de ce qu'on montre.
+# ─────────────────────────────────────────────────────────────────────────────
+BRANCHE_VALIDEE_AJ_MAX_ANNEXE10 = 60.0  # au-delà, la CSG entre en jeu (non validée)
+
+
+def branche_affichable(annexe: str, resultat: dict) -> tuple:
+    """
+    Retourne (affichable: bool, raison: str|None).
+    raison explique, quand ce n'est PAS affichable, pourquoi — pour qu'Hector puisse
+    dire honnêtement « je préfère ne pas te donner de chiffre » plutôt qu'approximer.
+    """
+    if annexe != "annexe10":
+        return (False, "technicien")  # annexe 8 : aucune notification réelle ne l'a encore jugée
+    if resultat.get("nette_estimee") or resultat["aj_brute"] > BRANCHE_VALIDEE_AJ_MAX_ANNEXE10:
+        return (False, "au_dela_60")  # CSG en jeu : assiette non validée sur cas réel
+    return (True, None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  L'ALLOCATION JOURNALIÈRE : AJ = A + B + C, puis brut → net.
 #  Schéma d'arrondi de France Travail (décodé sur l'exemple officiel 6 ET le
 #  backtest réel n°1) : chaque partie A/B/C est TRONQUÉE au centime (39,8094 →

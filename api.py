@@ -36,6 +36,7 @@ from invoice_extractor import extract_invoice_data
 from aem_extractor import extract_aem_data, extract_are_data
 import r2_storage
 import intermittent_engine as ie
+import allocation_engine as ae
 from insee_lookup import lookup_siret, SiretLookupError
 import billing
 
@@ -316,6 +317,9 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "reserve_securite": profile.reserve_securite,
         "tmi": profile.tmi,
         "relance_auto_jours": profile.relance_auto_jours,
+        "salaire_reference": profile.salaire_reference,
+        "heures_reference": profile.heures_reference,
+        "annexe_allocation": profile.annexe_allocation,
         "email": user.email,
         "email_verified": user.email_verified,
         "is_premium": prem,
@@ -2708,6 +2712,52 @@ class SimulationContratRequest(BaseModel):
     nombre: float
 
 
+class AllocationRequest(BaseModel):
+    annexe: str                      # "annexe8" | "annexe10"
+    salaire_reference: float
+    heures_reference: float
+
+
+def _allocation_pour_profil(profile: Optional[Profile]) -> Optional[dict]:
+    """
+    Recalcule l'allocation journalière à partir des éléments stockés sur le profil
+    (salaire de référence + heures + annexe, saisis depuis la notification France
+    Travail). Applique la Loi X : `affichable` dit si Hector a le DROIT de montrer
+    le montant. Compare aussi au montant officiel (montant_journalier) si présent.
+    Retourne None si les éléments de calcul ne sont pas renseignés.
+    """
+    if not profile or profile.salaire_reference is None or profile.heures_reference is None \
+            or not profile.annexe_allocation:
+        return None
+    try:
+        res = ae.calculer_aj(profile.annexe_allocation, profile.salaire_reference, profile.heures_reference)
+    except ValueError:
+        return None
+    affichable, raison = ae.branche_affichable(profile.annexe_allocation, res)
+    out = {
+        "affichable": affichable,
+        "raison_non_affichable": raison,
+        "annexe": profile.annexe_allocation,
+        "salaire_reference": profile.salaire_reference,
+        "heures_reference": profile.heures_reference,
+        "aj_brute": res["aj_brute"],
+        "aj_nette": res["aj_nette"],
+        "partie_a": res["partie_a"],
+        "partie_b": res["partie_b"],
+        "partie_c": res["partie_c"],
+        "retenue_retraite": res["retenue_retraite"],
+        "plancher_applique": res["plancher_applique"],
+        "plafond_applique": res["plafond_applique"],
+    }
+    # Comparaison avec le montant OFFICIEL lu sur l'ARE (jamais recalculé), si présent.
+    if profile.montant_journalier is not None:
+        ecart = round(res["aj_nette"] - profile.montant_journalier, 2)
+        out["montant_officiel"] = profile.montant_journalier
+        out["ecart_officiel"] = ecart
+        out["coherent_officiel"] = abs(ecart) <= 0.50   # tolérance d'un demi-euro (arrondis)
+    return out
+
+
 def _activites_modele_vers_moteur(rows: list) -> list:
     """Convertit les lignes DB en objets Activite que le moteur comprend."""
     return [
@@ -3078,7 +3128,35 @@ def get_intermittent_cockpit(
     out = _resultat_vers_dict(res)
     # Montant journalier (lu sur l'ARE, stocké sur le profil) — affiché tel quel au cockpit.
     out["montant_journalier"] = profile.montant_journalier if profile else None
+    # Allocation RECALCULÉE (Loi X : `affichable` décide si le montant peut être montré).
+    out["allocation"] = _allocation_pour_profil(profile)
     return out
+
+
+@app.post("/intermittent/allocation")
+def save_allocation(
+    req: AllocationRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Enregistre les éléments de calcul de l'allocation (salaire de référence + heures
+    + annexe, lus sur la notification France Travail) et renvoie l'AJ recalculée,
+    encadrée par la Loi X (cf. _allocation_pour_profil).
+    """
+    if req.annexe not in ("annexe8", "annexe10"):
+        raise HTTPException(status_code=400, detail="Annexe invalide (annexe8 ou annexe10)")
+    if req.salaire_reference < 0 or req.heures_reference < 0:
+        raise HTTPException(status_code=400, detail="Valeurs négatives refusées")
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+    profile.annexe_allocation = req.annexe
+    profile.salaire_reference = req.salaire_reference
+    profile.heures_reference = req.heures_reference
+    db.commit()
+    db.refresh(profile)
+    return _allocation_pour_profil(profile)
 
 
 @app.post("/intermittent/simuler")

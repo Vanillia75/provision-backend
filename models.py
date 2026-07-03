@@ -65,6 +65,11 @@ class Profile(Base):
     # Saisie par l'utilisateur. Nullable : seuls les profils intermittents l'utilisent.
     date_anniversaire = Column(Date, nullable=True)
     montant_journalier = Column(Float, nullable=True)   # allocation journalière lue sur l'ARE, jamais recalculée
+    # Éléments de calcul de l'allocation (saisis depuis la notification France Travail) :
+    # servent à RECALCULER l'AJ (allocation_engine) et à la comparer au montant officiel.
+    salaire_reference = Column(Float, nullable=True)    # SR : salaires bruts de la période de référence
+    heures_reference = Column(Float, nullable=True)     # NHT : heures retenues sur la période
+    annexe_allocation = Column(String, nullable=True)   # "annexe8" (technicien) | "annexe10" (artiste)
     onboarding_complete = Column(Boolean, default=False)
 
     siret = Column(String, nullable=True, index=True)

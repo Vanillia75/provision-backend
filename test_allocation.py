@@ -17,7 +17,7 @@ fractionnaires du mois type), le résultat porte un drapeau d'estimation.
 """
 import math
 
-from allocation_engine import calculer_aj, calculer_mois
+from allocation_engine import calculer_aj, calculer_mois, branche_affichable
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -144,6 +144,34 @@ def test_mois_exact_pas_de_drapeau():
                       remunerations_brutes=4000.0, jours_calendaires=30,
                       pmss_mensuel=3864.0)
     assert r["arrondi_approximatif"] is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  3. LOI X — ce qu'Hector a le DROIT d'afficher
+# ─────────────────────────────────────────────────────────────────────────────
+def test_affichable_artiste_sous_60_le_cas_reel():
+    """La seule branche validée sur cas réel : annexe 10, AJ ≤ 60 € (cas Héloïse)."""
+    r = calculer_aj("annexe10", sr=8537.10, nht=636.0)  # 51,18 € net
+    affichable, raison = branche_affichable("annexe10", r)
+    assert affichable is True
+    assert raison is None
+
+
+def test_non_affichable_technicien():
+    """Annexe 8 : aucune notification réelle ne l'a jugée → jamais affiché (Loi X)."""
+    r = calculer_aj("annexe8", sr=18000.0, nht=800.0)
+    affichable, raison = branche_affichable("annexe8", r)
+    assert affichable is False
+    assert raison == "technicien"
+
+
+def test_non_affichable_au_dela_60():
+    """Artiste mais AJ > 60 € : la CSG entre en jeu, assiette non validée → interdit."""
+    r = calculer_aj("annexe10", sr=60000.0, nht=900.0)  # AJ brute > 60
+    assert r["aj_brute"] > 60
+    affichable, raison = branche_affichable("annexe10", r)
+    assert affichable is False
+    assert raison == "au_dela_60"
 
 
 def test_mois_remunerations_seules_depassent_plafond():
