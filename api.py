@@ -5,6 +5,7 @@ Lancer avec : uvicorn api:app --reload
 
 import os
 import html
+import asyncio
 import shutil
 import tempfile
 import requests as http_requests
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
-from database import Base, engine, get_db
+from database import Base, engine, get_db, SessionLocal
 from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt, FiscalSettings
 from auth import (
     hash_password, verify_password, create_token, get_current_user,
@@ -314,6 +315,7 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "solde_bancaire": profile.solde_bancaire,
         "reserve_securite": profile.reserve_securite,
         "tmi": profile.tmi,
+        "relance_auto_jours": profile.relance_auto_jours,
         "email": user.email,
         "email_verified": user.email_verified,
         "is_premium": prem,
@@ -410,6 +412,27 @@ def save_solde(
 
     db.commit()
     return {"ok": True}
+
+
+class RelanceAutoRequest(BaseModel):
+    jours: Optional[int] = None  # None = relances automatiques désactivées
+
+
+@app.post("/profile/relance-auto")
+def save_relance_auto(
+    req: RelanceAutoRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Active/désactive les relances automatiques d'impayés (opt-in explicite de l'utilisateur)."""
+    if req.jours is not None and not (1 <= req.jours <= 90):
+        raise HTTPException(status_code=400, detail="Délai invalide (entre 1 et 90 jours)")
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+    profile.relance_auto_jours = req.jours
+    db.commit()
+    return {"relance_auto_jours": profile.relance_auto_jours}
 
 
 class SettingsRequest(BaseModel):
@@ -795,6 +818,7 @@ def _invoice_to_dict(inv: ClientInvoice) -> dict:
         "date_paiement": inv.date_paiement,
         "montant": inv.montant,
         "statut": inv.statut,
+        "relance_envoyee_le": inv.relance_envoyee_le,
         "lignes": inv.lignes,
         "notes": inv.notes,
         # Régime TVA figé (snapshot). NULL → le front applique le fallback franchise.
@@ -1296,6 +1320,89 @@ def send_invoice(
     db.commit()
     db.refresh(inv)
     return _invoice_to_dict(inv)
+
+
+# ----------------------------------------------------------------
+# Relances automatiques d'impayés — OPT-IN par utilisateur (OFF par défaut).
+# L'utilisateur décide la RÈGLE une fois (profile.relance_auto_jours) ; Hector l'applique
+# et le montre (relance_envoyee_le visible sur la facture). Garde-fous :
+#   - une facture n'est JAMAIS relancée deux fois automatiquement ;
+#   - uniquement les factures envoyées/impayées avec un email client ;
+#   - mode "dry" par défaut : on journalise ce qui SERAIT envoyé, sans rien envoyer.
+#     Passer RELANCES_AUTO_MODE=live sur Railway pour armer réellement.
+# ----------------------------------------------------------------
+RELANCES_AUTO_MODE = os.environ.get("RELANCES_AUTO_MODE", "dry")
+
+
+def _message_relance_auto(inv: ClientInvoice) -> str:
+    """Relance destinée au CLIENT de l'utilisateur : registre professionnel, vouvoiement."""
+    salut = f"Bonjour {inv.client_nom}," if inv.client_nom else "Bonjour,"
+    retard = (date.today() - inv.date_echeance).days if inv.date_echeance else 0
+    montant = f"{inv.montant:,.2f}".replace(",", " ").replace(".", ",")
+    echeance = inv.date_echeance.strftime("%d/%m/%Y") if inv.date_echeance else ""
+    mention_retard = f" ({retard} jour{'s' if retard > 1 else ''} de retard à ce jour)" if retard > 0 else ""
+    return (
+        f"{salut}\n\n"
+        f"Je me permets de revenir vers vous concernant la facture {inv.numero or ''} "
+        f"d'un montant de {montant} €, arrivée à échéance le {echeance}{mention_retard}.\n\n"
+        f"Pourriez-vous me confirmer la date de règlement prévue ? "
+        f"Si le paiement a déjà été effectué, merci d'ignorer ce message.\n\n"
+        f"Bien à vous,"
+    )
+
+
+def _executer_relances_auto():
+    db = SessionLocal()
+    try:
+        profils = db.query(Profile).filter(Profile.relance_auto_jours.isnot(None)).all()
+        for profile in profils:
+            seuil = date.today() - timedelta(days=profile.relance_auto_jours)
+            factures = (
+                db.query(ClientInvoice)
+                .filter(
+                    ClientInvoice.user_id == profile.user_id,
+                    ClientInvoice.statut.in_(["envoyee", "impayee"]),
+                    ClientInvoice.client_email.isnot(None),
+                    ClientInvoice.relance_envoyee_le.is_(None),
+                    ClientInvoice.date_echeance.isnot(None),
+                    ClientInvoice.date_echeance <= seuil,
+                )
+                .all()
+            )
+            for inv in factures:
+                retard = (date.today() - inv.date_echeance).days
+                if RELANCES_AUTO_MODE != "live":
+                    print(f"[relances][repetition] AURAIT relance la facture {inv.numero} "
+                          f"({inv.client_email}, {retard}j de retard) — mode dry, rien d'envoye")
+                    continue
+                try:
+                    emetteur = _build_emitter_info(profile)["nom"]
+                    req = SendInvoiceRequest(emitter_nom=emetteur, message=_message_relance_auto(inv))
+                    fiscal = resolve_fiscal_settings(inv)
+                    html_mail = _build_invoice_email_html(inv, req, fiscal)
+                    if send_invoice_email(inv.client_email, f"Relance — Facture {inv.numero}", html_mail):
+                        inv.relance_envoyee_le = datetime.utcnow()
+                        db.commit()
+                        print(f"[relances] relance envoyee : facture {inv.numero} -> {inv.client_email}")
+                    else:
+                        print(f"[relances] echec d'envoi pour la facture {inv.numero} (on retentera au prochain passage)")
+                except Exception as e:
+                    db.rollback()
+                    print(f"[relances] erreur sur la facture {inv.numero}: {e}")
+    except Exception as e:
+        print(f"[relances] erreur globale: {e}")
+    finally:
+        db.close()
+
+
+@app.on_event("startup")
+async def _demarrer_relances_auto():
+    async def boucle():
+        await asyncio.sleep(120)  # laisser l'app finir de démarrer
+        while True:
+            await asyncio.to_thread(_executer_relances_auto)
+            await asyncio.sleep(6 * 3600)  # 4 passages par jour, dédupliqués par relance_envoyee_le
+    asyncio.create_task(boucle())
 
 
 # ----------------------------------------------------------------

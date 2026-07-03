@@ -79,6 +79,8 @@ class Profile(Base):
     solde_bancaire = Column(Float, nullable=True)
     reserve_securite = Column(Float, nullable=True)
     tmi = Column(String, nullable=True)
+    # Relances automatiques d'impayés : délai en jours (NULL = désactivé, le défaut).
+    relance_auto_jours = Column(Integer, nullable=True)
 
     # Connexion bancaire Powens (agrégateur DSP2, lecture seule).
     # powens_token : token permanent de l'utilisateur côté Powens (sensible).
@@ -225,6 +227,10 @@ class ClientInvoice(Base):
     # Le TTC encaissé a-t-il été ajouté au solde bancaire (sur confirmation explicite) ?
     # NULL/false = pas intégré (factures anciennes incluses). Empêche tout double-ajout.
     solde_integre = Column(Boolean, nullable=True)
+
+    # Date d'envoi de la relance automatique (NULL = jamais relancée).
+    # Garde-fou : une facture n'est JAMAIS relancée deux fois automatiquement.
+    relance_envoyee_le = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
