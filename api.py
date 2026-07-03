@@ -2697,7 +2697,7 @@ def assistant_chat(
 #  appeler le moteur. Aucun calcul d'indemnisation en euros (niveau B = plus tard).
 # ════════════════════════════════════════════════════════════════════════════
 
-TYPES_ACTIVITE_INTERMITTENT = ("heures", "cachet_isole", "cachet_groupe", "formation",
+TYPES_ACTIVITE_INTERMITTENT = ("heures", "cachet_isole", "cachet_groupe", "formation", "enseignement",
                                "arret_maternite", "arret_accident", "arret_ald", "arret_suspension",
                                "arret_maladie_ordinaire", "arret_paternite")
 

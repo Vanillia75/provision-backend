@@ -52,7 +52,10 @@ HEURES_CACHET = valeur_de("cachetHeures")        # 12
 # Heures de formation SUIVIE : assimilées dans la limite des 2/3 du seuil requis
 # (338h). Plafond GLOBAL par fenêtre de 12 mois — la formation seule ne peut
 # jamais ouvrir des droits (338 < 507). Cf. regles_intermittent.py.
-PLAFOND_FORMATION = valeur_de("formationPlafondNouvelleAdmission")  # 338
+PLAFOND_FORMATION = valeur_de("formationPlafondNouvelleAdmission")  # 338 (partagé formation + enseignement)
+# Enseignement dispensé : sous-plafond propre de 70h, ET partage le plafond de 338h avec
+# la formation (formation + enseignement ≤ 338h). Cf. regles_intermittent.py / guide FT p.8-9.
+PLAFOND_ENSEIGNEMENT = valeur_de("enseignementPlafond")  # 70
 
 # Arrêts assimilés : 5h par jour calendaire, sans plafond. Cf. MOTEUR_ARRETS_SOURCES.md.
 # Types du mécanisme A (assimilation en heures) uniquement — la maladie ordinaire hors
@@ -162,6 +165,10 @@ def heures_de(activite: Activite) -> float:
     # ligne par ligne — sinon deux formations de 200h passeraient (400 > 338).
     if t == "formation":
         return n
+    # Enseignement dispensé : heure pour heure ICI ; les plafonds (70h + partage 338h)
+    # s'appliquent dans _compter_sur_fenetre, jamais ligne par ligne.
+    if t == "enseignement":
+        return n
     # Arrêt assimilé (maternité, adoption, AT/MP, ALD, suspension) : 5h par jour
     # calendaire, sans plafond. `nombre` = nombre de jours d'arrêt.
     if t in TYPES_ARRET_ASSIMILE:
@@ -254,7 +261,10 @@ def _compter_sur_fenetre(activites: list, fin: date) -> tuple:
     jours_allonges = _jours_neutralises(activites, borne_base, fin)
     borne_basse = borne_base - timedelta(days=jours_allonges)
     total = 0.0
-    formation_retenue = 0.0  # cumul des heures de formation DÉJÀ comptées (plafond global 338h)
+    # Plafond de 338h PARTAGÉ entre formation et enseignement ; l'enseignement a en plus
+    # son sous-plafond propre de 70h. On suit les deux cumuls séparément.
+    formation_retenue = 0.0
+    enseignement_retenue = 0.0
     detail = []
     for a in activites:
         if a.date is None:
@@ -264,8 +274,8 @@ def _compter_sur_fenetre(activites: list, fin: date) -> tuple:
             continue
         h = heures_de(a)
         if a.type_activite == "formation":
-            # Plafond GLOBAL sur la fenêtre : on ne retient que ce qui reste sous 338h.
-            reste = max(0.0, PLAFOND_FORMATION - formation_retenue)
+            # Plafond PARTAGÉ de 338h (formation + enseignement) sur la fenêtre.
+            reste = max(0.0, PLAFOND_FORMATION - (formation_retenue + enseignement_retenue))
             brut = h
             h = min(brut, reste)
             formation_retenue += h
@@ -273,6 +283,16 @@ def _compter_sur_fenetre(activites: list, fin: date) -> tuple:
             if h < brut:
                 regle_ligne += (f" Plafond atteint sur cette fenêtre : {brut:g}h déclarées, "
                                 f"{h:g}h retenues.")
+        elif a.type_activite == "enseignement":
+            # Deux plafonds : sous-plafond propre 70h ET plafond partagé 338h avec la formation.
+            reste_partage = max(0.0, PLAFOND_FORMATION - (formation_retenue + enseignement_retenue))
+            reste_sous = max(0.0, PLAFOND_ENSEIGNEMENT - enseignement_retenue)
+            brut = h
+            h = min(brut, reste_partage, reste_sous)
+            enseignement_retenue += h
+            regle_ligne = ("Enseignement dispensé (estimation) — " + tracer("enseignementPlafond"))
+            if h < brut:
+                regle_ligne += f" Plafond atteint : {brut:g}h déclarées, {h:g}h retenues."
         elif a.type_activite in TYPES_ARRET_ASSIMILE:
             regle_ligne = ("Arrêt assimilé (5h/jour, estimation) — " + tracer("assimilationArretParJour"))
         elif a.type_activite in TYPES_ARRET_NEUTRALISE:
@@ -374,6 +394,8 @@ def calculer(
     # servi au calcul (pas de bruit réglementaire pour ceux que ça ne concerne pas).
     if any(a.type_activite == "formation" for a in activites if a.date is not None):
         regles_appliquees.append(tracer("formationPlafondNouvelleAdmission"))
+    if any(a.type_activite == "enseignement" for a in activites if a.date is not None):
+        regles_appliquees.append("Enseignement dispensé (estimation) — " + tracer("enseignementPlafond"))
     # Idem pour l'arrêt : la trace ne le mentionne que s'il a réellement compté.
     if any(l["type"] in TYPES_ARRET_ASSIMILE and l["heures"] > 0 for l in detail):
         regles_appliquees.append("Arrêt assimilé (5h/jour, estimation) — " + tracer("assimilationArretParJour"))

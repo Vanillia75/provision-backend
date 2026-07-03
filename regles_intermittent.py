@@ -129,8 +129,22 @@ REGLES = {
         "commentaire": "Les heures de formation SUIVIE comptent comme des heures de travail dans la "
                        "limite des 2/3 du seuil requis : 2/3 × 507 = 338h. Plafond GLOBAL sur la fenêtre "
                        "de 12 mois (pas par formation). Conséquence : la formation seule ne peut jamais "
-                       "ouvrir des droits (338 < 507). NB : l'enseignement DISPENSÉ (70h, 120h si ≥50 ans) "
-                       "est une règle distincte, volontairement NON codée pour l'instant.",
+                       "ouvrir des droits (338 < 507). Le plafond de 338h est PARTAGÉ avec l'enseignement "
+                       "dispensé (cf. enseignementPlafond) : formation + enseignement ≤ 338h.",
+    },
+    "enseignementPlafond": {
+        "valeur": 70,
+        "libelle": "Plafond d'heures d'enseignement dispensé assimilées",
+        "source": "Guide France Travail Intermittents p.8-9 (heures d'enseignement artistique/technique "
+                  "limitées à 70h, 120h si ≥50 ans ; total formation + enseignement ≤ 338h). Sourcé le 2026-07-03.",
+        "version": "2026.07",
+        "dateAppli": "en vigueur",
+        "verifie": True,
+        "commentaire": "Les heures d'enseignement DISPENSÉ (artiste/technicien enseignant dans un "
+                       "établissement agréé) comptent heure pour heure, plafonnées à 70h. Le cas 120h "
+                       "(≥50 ans à la fin de contrat) est HORS V1 : Hector n'a pas la date de naissance. "
+                       "Sous-plafond de 70h ET plafond partagé de 338h avec la formation (le total des deux "
+                       "ne peut dépasser 338h). Conditions FT (contrat + fiches de paie) non vérifiables → estimation.",
     },
     "assimilationArretParJour": {
         "valeur": 5,
