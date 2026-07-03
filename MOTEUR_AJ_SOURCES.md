@@ -83,8 +83,15 @@ indemnisables = 16 ; ARE = 2 240 € ; cumul 6 240 € > plafond 4 559,52 € �
 Disponible aujourd'hui :
 - ✅ 2 cas officiels du guide (exemples 6 et 12) → tests unitaires.
 - ✅ Historique réel d'heures/salaires (attestations FCTU/AEM réelles scannées le 2026-07-03).
-- ❌ **Manque : notifications France Travail réelles avec l'AJ officielle** (le courrier
-  d'ouverture/renouvellement de droits) pour comparer Hector vs réalité. → demandé à Camille.
+- ✅ **BACKTEST RÉEL n°1 : RÉUSSI À 0,00 € D'ÉCART** (2026-07-03). Notification France
+  Travail réelle (annexe 10, reprise ARE du 29/06/2026) : SR 8 537,10 €, NHT 636 h,
+  AJ nette officielle **51,18 €**. Calcul avec les formules du §1 + §3 : A=19,64 +
+  B=10,42 + C=22,37 = 52,43 € brute ; retenue 0,93 % × SJM 134,23 = 1,25 € →
+  **51,18 € nette. Écart : 0,000 %** (objectif ±5 %).
+  Enseignement : arrondir CHAQUE partie (A, B, C, retenue) au centime — c'est le
+  schéma d'arrondi de France Travail. Ce cas devient un test unitaire obligatoire.
+- 👍 Souhaitable : 1-2 notifications supplémentaires (autres profils : annexe 8,
+  SR > plafond, AJ > 60 € avec CSG) pour couvrir les autres branches du calcul.
 
 ## 7. Plan des étapes suivantes
 
