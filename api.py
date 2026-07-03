@@ -1209,7 +1209,13 @@ class SendInvoiceRequest(BaseModel):
     message: Optional[str] = None
 
 
-def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest", fiscal: dict = None) -> str:
+def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest", fiscal: dict = None,
+                              afficher_bloc_emetteur: bool = True) -> str:
+    """
+    afficher_bloc_emetteur : le bloc grisé d'identification (nom, adresse, SIRET).
+    Utile sur l'envoi de facture ; sur une RELANCE, le message signe déjà en toutes
+    lettres (« Bien à vous, Prénom Nom — ENTREPRISE ») → le bloc doublonnerait.
+    """
     # Tout ce qui vient de l'utilisateur est échappé avant d'entrer dans le HTML
     # de l'email envoyé au client (anti-injection / anti-phishing).
     e = lambda v: html.escape(str(v)) if v is not None else ""
@@ -1257,15 +1263,20 @@ def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest", fis
         if inv.date_echeance else ""
     )
 
+    bloc_emetteur_html = (
+        f'''<div style="background:#F7F9F5; border-radius:10px; padding:16px; margin:16px 0; font-size:13px; color:#5B6573;">
+        <strong>{e(req.emitter_nom)}</strong><br/>
+        {e(req.emitter_adresse)}<br/>
+        {f"SIRET : {e(req.emitter_siret)}" if req.emitter_siret else ""}{vat_html}
+      </div>'''
+        if afficher_bloc_emetteur else ""
+    )
+
     return f"""
     <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto;">
       <h2 style="color:#0A2540;">Facture {e(inv.numero)}</h2>
       {message_html}
-      <div style="background:#F7F9F5; border-radius:10px; padding:16px; margin:16px 0; font-size:13px; color:#5B6573;">
-        <strong>{e(req.emitter_nom)}</strong><br/>
-        {e(req.emitter_adresse)}<br/>
-        {f"SIRET : {e(req.emitter_siret)}" if req.emitter_siret else ""}{vat_html}
-      </div>
+      {bloc_emetteur_html}
       <p style="color:#6B7A8D; font-size:13px;">
         Émise le {inv.date_emission.strftime("%d/%m/%Y")} — destinée à {e(inv.client_nom)}
       </p>
@@ -1415,7 +1426,8 @@ def _executer_relances_auto():
                     emetteur = _build_emitter_info(profile)["nom"]
                     req = SendInvoiceRequest(emitter_nom=emetteur, message=_message_relance_auto(inv, signature))
                     fiscal = resolve_fiscal_settings(inv)
-                    html_mail = _build_invoice_email_html(inv, req, fiscal)
+                    # Pas de bloc émetteur grisé : la relance signe déjà en toutes lettres.
+                    html_mail = _build_invoice_email_html(inv, req, fiscal, afficher_bloc_emetteur=False)
                     # Expéditeur = le nom de l'utilisateur (adresse technique inchangée,
                     # DMARC en place) ; Reply-To = son email, pour que le client réponde
                     # directement à la bonne personne.
