@@ -1246,7 +1246,12 @@ def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest", fis
           <td style="padding:8px 0; border-bottom:1px solid #EEF2F7; text-align:right; font-weight:600;">{total_ligne:.2f} €</td>
         </tr>"""
 
-    message_html = f'<p style="color:#3D4452;">{e(req.message)}</p>' if req.message else ""
+    # Les sauts de ligne du message deviennent de vrais retours dans l'email
+    # (sinon « Bonjour X, » et la suite se retrouvent collés sur une ligne).
+    message_html = (
+        f'<p style="color:#3D4452; line-height:1.6;">{e(req.message).replace(chr(10), "<br/>")}</p>'
+        if req.message else ""
+    )
     echeance_html = (
         f'<p style="color:#6B7A8D; font-size:13px;">Échéance : {inv.date_echeance.strftime("%d/%m/%Y")}</p>'
         if inv.date_echeance else ""
@@ -1311,7 +1316,14 @@ def send_invoice(
         _snapshot_fiscal(inv, db, user.id)
     fiscal = resolve_fiscal_settings(inv)
     html = _build_invoice_email_html(inv, req, fiscal)
-    ok = send_invoice_email(inv.client_email, f"Facture {inv.numero}", html)
+    # Expéditeur = le nom de l'utilisateur (signature du profil, repli sur le nom émetteur) ;
+    # Reply-To = son email. Même logique que les relances automatiques : le client final
+    # reçoit un mail de la personne qu'il connaît, et peut lui répondre directement.
+    ok = send_invoice_email(
+        inv.client_email, f"Facture {inv.numero}", html,
+        from_name=_signature_relance(profile) or req.emitter_nom,
+        reply_to=user.email,
+    )
     if not ok:
         raise HTTPException(status_code=502, detail="Erreur lors de l'envoi de l'email")
 
@@ -1334,7 +1346,22 @@ def send_invoice(
 RELANCES_AUTO_MODE = os.environ.get("RELANCES_AUTO_MODE", "dry")
 
 
-def _message_relance_auto(inv: ClientInvoice) -> str:
+def _signature_relance(profile: Profile) -> Optional[str]:
+    """
+    Signature de l'utilisateur pour les mails envoyés à SES clients :
+    « Prénom Nom — ENTREPRISE » (l'entreprise seule en repli). None si le profil
+    ne permet aucune signature → la relance de ce profil ne doit PAS partir.
+    """
+    if not profile:
+        return None
+    nom_personne = f"{profile.prenom or ''} {profile.nom or ''}".strip()
+    entreprise = (profile.entreprise or "").strip()
+    if nom_personne and entreprise:
+        return f"{nom_personne} — {entreprise}"
+    return nom_personne or entreprise or None
+
+
+def _message_relance_auto(inv: ClientInvoice, signature: str) -> str:
     """Relance destinée au CLIENT de l'utilisateur : registre professionnel, vouvoiement."""
     salut = f"Bonjour {inv.client_nom}," if inv.client_nom else "Bonjour,"
     retard = (date.today() - inv.date_echeance).days if inv.date_echeance else 0
@@ -1347,7 +1374,7 @@ def _message_relance_auto(inv: ClientInvoice) -> str:
         f"d'un montant de {montant} €, arrivée à échéance le {echeance}{mention_retard}.\n\n"
         f"Pourriez-vous me confirmer la date de règlement prévue ? "
         f"Si le paiement a déjà été effectué, merci d'ignorer ce message.\n\n"
-        f"Bien à vous,"
+        f"Bien à vous,\n{signature}"
     )
 
 
@@ -1357,6 +1384,14 @@ def _executer_relances_auto():
         profils = db.query(Profile).filter(Profile.relance_auto_jours.isnot(None)).all()
         print(f"[relances] passe demarree (mode {RELANCES_AUTO_MODE}) — {len(profils)} profil(s) opt-in", flush=True)
         for profile in profils:
+            # Garde-fou signature : sans nom ni entreprise au profil, aucune relance ne
+            # part pour ce profil (un mail anonyme ferait plus de mal que l'impayé).
+            signature = _signature_relance(profile)
+            if not signature:
+                print(f"[relances] profil {profile.user_id} sans signature — relance suspendue", flush=True)
+                continue
+            utilisateur = db.query(User).filter(User.id == profile.user_id).first()
+            email_reponse = utilisateur.email if utilisateur else None
             seuil = date.today() - timedelta(days=profile.relance_auto_jours)
             factures = (
                 db.query(ClientInvoice)
@@ -1378,10 +1413,14 @@ def _executer_relances_auto():
                     continue
                 try:
                     emetteur = _build_emitter_info(profile)["nom"]
-                    req = SendInvoiceRequest(emitter_nom=emetteur, message=_message_relance_auto(inv))
+                    req = SendInvoiceRequest(emitter_nom=emetteur, message=_message_relance_auto(inv, signature))
                     fiscal = resolve_fiscal_settings(inv)
                     html_mail = _build_invoice_email_html(inv, req, fiscal)
-                    if send_invoice_email(inv.client_email, f"Relance — Facture {inv.numero}", html_mail):
+                    # Expéditeur = le nom de l'utilisateur (adresse technique inchangée,
+                    # DMARC en place) ; Reply-To = son email, pour que le client réponde
+                    # directement à la bonne personne.
+                    if send_invoice_email(inv.client_email, f"Relance — Facture {inv.numero}", html_mail,
+                                          from_name=signature, reply_to=email_reponse):
                         inv.relance_envoyee_le = datetime.utcnow()
                         db.commit()
                         print(f"[relances] relance envoyee : facture {inv.numero} -> {inv.client_email}")
