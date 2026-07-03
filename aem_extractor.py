@@ -29,6 +29,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 # Instruction donnée à Claude. On lui demande UNIQUEMENT du JSON, rien d'autre,
 # pour pouvoir le parser directement.
 PROMPT = """Tu lis un document qui contient UNE OU PLUSIEURS AEM (Attestation Employeur Mensuelle) d'un intermittent du spectacle français. Un même document (souvent un PDF de plusieurs pages) regroupe fréquemment PLUSIEURS attestations, une par contrat.
+Le document peut aussi être une attestation GUSO (Guichet Unique du Spectacle Occasionnel — l'équivalent de l'AEM pour les employeurs occasionnels, fréquent chez les musiciens) : traite-la exactement comme une AEM et extrais les mêmes champs.
 
 Repère CHAQUE attestation distincte (chaque numéro d'attestation différent, chaque période de travail différente = une AEM séparée) et extrais-les TOUTES.
 
