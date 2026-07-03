@@ -114,6 +114,24 @@ Exemple 7 : technicien, 8 000 € sur 12 mois, 120 j de maternité → SAR = [8 
 ---
 
 ## 8. Backtest (la porte Loi X avant tout affichage définitif)
-- ❌ **Manque : un dossier maternité réel complet** (notification de réadmission France Travail + dates retenues + heures assimilées). C'est l'équivalent du courrier ARE pour le moteur AJ. → demandé à **Héloïse** (a vécu un congé mat en intermittence).
+
+### ✅ BACKTEST RÉEL n°1 — cas Héloïse (2026-07-03), faisceau concordant
+Attestation CPAM d'indemnités journalières (réelle) : **« Maternité du 27/02/2026 au
+18/06/2026 : 112 jours à 73,14 €, soit 8 191,68 € »** — donc bien **indemnisée**.
+- Règle sourcée : 112 j × 5h = **560h**. Hector calcule exactement **560h** ✓.
+- Rapprochement avec sa notification ARE réelle (NHT retenu par France Travail = **636h**) :
+  636 − 560 = **76h** de travail effectif. Cohérent : **sans la maternité elle serait à ~76h
+  (≪ 507h, pas de droits)** — c'est l'assimilation maternité qui a ouvert ses droits (AJ 51,18 €,
+  cf. MOTEUR_AJ_SOURCES.md §6). La règle 5h/jour est **confirmée sur un cas réel indemnisé**.
+- Statut : **validation partielle** (faisceau : règle + 112 j réels + NHT officiel 636h concordent).
+  Ce n'est pas encore un match exact isolé comme l'AJ à 0,00 € : il resterait à confirmer les
+  **76h de travail** via l'AEM de la période de référence pour boucler 560 + 76 = 636 au chiffre près.
+- Décision : **on GARDE le drapeau `estimation`** (prudence — conditions non vérifiables par
+  utilisateur + reconstruction NHT non bouclée). Ce cas renforce la confiance, il ne lève pas le drapeau.
+
+### Reste pour lever le drapeau
+- L'**AEM / les bulletins de la période de référence** d'Héloïse (les ~76h de travail) → boucler le 636h exact.
 - 👍 Souhaitable : le cas (anonymisé) de la **testeuse #2** si son litige est documenté — deuxième juge.
-- Tant qu'aucun dossier réel ne valide la branche, l'apport d'arrêt reste `estimation` à l'écran.
+
+**NB dossier Héloïse** : elle a AUSSI une micro-entreprise (SIRET 88495058500015, CA déclaré 0 €
+nov. 2025→fév. 2026) — profil double intermittent + AE, non pertinent pour ce backtest.
