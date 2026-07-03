@@ -1355,6 +1355,7 @@ def _executer_relances_auto():
     db = SessionLocal()
     try:
         profils = db.query(Profile).filter(Profile.relance_auto_jours.isnot(None)).all()
+        print(f"[relances] passe demarree (mode {RELANCES_AUTO_MODE}) — {len(profils)} profil(s) opt-in", flush=True)
         for profile in profils:
             seuil = date.today() - timedelta(days=profile.relance_auto_jours)
             factures = (
@@ -1373,7 +1374,7 @@ def _executer_relances_auto():
                 retard = (date.today() - inv.date_echeance).days
                 if RELANCES_AUTO_MODE != "live":
                     print(f"[relances][repetition] AURAIT relance la facture {inv.numero} "
-                          f"({inv.client_email}, {retard}j de retard) — mode dry, rien d'envoye")
+                          f"({inv.client_email}, {retard}j de retard) — mode dry, rien d'envoye", flush=True)
                     continue
                 try:
                     emetteur = _build_emitter_info(profile)["nom"]
