@@ -132,6 +132,24 @@ REGLES = {
                        "ouvrir des droits (338 < 507). NB : l'enseignement DISPENSÉ (70h, 120h si ≥50 ans) "
                        "est une règle distincte, volontairement NON codée pour l'instant.",
     },
+    "assimilationArretParJour": {
+        "valeur": 5,
+        "libelle": "Heures assimilées par jour d'arrêt (maternité, adoption, AT/MP, ALD, suspension de contrat)",
+        "source": "Guide France Travail Intermittents p.8 (suspension de contrat) et p.9 "
+                  "(maternité/adoption/AT/ALD hors contrat) ; matermittentes.com. "
+                  "Sourcé le 2026-07-03 — cf. MOTEUR_ARRETS_SOURCES.md.",
+        "version": "2026.07",
+        "dateAppli": "en vigueur",
+        "verifie": True,
+        "commentaire": "Certains arrêts INDEMNISÉS comptent comme du travail à raison de 5h par jour "
+                       "calendaire (week-ends inclus), SANS plafond. Concerne : maternité/adoption "
+                       "(hors contrat, Sécu ou Audiens), AT/MP, ALD (hors contrat, + ouverture "
+                       "antérieure), et tout arrêt PENDANT un contrat. La maladie ordinaire HORS "
+                       "contrat n'assimile PAS d'heures (elle neutralise/allonge la période — hors "
+                       "périmètre V1). Paternité : hors V1 (guide = neutralisation, sources divergentes). "
+                       "Conditions (indemnisation, retravailler après) non vérifiables par le moteur → "
+                       "l'apport d'arrêt est marqué ESTIMATION tant qu'un dossier réel ne l'a pas validé.",
+    },
     "ajMinimale": {
         "valeur": 31.96,
         "libelle": "Allocation journalière minimale (paramètre de calcul)",

@@ -54,6 +54,12 @@ HEURES_CACHET = valeur_de("cachetHeures")        # 12
 # jamais ouvrir des droits (338 < 507). Cf. regles_intermittent.py.
 PLAFOND_FORMATION = valeur_de("formationPlafondNouvelleAdmission")  # 338
 
+# Arrêts assimilés : 5h par jour calendaire, sans plafond. Cf. MOTEUR_ARRETS_SOURCES.md.
+# Types du mécanisme A (assimilation en heures) uniquement — la maladie ordinaire hors
+# contrat et la paternité (mécanisme B, neutralisation) NE sont PAS ici : hors périmètre V1.
+HEURES_ARRET_PAR_JOUR = valeur_de("assimilationArretParJour")  # 5
+TYPES_ARRET_ASSIMILE = ("arret_maternite", "arret_accident", "arret_ald", "arret_suspension")
+
 # Paliers d'évolution d'Hector (seuil en heures → état). Trié croissant.
 # Le palier "filet" est aligné sur le seuil de la clause de rattrapage (référentiel).
 PALIERS_HECTOR = [
@@ -120,6 +126,10 @@ class ResultatIntermittent:
     projection_avec_prevus_manquant: Optional[float] = None
     projection_avec_prevus_securise: Optional[bool] = None
     projection_a_des_contrats_futurs: bool = False         # True si des contrats futurs sont saisis
+    # True dès qu'un arrêt assimilé (maternité, AT, ALD, suspension) a contribué au total :
+    # branche non validée sur cas réel + conditions non vérifiables → l'affichage doit
+    # marquer le compteur comme ESTIMATION (cf. MOTEUR_ARRETS_SOURCES.md).
+    arret_estimation: bool = False
     detail_lignes: list = field(default_factory=list)  # pour la transparence
     regles_appliquees: list = field(default_factory=list)  # trace réglementaire (Pourquoi ?)
     version_referentiel: str = ""
@@ -144,6 +154,10 @@ def heures_de(activite: Activite) -> float:
     # ligne par ligne — sinon deux formations de 200h passeraient (400 > 338).
     if t == "formation":
         return n
+    # Arrêt assimilé (maternité, adoption, AT/MP, ALD, suspension) : 5h par jour
+    # calendaire, sans plafond. `nombre` = nombre de jours d'arrêt.
+    if t in TYPES_ARRET_ASSIMILE:
+        return n * HEURES_ARRET_PAR_JOUR
     # Type inconnu : on ne devine pas, on compte 0 (le moteur n'invente jamais).
     return 0.0
 
@@ -231,6 +245,8 @@ def _compter_sur_fenetre(activites: list, fin: date) -> tuple:
             if h < brut:
                 regle_ligne += (f" Plafond atteint sur cette fenêtre : {brut:g}h déclarées, "
                                 f"{h:g}h retenues.")
+        elif a.type_activite in TYPES_ARRET_ASSIMILE:
+            regle_ligne = ("Arrêt assimilé (5h/jour, estimation) — " + tracer("assimilationArretParJour"))
         elif a.type_activite == "heures":
             regle_ligne = "Heures réelles (technicien, annexe 8) : comptées telles quelles."
         else:
@@ -273,6 +289,9 @@ def calculer(
 
     # ── 1. COMPTEUR AUJOURD'HUI ──
     total, detail = _compter_sur_fenetre(activites, aujourdhui)
+    # Un arrêt assimilé a-t-il réellement contribué au total affiché (dans la fenêtre) ?
+    # Si oui, le compteur est une ESTIMATION (branche non validée + conditions non vérifiables).
+    arret_estimation = any(l["type"] in TYPES_ARRET_ASSIMILE and l["heures"] > 0 for l in detail)
     manquant = max(0.0, SEUIL_DROITS - total)
     pourcentage = round(total / SEUIL_DROITS * 100, 1) if SEUIL_DROITS else 0.0
     etat, message = etat_hector(total)
@@ -321,6 +340,9 @@ def calculer(
     # servi au calcul (pas de bruit réglementaire pour ceux que ça ne concerne pas).
     if any(a.type_activite == "formation" for a in activites if a.date is not None):
         regles_appliquees.append(tracer("formationPlafondNouvelleAdmission"))
+    # Idem pour l'arrêt : la trace ne le mentionne que s'il a réellement compté.
+    if arret_estimation:
+        regles_appliquees.append("Arrêt assimilé (5h/jour, estimation) — " + tracer("assimilationArretParJour"))
 
     return ResultatIntermittent(
         total_heures=total,
@@ -342,6 +364,7 @@ def calculer(
         projection_avec_prevus_manquant=proj_prevus_manq,
         projection_avec_prevus_securise=proj_prevus_sec,
         projection_a_des_contrats_futurs=a_contrats_futurs,
+        arret_estimation=arret_estimation,
         detail_lignes=detail,
         regles_appliquees=regles_appliquees,
         version_referentiel=VERSION,

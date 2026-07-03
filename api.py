@@ -2697,7 +2697,8 @@ def assistant_chat(
 #  appeler le moteur. Aucun calcul d'indemnisation en euros (niveau B = plus tard).
 # ════════════════════════════════════════════════════════════════════════════
 
-TYPES_ACTIVITE_INTERMITTENT = ("heures", "cachet_isole", "cachet_groupe", "formation")
+TYPES_ACTIVITE_INTERMITTENT = ("heures", "cachet_isole", "cachet_groupe", "formation",
+                               "arret_maternite", "arret_accident", "arret_ald", "arret_suspension")
 
 
 class IntermittentActiviteRequest(BaseModel):
@@ -2800,6 +2801,7 @@ def _resultat_vers_dict(res) -> dict:
         "projection_avec_prevus_manquant": getattr(res, "projection_avec_prevus_manquant", None),
         "projection_avec_prevus_securise": getattr(res, "projection_avec_prevus_securise", None),
         "projection_a_des_contrats_futurs": getattr(res, "projection_a_des_contrats_futurs", False),
+        "arret_estimation": getattr(res, "arret_estimation", False),
         "detail_lignes": res.detail_lignes,
         "regles_appliquees": getattr(res, "regles_appliquees", []),
         "version_referentiel": getattr(res, "version_referentiel", ""),
