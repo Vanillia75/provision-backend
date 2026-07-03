@@ -44,7 +44,7 @@ l'utilisateur (AEM + arrêts) et des chiffres de sa notification France Travail 
 - **comparer** à ce que FT a retenu (NHT, dates),
 - **expliquer l'écart avec les sources** : « voilà comment tes 636h se décomposent, voilà la
   règle appliquée, voilà où ça diffère — vérifie ce point avec France Travail ».
-C'est exactement le litige de dates d'Héloïse. En version **humaine** (eux le font en jargon).
+C'est exactement le litige de dates du cas réel n°1. En version **humaine** (eux le font en jargon).
 
 ## 3. Zones grises (Loi X → `estimation` ou exclusion)
 1. **« Entre deux contrats » vs « pendant contrat »** : le modèle de données d'Hector
@@ -79,12 +79,12 @@ C'est exactement le litige de dates d'Héloïse. En version **humaine** (eux le 
    situé à J-370 (hors 365 mais dans 385) est désormais compté.
 2. Paternité 25 j indemnisée → même effet (allongement, pas d'heures).
 3. Sans arrêt neutralisé → fenêtre = 365 j inchangée.
-4. **BACKTEST Héloïse** : reconstitution des heures sur sa fenêtre réelle → doit tendre vers
+4. **BACKTEST le cas réel n°1** : reconstitution des heures sur sa fenêtre réelle → doit tendre vers
    les **636h** officielles (aujourd'hui Hector = 572h faute de ses AEM manquantes ; avec le
    fractionnement + ses AEM complètes, on vise 636h au chiffre près).
 5. Contrôle de conformité : Hector 636h vs FT 636h → « cohérent ✓ » ; écart → explication sourcée.
 
 ## 5. Backtest / validation
-- Le dossier d'Héloïse (maternité 112j + AEM) est déjà le cas de référence. Il manque **ses
+- Le dossier du cas réel n°1 (maternité 112j + AEM) est déjà le cas de référence. Il manque **ses
   AEM de travail de la période** pour boucler les 636h — même besoin que le moteur arrêts.
 - Tant qu'aucune reconstitution réelle n'égale la NHT officielle, la conformité reste `estimation`.

@@ -90,7 +90,7 @@ Exemple 7 : technicien, 8 000 € sur 12 mois, 120 j de maternité → SAR = [8 
 ### DANS le périmètre V1
 - Nouveau type de saisie « arrêt », l'utilisateur choisit **le type** (maternité, adoption, AT/MP, ALD, arrêt pendant un contrat) + **nb de jours** + coche « indemnisé ».
 - Le moteur **assimile 5h/jour** (tous jours calendaires) vers les 507h, **UNIQUEMENT** pour les types du mécanisme A.
-- **Tout apport d'arrêt est marqué `estimation`** (branche non validée sur cas réel tant qu'on n'a pas le dossier d'Héloïse) + rappel des conditions non vérifiables (retravailler après, indemnisation).
+- **Tout apport d'arrêt est marqué `estimation`** (branche non validée sur cas réel tant qu'on n'a pas le dossier du cas réel n°1) + rappel des conditions non vérifiables (retravailler après, indemnisation).
 - Aucun plafond (cohérent avec la règle).
 
 ### HORS périmètre V1 (exclus, avec message honnête)
@@ -115,7 +115,7 @@ Exemple 7 : technicien, 8 000 € sur 12 mois, 120 j de maternité → SAR = [8 
 
 ## 8. Backtest (la porte Loi X avant tout affichage définitif)
 
-### ✅ BACKTEST RÉEL n°1 — cas Héloïse (2026-07-03), faisceau concordant
+### ✅ BACKTEST RÉEL n°1 — cas réel n°1 (profil artiste) (2026-07-03), faisceau concordant
 Attestation CPAM d'indemnités journalières (réelle) : **« Maternité du 27/02/2026 au
 18/06/2026 : 112 jours à 73,14 €, soit 8 191,68 € »** — donc bien **indemnisée**.
 - Règle sourcée : 112 j × 5h = **560h**. Hector calcule exactement **560h** ✓.
@@ -130,8 +130,8 @@ Attestation CPAM d'indemnités journalières (réelle) : **« Maternité du 27/0
   utilisateur + reconstruction NHT non bouclée). Ce cas renforce la confiance, il ne lève pas le drapeau.
 
 ### Reste pour lever le drapeau
-- L'**AEM / les bulletins de la période de référence** d'Héloïse (les ~76h de travail) → boucler le 636h exact.
+- L'**AEM / les bulletins de la période de référence** du cas réel n°1 (les ~76h de travail) → boucler le 636h exact.
 - 👍 Souhaitable : le cas (anonymisé) de la **testeuse #2** si son litige est documenté — deuxième juge.
 
-**NB dossier Héloïse** : elle a AUSSI une micro-entreprise (SIRET 88495058500015, CA déclaré 0 €
+**NB dossier le cas réel n°1** : elle a AUSSI une micro-entreprise (SIRET 88495058500015, CA déclaré 0 €
 nov. 2025→fév. 2026) — profil double intermittent + AE, non pertinent pour ce backtest.
