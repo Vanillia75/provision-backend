@@ -92,6 +92,13 @@ Disponible aujourd'hui :
   les parties A, B, C sont **TRONQUÉES** au centime (39,8094 → 39,80, pas 39,81) ;
   la retenue retraite est **ARRONDIE** au centime (1,2483 → 1,25). Ce cas est un
   test unitaire obligatoire (`test_allocation.py`).
+- ✅ **BACKTEST MENSUEL — cas réel n°1 (2026-07-04)** : décomptes réels octobre + novembre 2025 (annexe 10, AJ brute 51,93 € avant la revalorisation du 25/11 → 52,43 €).
+  - **Octobre 2025 (mois plein) — VALIDÉ** : 0 h → 0 jour non indemnisable → **31 j × 51,93 = 1 609,83 € brut** ; − retraite 35,34 € (pas de CSG, exonérée) = **1 574,49 € net social** ; − PAS 5,6 % (88,04 €) = **1 486,45 € versé** ✓ (écart moteur 0,13 € = base du PAS, impôt personnel non estimé). Valide la **branche « mois plein »** + la **chaîne brut→net**.
+  - **Décalage mensuel — formule confirmée par les textes** : annexe 10 = **(heures du mois ÷ 10) × 1,3** ; les revenus non-annexe (piges, micro-entreprise…) sont convertis en heures (÷ SMIC horaire) et **comptés eux aussi**. **Une seule formule** — la piste « salaire ÷ SJR » est **écartée** (fausse piste, consignée ici pour éviter la rechute). Sources : ARTCENA, Unédic (cumul allocation/salaire). Re-validée sur octobre (0 h → 31 j) + exemple 12 du guide (80 h A8 → 14 non indemnisables). ⚠️ arrondi à figer : le texte tronque (7,8 → 7), le moteur arrondit.
+  - **Novembre 2025 — NON reproductible, entrées incomplètes** : 13 cachets / 1 625 € (156 h) → la formule donne **10 j indemnisables (~508 €)**, mais le réel = **95,90 € net versé le 03/12 = 2 j indemnisables** (28 non indemnisables ≈ 216 h comptées). Il **manque ~60 h** ; cause probable = **activité micro épisodique** (précédent : CA 6 578 € déclaré URSSAF en **nov 2024** ; l'actualisation FT de **nov 2025**, seule preuve possible, est **indisponible**). **On arrête de creuser.**
+  - **Verdict Loi X** : « mois plein » **affichable** ; **mois travaillé = branche NON validée → aucun affichage** tant qu'un mois travaillé n'est pas reproduit au jour près.
+  - **PAS variable** (ici 5,6 %) → confirme **« net-net jamais estimé »** (net social affiché, jamais l'après-impôt).
+  - **Prochain juge** : décompte de **juillet 2026** (cas réel n°1, réindemnisée depuis le 27/06/2026 ; notification du 03/07 : AJ 51,18 €, franchises congés payés mentionnées), dispo **début août 2026**. **Chantier mensuel EN PAUSE** d'ici là.
 - 👍 Souhaitable : 1-2 notifications supplémentaires (autres profils : annexe 8,
   SR > plafond, AJ > 60 € avec CSG) pour couvrir les autres branches du calcul.
 

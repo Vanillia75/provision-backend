@@ -52,3 +52,14 @@ Sources : https://www.audiens.org/solutions/vos-conges-spectacles.html · https:
 **Niveau 1 seul pour septembre.** Niveau 2 en post-lancement.
 - L1 : cheap, sûr (pas de montant → hors piège Loi X), très on-brand (présence/rappel = notre force), et il rend un **vrai service** (10 % qui dorment). Différenciant, aucun concurrent grand public gratuit ne le fait.
 - L2 : c'est un montant (Loi X), il exige un **bordereau Audiens réel** pour le backtest ET des données de bruts complètes (aujourd'hui partielles). À faire quand on aura une vraie attestation à confronter — donc après le lancement.
+
+## Backtest réel (registre)
+ICP brute = 10 % des bruts de l'exercice — vérifié au centime sur 3 millésimes Audiens réels (cas réel n°1) :
+
+| Exercice | Assiette bruts | ICP brute (10 %) |
+|---|---|---|
+| 2023-2024 | 7 381 € | 738,10 € |
+| 2024-2025 | 10 055 € | 1 005,50 € |
+| 3ᵉ millésime | 6 859 € | 685,90 € |
+
+→ la règle « 10 % » est solide sur le **brut**. Le **net** reste une estimation (≈ 76,95 %) ; le **net-net (après PAS)** n'est **jamais** affiché (PAS personnel et variable).
