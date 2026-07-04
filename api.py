@@ -2972,6 +2972,19 @@ async def extract_are(
         except HTTPException:
             raise
         except Exception as e:
+            # Repli PDF -> image : certains PDF d'ARE (scannés/atypiques) passent mieux
+            # en image. Ne s'exécute QU'APRÈS l'échec du chemin normal (donc jamais de
+            # régression : au pire on renvoie l'erreur d'origine ci-dessous).
+            if file_path.lower().endswith(".pdf"):
+                try:
+                    from pdf2image import convert_from_path
+                    pages = convert_from_path(file_path, first_page=1, last_page=1)
+                    if pages:
+                        img_path = os.path.join(tmp_dir, "are_page1.png")
+                        pages[0].save(img_path, "PNG")
+                        return extract_are_data(img_path)
+                except Exception:
+                    pass  # le repli a échoué -> on renvoie l'erreur d'origine
             raise HTTPException(status_code=422, detail=str(e) or "Impossible de lire cette attestation.")
 
         return data
