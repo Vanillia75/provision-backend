@@ -37,6 +37,7 @@ from aem_extractor import extract_aem_data, extract_are_data
 import r2_storage
 import intermittent_engine as ie
 import allocation_engine as ae
+import conges_spectacles as cs
 from insee_lookup import lookup_siret, SiretLookupError
 import billing
 
@@ -3146,6 +3147,12 @@ def get_intermittent_cockpit(
     out["montant_journalier"] = profile.montant_journalier if profile else None
     # Allocation RECALCULÉE (Loi X : `affichable` décide si le montant peut être montré).
     out["allocation"] = _allocation_pour_profil(profile)
+    # Congés Spectacles : estimation de l'ICP sur l'exercice en cours (1er avril → 31 mars).
+    _cs_deb, _cs_fin = cs.exercice_en_cours(date.today())
+    cs_data = cs.calculer(rows, _cs_deb, _cs_fin)
+    cs_data["exercice_debut"] = _cs_deb.isoformat()
+    cs_data["exercice_fin"] = _cs_fin.isoformat()
+    out["conges_spectacles"] = cs_data
     return out
 
 

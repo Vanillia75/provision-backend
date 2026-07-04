@@ -146,6 +146,32 @@ REGLES = {
                        "Sous-plafond de 70h ET plafond partagé de 338h avec la formation (le total des deux "
                        "ne peut dépasser 338h). Conditions FT (contrat + fiches de paie) non vérifiables → estimation.",
     },
+    "congesSpectaclesTaux": {
+        "valeur": 0.10,
+        "libelle": "Taux de l'indemnité Congés Spectacles (ICP) — % des bruts de l'exercice",
+        "source": "Audiens Congés Spectacles ; backtesté sur 2 bordereaux réels (exercices "
+                  "2023-2024 et 2024-2025) : ICP brut = 10 % des bruts au centime. Cf. CONGES_SPECTACLES_ETUDE.md.",
+        "version": "2026.07",
+        "dateAppli": "en vigueur",
+        "verifie": True,
+        "commentaire": "L'indemnité de congés payés (ICP) versée par Audiens = 10 % des salaires "
+                       "BRUTS cumulés sur l'exercice (1er avril → 31 mars). Validé au centime sur 2 années "
+                       "réelles (7 381 € → 738,10 € ; 10 055 € → 1 005,50 €). Reste une estimation à l'écran "
+                       "car dépend de la complétude des bruts saisis (montant = € → Loi X).",
+    },
+    "congesSpectaclesRatioNetSocial": {
+        "valeur": 0.7695,
+        "libelle": "Ratio net social / brut de l'ICP Congés Spectacles",
+        "source": "Bordereaux Audiens réels 2023-2024 et 2024-2025 : net/brut = 76,95 % (cotisations "
+                  "salariales ≈ 23,05 %) — identique sur les 2 années. Cf. CONGES_SPECTACLES_ETUDE.md.",
+        "version": "2026.07",
+        "dateAppli": "2025",
+        "verifie": True,
+        "commentaire": "Le net social (AVANT impôts) ≈ 76,95 % de l'ICP brute. PÉREMPTION ANNUELLE : les "
+                       "taux de cotisation peuvent évoluer → re-valider ce ratio sur un bordereau frais "
+                       "chaque avril (Loi X, clause de péremption). Le net-net (après PAS) dépend du taux "
+                       "d'imposition personnel → jamais estimé. Prudence renforcée : afficher « ~ », pas au centime.",
+    },
     "assimilationArretParJour": {
         "valeur": 5,
         "libelle": "Heures assimilées par jour d'arrêt (maternité, adoption, AT/MP, ALD, suspension de contrat)",
