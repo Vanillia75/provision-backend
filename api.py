@@ -264,6 +264,33 @@ def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/auth/change-password")
+def change_password(
+    req: ChangePasswordRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Compte Google : pas de mot de passe local à changer.
+    if not user.password_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="Ton compte utilise la connexion Google — il n'y a pas de mot de passe à changer.",
+        )
+    # Le mot de passe ACTUEL est exigé (empêche un changement via une session volée).
+    if not verify_password(req.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect.")
+    if len(req.new_password or "") < 8:
+        raise HTTPException(status_code=400, detail="Le nouveau mot de passe doit contenir au moins 8 caractères.")
+    user.password_hash = hash_password(req.new_password)
+    db.commit()
+    return {"ok": True}
+
+
 @app.post("/auth/send-verification")
 def send_verification(user: User = Depends(get_current_user)):
     if user.email_verified:
