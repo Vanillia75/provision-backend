@@ -141,7 +141,12 @@ def _resolve_lieu(lieu: str):
         r.raise_for_status()
         arr = r.json()
         if arr:
-            return (None, arr[0]["code"])
+            code = arr[0]["code"]
+            # Paris/Lyon/Marseille : FT refuse le code « commune » global → on passe par le département.
+            plm = {"75056": "75", "69123": "69", "13055": "13"}
+            if code in plm:
+                return (plm[code], None)
+            return (None, code)
     except Exception:
         pass  # localisation non résolue → recherche nationale (pas d'échec dur)
     return (None, None)
@@ -196,8 +201,9 @@ def search_offres(role_type: str = "", contract_type: str = "", lieu: str = "", 
 
     params = {
         "codeROME": ",".join(romes),
-        "motsCles": MOTS_CLES_SPECTACLE,
         "sort": 1,  # tri par date décroissante
+        # Pas de motsCles : les codes ROME ciblent déjà le spectacle ; ajouter des
+        # mots-clés en ET sur-filtrait (souvent 0 résultat).
     }
     departement, commune = _resolve_lieu(lieu)
     if commune:
@@ -212,7 +218,9 @@ def search_offres(role_type: str = "", contract_type: str = "", lieu: str = "", 
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         timeout=HTTP_TIMEOUT,
     )
-    # 200 = OK, 206 = résultats partiels (pagination) — les deux exploitables.
+    # 204 = requête valide mais AUCUNE offre ; 200 = OK ; 206 = résultats partiels (pagination).
+    if resp.status_code == 204:
+        return []
     if resp.status_code not in (200, 206):
         raise RuntimeError(f"SEARCH {resp.status_code}: {resp.text[:160]}")
 
