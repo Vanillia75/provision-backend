@@ -18,8 +18,10 @@ francetravail_offres.py — Client de l'API France Travail « Offres d'emploi v2
 ═══════════════════════════════════════════════════════════════════════════════
 """
 import os
+import re
 import time
 import logging
+import unicodedata
 
 import requests
 
@@ -63,12 +65,61 @@ MOTS_CLES_SPECTACLE = "spectacle intermittent CDDU cachet"
 # Types de contrat courts à privilégier dans le tri (CDDU, intérim, saisonnier, CDD).
 CONTRATS_COURTS = {"CDD", "MIS", "SAI", "DDI"}
 
+# ─── Filtre spectacle SUR LE CONTENU ────────────────────────────────────────────
+# Le code ROME de FT n'est PAS fiable : des maçons/infirmières sont postés sous des
+# codes spectacle (L1202 « Musicien »…). On filtre donc sur l'INTITULÉ + la DESCRIPTION
+# (texte libre de l'employeur), jamais sur romeLibelle/appellation (pollués eux aussi).
+# Mots normalisés (minuscules, sans accents), comparés en « mot entier » (bornes \b).
+_MOTS_ARTISTE = [
+    "comedien", "comedienne", "comedie musicale", "acteur", "actrice", "musicien",
+    "musicienne", "instrumentiste", "chanteur", "chanteuse", "choriste", "danseur",
+    "danseuse", "artiste", "circassien", "cirque", "figurant", "figurante",
+    "figuration", "doublure", "cascadeur", "cascadeuse", "marionnettiste",
+    "humoriste", "magicien", "clown", "mime", "orchestre",
+]
+_MOTS_TECHNICIEN = [
+    "regie", "regisseur", "regisseuse", "machiniste", "backline", "eclairagiste",
+    "sonorisation", "ingenieur du son", "prise de son", "preneur de son", "cadreur",
+    "cadreuse", "chef operateur", "projectionniste", "costumier", "costumiere",
+    "habilleuse", "habilleur", "maquilleur", "maquilleuse", "decorateur",
+    "accessoiriste", "technicien du spectacle", "technicien plateau",
+    "technicien lumiere", "technicien son", "rigger", "poursuiteur", "perchman",
+    "scripte", "etalonneur", "chef electricien", "truquiste", "chef monteur",
+]
+_MOTS_CONTEXTE = [
+    "spectacle", "theatre", "tournage", "audiovisuel", "concert", "festival",
+    "cachet", "intermittent", "cddu", "opera", "ballet", "tournee", "captation",
+    "long metrage", "court metrage", "salle de spectacle", "scene",
+]
+
+
+def _norm(s: str) -> str:
+    """minuscule + sans accents, pour comparer proprement."""
+    s = unicodedata.normalize("NFD", s or "")
+    return "".join(c for c in s if unicodedata.category(c) != "Mn").lower()
+
+
+def _compile(mots):
+    return re.compile(r"\b(" + "|".join(re.escape(m) for m in mots) + r")\b")
+
+
+_RE_ARTISTE = _compile(_MOTS_ARTISTE)
+_RE_TECHNICIEN = _compile(_MOTS_TECHNICIEN)
+_RE_CONTEXTE = _compile(_MOTS_CONTEXTE)
+
+
+def _texte_offre(raw) -> str:
+    # Uniquement le texte libre employeur (jamais romeLibelle/appellation, pollués).
+    return _norm((raw.get("intitule") or "") + " . " + (raw.get("description") or ""))
+
+
+def _est_spectacle(raw) -> bool:
+    t = _texte_offre(raw)
+    return bool(_RE_ARTISTE.search(t) or _RE_TECHNICIEN.search(t) or _RE_CONTEXTE.search(t))
+
 
 # ─── OAuth : jeton en cache mémoire ─────────────────────────────────────────────
 _token_cache = {"value": None, "expire_at": 0.0}
-
-# DIAG TEMPORAIRE (à retirer) : dernières infos ROME brutes vues, pour caler le filtre.
-DEBUG_LAST = {}
 
 
 def _credentials():
@@ -155,8 +206,13 @@ def _resolve_lieu(lieu: str):
 
 # ─── Mapping offre FT → notre modèle JobOffer ───────────────────────────────────
 def _infer_role(raw) -> str:
-    code = (raw.get("romeCode") or "")[:5]
-    return ROME_ROLE.get(code, "autre")
+    # Basé sur le CONTENU (le romeCode de FT est pollué). Artiste prioritaire, puis technicien.
+    t = _texte_offre(raw)
+    if _RE_ARTISTE.search(t):
+        return "artiste"
+    if _RE_TECHNICIEN.search(t):
+        return "technicien"
+    return "autre"
 
 
 def _infer_contract(raw) -> str:
@@ -183,9 +239,6 @@ def _map(raw) -> dict:
         "sourceUrl": origine.get("urlOrigine") or "",
         "publishedAt": (raw.get("dateCreation") or "")[:10],
         "description": (raw.get("description") or "")[:300] or None,
-        # DIAG TEMPORAIRE : ROME réel de l'offre (à retirer avec le filtre final).
-        "_rome": raw.get("romeCode"),
-        "_romeLib": raw.get("romeLibelle"),
     }
 
 
@@ -197,11 +250,9 @@ def search_offres(role_type: str = "", contract_type: str = "", lieu: str = "", 
     """
     token = _get_token()
 
-    # Ciblage ROME selon le métier demandé (sinon tout le spectacle).
-    if role_type in ("artiste", "technicien", "admin"):
-        romes = [c for c, r in ROME_ROLE.items() if r == role_type] or ROME_SPECTACLE
-    else:
-        romes = ROME_SPECTACLE
+    # On envoie TOUS les codes ROME spectacle. Le tag ROME de FT étant peu fiable, le
+    # ciblage fin par métier se fait ensuite sur le CONTENU (roleType), pas sur le ROME.
+    romes = ROME_SPECTACLE
 
     params = {
         "codeROME": ",".join(romes),
@@ -229,18 +280,9 @@ def search_offres(role_type: str = "", contract_type: str = "", lieu: str = "", 
         raise RuntimeError(f"Recherche France Travail: statut {resp.status_code}")
 
     resultats = (resp.json() or {}).get("resultats") or []
-    # DIAG TEMPORAIRE : clés brutes + champs ROME de la 1ère offre (aucun secret).
-    if resultats:
-        r0 = resultats[0]
-        DEBUG_LAST.clear()
-        DEBUG_LAST.update({
-            "rawKeys": sorted(r0.keys()),
-            "romeCode": r0.get("romeCode"),
-            "romeLibelle": r0.get("romeLibelle"),
-            "typeContrat": r0.get("typeContrat"),
-            "natureContrat": r0.get("natureContrat"),
-            "nbCodesEnvoyes": len(romes),
-        })
+    # FT tague mal certaines offres (maçon posté sous « Musicien »…) : on ne peut pas
+    # se fier au code ROME → filtre sur le contenu réel (intitulé + description).
+    resultats = [o for o in resultats if _est_spectacle(o)]
     offres = [_map(o) for o in resultats]
 
     # Filtre métier fin (au cas où l'API élargit) + filtre contrat demandé.
