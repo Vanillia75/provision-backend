@@ -109,8 +109,9 @@ _RE_CONTEXTE = _compile(_MOTS_CONTEXTE)
 
 
 def _texte_offre(raw) -> str:
-    # Uniquement le texte libre employeur (jamais romeLibelle/appellation, pollués).
-    return _norm((raw.get("intitule") or "") + " . " + (raw.get("description") or ""))
+    # UNIQUEMENT l'intitulé (texte libre employeur). La description échoit souvent
+    # l'appellation ROME polluée (« Musicien »…) → l'inclure ferait repasser les maçons.
+    return _norm(raw.get("intitule") or "")
 
 
 def _est_spectacle(raw) -> bool:
