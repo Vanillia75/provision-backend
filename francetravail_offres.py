@@ -97,11 +97,14 @@ def _get_token() -> str:
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         timeout=HTTP_TIMEOUT,
     )
-    resp.raise_for_status()  # 4xx/5xx → exception (jamais de log des secrets)
+    if resp.status_code != 200:
+        # DIAG TEMPORAIRE : le corps d'erreur OAuth explique le refus (invalid_scope,
+        # invalid_client…) et ne contient jamais le secret.
+        raise RuntimeError(f"OAUTH {resp.status_code}: {resp.text[:160]}")
     data = resp.json()
     token = data.get("access_token")
     if not token:
-        raise RuntimeError("Réponse OAuth France Travail sans access_token.")
+        raise RuntimeError("OAUTH: réponse sans access_token.")
     expires_in = int(data.get("expires_in", 1400))
     _token_cache["value"] = token
     _token_cache["expire_at"] = now + max(60, expires_in - 60)
@@ -211,8 +214,7 @@ def search_offres(role_type: str = "", contract_type: str = "", lieu: str = "", 
     )
     # 200 = OK, 206 = résultats partiels (pagination) — les deux exploitables.
     if resp.status_code not in (200, 206):
-        resp.raise_for_status()
-        raise RuntimeError(f"France Travail a répondu {resp.status_code}.")
+        raise RuntimeError(f"SEARCH {resp.status_code}: {resp.text[:160]}")
 
     resultats = (resp.json() or {}).get("resultats") or []
     offres = [_map(o) for o in resultats]

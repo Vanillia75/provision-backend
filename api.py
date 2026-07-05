@@ -3169,11 +3169,8 @@ def get_intermittent_offres(
     except Exception as e:
         # On ne loggue jamais d'éventuels secrets — juste le type d'erreur.
         _logging.getLogger("francetravail").warning("Echec offres FT: %s", type(e).__name__)
-        # DIAG TEMPORAIRE (à retirer) : type + code HTTP éventuel, sans aucun secret.
-        _diag = type(e).__name__
-        _st = getattr(getattr(e, "response", None), "status_code", None)
-        if _st:
-            _diag += f"/{_st}"
+        # DIAG TEMPORAIRE (à retirer) : type + message (corps FT), sans aucun secret.
+        _diag = f"{type(e).__name__}: {str(e)[:190]}"
         raise HTTPException(status_code=502, detail=f"Impossible de récupérer les offres (diag: {_diag}).")
 
     _OFFRES_CACHE[key] = (now, offres)
