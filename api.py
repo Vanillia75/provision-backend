@@ -3169,9 +3169,7 @@ def get_intermittent_offres(
     except Exception as e:
         # On ne loggue jamais d'éventuels secrets — juste le type d'erreur.
         _logging.getLogger("francetravail").warning("Echec offres FT: %s", type(e).__name__)
-        # DIAG TEMPORAIRE (à retirer) : type + message (corps FT), sans aucun secret.
-        _diag = f"{type(e).__name__}: {str(e)[:190]}"
-        raise HTTPException(status_code=502, detail=f"Impossible de récupérer les offres (diag: {_diag}).")
+        raise HTTPException(status_code=502, detail="Impossible de récupérer les offres pour le moment.")
 
     _OFFRES_CACHE[key] = (now, offres)
     return {"offres": offres, "source": "France Travail"}

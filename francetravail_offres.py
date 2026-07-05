@@ -98,9 +98,7 @@ def _get_token() -> str:
         timeout=HTTP_TIMEOUT,
     )
     if resp.status_code != 200:
-        # DIAG TEMPORAIRE : le corps d'erreur OAuth explique le refus (invalid_scope,
-        # invalid_client…) et ne contient jamais le secret.
-        raise RuntimeError(f"OAUTH {resp.status_code}: {resp.text[:160]}")
+        raise RuntimeError(f"OAuth France Travail: statut {resp.status_code}")
     data = resp.json()
     token = data.get("access_token")
     if not token:
@@ -222,7 +220,7 @@ def search_offres(role_type: str = "", contract_type: str = "", lieu: str = "", 
     if resp.status_code == 204:
         return []
     if resp.status_code not in (200, 206):
-        raise RuntimeError(f"SEARCH {resp.status_code}: {resp.text[:160]}")
+        raise RuntimeError(f"Recherche France Travail: statut {resp.status_code}")
 
     resultats = (resp.json() or {}).get("resultats") or []
     offres = [_map(o) for o in resultats]
