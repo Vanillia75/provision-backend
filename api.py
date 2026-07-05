@@ -3309,7 +3309,10 @@ def billing_create_checkout(
     try:
         url = billing.create_checkout_session(db, user, req.promo_code, app_mode=req.mode, origin=req.origin)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Stripe: {e}")
+        # On LOGGE l'erreur réelle (masquée) côté serveur, mais on ne renvoie JAMAIS
+        # l'exception brute au client : elle peut contenir une clé secrète.
+        print(f"[CHECKOUT ERROR] {type(e).__name__}: {billing.redact_secrets(e)}", flush=True)
+        raise HTTPException(status_code=400, detail="Le paiement n'a pas pu démarrer. Réessaie dans un instant.")
     return {"url": url}
 
 
@@ -3324,7 +3327,8 @@ def billing_create_portal(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Stripe: {e}")
+        print(f"[PORTAL ERROR] {type(e).__name__}: {billing.redact_secrets(e)}", flush=True)
+        raise HTTPException(status_code=400, detail="Impossible d'ouvrir la gestion de l'abonnement pour le moment.")
     return {"url": url}
 
 

@@ -24,9 +24,12 @@ from sqlalchemy.orm import Session
 from models import Subscription, PromoCode, StripeEvent, User, AIUsage
 
 # ── Configuration (100 % variables d'environnement) ──
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
-STRIPE_PRICE_PREMIUM = os.environ.get("STRIPE_PRICE_PREMIUM", "")
-STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+# .strip() OBLIGATOIRE : certains hébergeurs (Railway) conservent un espace ou un
+# retour à la ligne invisible en fin de valeur. Sur une clé, ce caractère rend
+# l'en-tête HTTP invalide (« Invalid header value ... \n ») et Stripe refuse tout.
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+STRIPE_PRICE_PREMIUM = os.environ.get("STRIPE_PRICE_PREMIUM", "").strip()
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://hector-app.fr")
 
 # Domaines autorisés pour le retour de paiement. On renvoie l'utilisateur EXACTEMENT sur
@@ -41,6 +44,12 @@ ALLOWED_RETURN_ORIGINS = {
 
 def _safe_return_base(origin: str | None) -> str:
     return origin if (origin and origin in ALLOWED_RETURN_ORIGINS) else FRONTEND_URL
+
+
+def redact_secrets(text) -> str:
+    """Masque toute clé Stripe (sk_…, rk_…, whsec_…) dans un texte destiné aux logs
+    ou aux messages d'erreur, pour qu'un secret ne fuite jamais en clair."""
+    return re.sub(r"(sk|rk|whsec)_[A-Za-z0-9]+", r"\1_***", str(text))
 
 # ── Quotas freemium MENSUELS (surchargeables par env) ──
 FREE_AEM_SCAN_PER_MONTH = int(os.environ.get("FREE_AEM_SCAN_PER_MONTH", "2"))
