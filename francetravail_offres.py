@@ -91,7 +91,8 @@ def _get_token() -> str:
             "grant_type": "client_credentials",
             "client_id": cid,
             "client_secret": secret,
-            "scope": OAUTH_SCOPE,
+            # France Travail EXIGE que le scope inclue application_<CLIENT_ID>.
+            "scope": f"application_{cid} {OAUTH_SCOPE}",
         },
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         timeout=HTTP_TIMEOUT,
