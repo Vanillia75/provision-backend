@@ -3138,6 +3138,43 @@ def complete_onboarding(
     return {"ok": True}
 
 
+# ─── Trouver des cachets & des heures : offres France Travail ───────────────────
+# Public (pas de données perso). Cache mémoire ~20 min par combo de filtres pour
+# ménager le quota FT (10 appels/s). En cas d'échec FT → 502 propre, JAMAIS de mocks.
+_OFFRES_CACHE = {}          # (role_type, contract_type, lieu, rayon) -> (timestamp, offres)
+_OFFRES_TTL = 20 * 60       # 20 minutes
+
+
+@app.get("/intermittent/offres")
+def get_intermittent_offres(
+    role_type: str = "",
+    contract_type: str = "",
+    lieu: str = "",
+    rayon: int = 20,
+):
+    import time as _time
+    import logging as _logging
+    import francetravail_offres as ft
+
+    key = (role_type or "", contract_type or "", (lieu or "").lower().strip(), int(rayon or 20))
+    now = _time.time()
+    cached = _OFFRES_CACHE.get(key)
+    if cached and now - cached[0] < _OFFRES_TTL:
+        return {"offres": cached[1], "source": "France Travail"}
+
+    try:
+        offres = ft.search_offres(
+            role_type=role_type, contract_type=contract_type, lieu=lieu, rayon=rayon
+        )
+    except Exception as e:
+        # On ne loggue jamais d'éventuels secrets — juste le type d'erreur.
+        _logging.getLogger("francetravail").warning("Echec offres FT: %s", type(e).__name__)
+        raise HTTPException(status_code=502, detail="Impossible de récupérer les offres pour le moment.")
+
+    _OFFRES_CACHE[key] = (now, offres)
+    return {"offres": offres, "source": "France Travail"}
+
+
 @app.get("/intermittent/cockpit")
 def get_intermittent_cockpit(
     user: User = Depends(get_current_user), db: Session = Depends(get_db)
