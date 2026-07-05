@@ -3172,7 +3172,7 @@ def get_intermittent_offres(
         raise HTTPException(status_code=502, detail="Impossible de récupérer les offres pour le moment.")
 
     _OFFRES_CACHE[key] = (now, offres)
-    return {"offres": offres, "source": "France Travail"}
+    return {"offres": offres, "source": "France Travail", "_debug": getattr(ft, "DEBUG_LAST", {})}
 
 
 @app.get("/intermittent/cockpit")

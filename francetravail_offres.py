@@ -67,6 +67,9 @@ CONTRATS_COURTS = {"CDD", "MIS", "SAI", "DDI"}
 # ─── OAuth : jeton en cache mémoire ─────────────────────────────────────────────
 _token_cache = {"value": None, "expire_at": 0.0}
 
+# DIAG TEMPORAIRE (à retirer) : dernières infos ROME brutes vues, pour caler le filtre.
+DEBUG_LAST = {}
+
 
 def _credentials():
     """Lit les identifiants depuis l'env Railway. Ne renvoie/loggue jamais les valeurs."""
@@ -180,6 +183,9 @@ def _map(raw) -> dict:
         "sourceUrl": origine.get("urlOrigine") or "",
         "publishedAt": (raw.get("dateCreation") or "")[:10],
         "description": (raw.get("description") or "")[:300] or None,
+        # DIAG TEMPORAIRE : ROME réel de l'offre (à retirer avec le filtre final).
+        "_rome": raw.get("romeCode"),
+        "_romeLib": raw.get("romeLibelle"),
     }
 
 
@@ -223,6 +229,18 @@ def search_offres(role_type: str = "", contract_type: str = "", lieu: str = "", 
         raise RuntimeError(f"Recherche France Travail: statut {resp.status_code}")
 
     resultats = (resp.json() or {}).get("resultats") or []
+    # DIAG TEMPORAIRE : clés brutes + champs ROME de la 1ère offre (aucun secret).
+    if resultats:
+        r0 = resultats[0]
+        DEBUG_LAST.clear()
+        DEBUG_LAST.update({
+            "rawKeys": sorted(r0.keys()),
+            "romeCode": r0.get("romeCode"),
+            "romeLibelle": r0.get("romeLibelle"),
+            "typeContrat": r0.get("typeContrat"),
+            "natureContrat": r0.get("natureContrat"),
+            "nbCodesEnvoyes": len(romes),
+        })
     offres = [_map(o) for o in resultats]
 
     # Filtre métier fin (au cas où l'API élargit) + filtre contrat demandé.
