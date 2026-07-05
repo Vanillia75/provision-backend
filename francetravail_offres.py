@@ -65,11 +65,18 @@ MOTS_CLES_SPECTACLE = "spectacle intermittent CDDU cachet"
 # Types de contrat courts à privilégier dans le tri (CDDU, intérim, saisonnier, CDD).
 CONTRATS_COURTS = {"CDD", "MIS", "SAI", "DDI"}
 
-# ─── Filtre spectacle SUR LE CONTENU ────────────────────────────────────────────
-# Le code ROME de FT n'est PAS fiable : des maçons/infirmières sont postés sous des
-# codes spectacle (L1202 « Musicien »…). On filtre donc sur l'INTITULÉ + la DESCRIPTION
-# (texte libre de l'employeur), jamais sur romeLibelle/appellation (pollués eux aussi).
-# Mots normalisés (minuscules, sans accents), comparés en « mot entier » (bornes \b).
+# ─── Filtre spectacle : MOTEUR DE SCORE (identité, pas liste de mots) ────────────
+# Question du filtre : « un intermittent ouvrirait-il cette annonce en pensant
+# SINCÈREMENT qu'elle le concerne ? ». On score chaque offre sur des SIGNAUX :
+#   métier compatible +3 · contexte spectacle +1 · contrat CDDU +2 ·
+#   employeur du spectacle +2 · fonction INCOMPATIBLE −10 (veto). Garde si score ≥ seuil.
+# Extensible : ajouter un signal (descriptif, expérience…) ne change pas la philosophie.
+# Le code ROME de FT est POLLUÉ (maçon tagué « L1202 Musicien ») → on score sur le
+# TITRE (texte libre employeur), jamais sur romeLibelle/appellation (pollués aussi).
+# Mots normalisés (minuscules, sans accents), « mot entier » (\b). À AFFINER au fil des
+# faux positifs : un nouveau cas = UN mot ajouté à la bonne famille.
+
+# MÉTIERS COMPATIBLES — artistes (sert aussi à badger roleType=artiste)
 _MOTS_ARTISTE = [
     "comedien", "comedienne", "comedie musicale", "acteur", "actrice", "musicien",
     "musicienne", "instrumentiste", "chanteur", "chanteuse", "choriste", "danseur",
@@ -77,19 +84,48 @@ _MOTS_ARTISTE = [
     "figuration", "doublure", "cascadeur", "cascadeuse", "marionnettiste",
     "humoriste", "magicien", "clown", "mime", "orchestre",
 ]
+# MÉTIERS COMPATIBLES — techniciens (badge roleType=technicien). Élargi (audit 2026-07-05).
 _MOTS_TECHNICIEN = [
     "regie", "regisseur", "regisseuse", "machiniste", "backline", "eclairagiste",
-    "sonorisation", "ingenieur du son", "prise de son", "preneur de son", "cadreur",
-    "cadreuse", "chef operateur", "projectionniste", "costumier", "costumiere",
+    "eclairage scenique", "sonorisation", "ingenieur du son", "prise de son",
+    "preneur de son", "cadreur", "cadreuse", "chef operateur", "operateur audiovisuel",
+    "operateur de prise de vue", "projectionniste", "costumier", "costumiere",
     "habilleuse", "habilleur", "maquilleur", "maquilleuse", "decorateur",
     "accessoiriste", "technicien du spectacle", "technicien plateau",
-    "technicien lumiere", "technicien son", "rigger", "poursuiteur", "perchman",
-    "scripte", "etalonneur", "chef electricien", "truquiste", "chef monteur",
+    "technicien lumiere", "technicien son", "technicien audiovisuel", "technicien video",
+    "rigger", "poursuiteur", "perchman", "scripte", "etalonneur", "chef electricien",
+    "electricien de spectacle", "electricien scenique", "truquiste", "chef monteur",
+    "monteur audiovisuel", "monteur video", "monteur truquiste", "producteur audiovisuel",
+    "charge de production", "chargee de production", "assistant de production",
+    "regisseur de production", "mediateur culturel", "mediation culturelle",
+    "animateur culturel", "action culturelle", "atelier theatre", "atelier artistique",
 ]
+# CONTEXTE SPECTACLE (signal faible)
 _MOTS_CONTEXTE = [
     "spectacle", "theatre", "tournage", "audiovisuel", "concert", "festival",
     "cachet", "intermittent", "cddu", "opera", "ballet", "tournee", "captation",
-    "long metrage", "court metrage", "salle de spectacle", "scene",
+    "long metrage", "court metrage", "salle de spectacle", "scene", "scenique",
+]
+# FONCTIONS INCOMPATIBLES (veto) — corporate/commercial/admin, homonymes, apprentissage.
+_MOTS_INCOMPATIBLE = [
+    "business developer", "commercial", "commerciale", "account manager",
+    "technico-commercial", "ingenieur d'affaires", "ingenieur commercial",
+    "charge d'affaires", "charge de clientele", "developpeur", "consultant",
+    "consultante", "recruteur", "recruteuse", "charge de recrutement", "comptable",
+    "assistant de direction", "assistant commercial", "assistante commerciale",
+    "gestionnaire", "chef de projet", "responsable commercial", "directeur commercial",
+    "vendeur", "vendeuse", "conseiller clientele", "community manager", "product manager",
+    "promotion", "marketing",
+    # homonymes du spectacle
+    "d'immeuble", "de copropriete", "gestion des espaces", "gestion locative",
+    # apprentissage / stage (décision produit : hors intermittence)
+    "alternance", "apprentissage", "apprenti", "apprentie", "stage", "stagiaire",
+]
+# EMPLOYEUR DU SPECTACLE (signal +2, sur le nom de l'entreprise)
+_MOTS_EMPLOYEUR = [
+    "theatre", "compagnie", "production", "productions", "festival", "opera",
+    "orchestre", "ballet", "cirque", "films", "audiovisuel", "spectacles",
+    "scenique", "conservatoire", "philharmonique", "ensemble", "prod",
 ]
 
 
@@ -105,7 +141,12 @@ def _compile(mots):
 
 _RE_ARTISTE = _compile(_MOTS_ARTISTE)
 _RE_TECHNICIEN = _compile(_MOTS_TECHNICIEN)
+_RE_METIER = _compile(_MOTS_ARTISTE + _MOTS_TECHNICIEN)   # « métier compatible » (fort)
 _RE_CONTEXTE = _compile(_MOTS_CONTEXTE)
+_RE_INCOMPATIBLE = _compile(_MOTS_INCOMPATIBLE)
+_RE_EMPLOYEUR = _compile(_MOTS_EMPLOYEUR)
+
+_SEUIL_SPECTACLE = 1  # on garde une offre dont le score est ≥ à ce seuil
 
 
 def _texte_offre(raw) -> str:
@@ -114,9 +155,30 @@ def _texte_offre(raw) -> str:
     return _norm(raw.get("intitule") or "")
 
 
+def _score_offre(raw) -> int:
+    """
+    Score « est-ce qu'un intermittent se sentirait sincèrement concerné ? ».
+    Extensible : ajouter un signal ici ne change pas la philosophie du filtre.
+    """
+    titre = _texte_offre(raw)
+    score = 0
+    if _RE_METIER.search(titre):
+        score += 3                                    # métier compatible = signal FORT
+    if _RE_CONTEXTE.search(titre):
+        score += 1                                    # contexte spectacle = signal faible
+    if _infer_contract(raw) == "CDDU":
+        score += 2                                    # contrat d'usage = typique intermittent
+    emp = _norm((raw.get("entreprise") or {}).get("nom") or "")
+    if emp and _RE_EMPLOYEUR.search(emp):
+        score += 2                                    # employeur clairement du spectacle
+    if _RE_INCOMPATIBLE.search(titre):
+        score -= 10                                   # fonction incompatible = VETO
+    return score
+
+
 def _est_spectacle(raw) -> bool:
-    t = _texte_offre(raw)
-    return bool(_RE_ARTISTE.search(t) or _RE_TECHNICIEN.search(t) or _RE_CONTEXTE.search(t))
+    # Garde-t-on l'offre ? (le filtrage passe désormais par le score.)
+    return _score_offre(raw) >= _SEUIL_SPECTACLE
 
 
 # ─── OAuth : jeton en cache mémoire ─────────────────────────────────────────────
