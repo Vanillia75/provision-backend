@@ -471,9 +471,16 @@ def save_relance_auto(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Active/désactive les relances automatiques d'impayés (opt-in explicite de l'utilisateur)."""
+    """Active/désactive les relances automatiques d'impayés (opt-in explicite de l'utilisateur).
+    Activer les relances est une fonction Premium ; les DÉSACTIVER (jours=None) reste toujours possible."""
     if req.jours is not None and not (1 <= req.jours <= 90):
         raise HTTPException(status_code=400, detail="Délai invalide (entre 1 et 90 jours)")
+    if req.jours is not None and not billing.is_premium(db, user):
+        raise HTTPException(status_code=402, detail={
+            "code": "premium_requis",
+            "fonction": "relance_auto",
+            "message": "Les relances automatiques sont une fonction Premium. Laisse-moi réclamer tes impayés à ta place. 🔓",
+        })
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Profil introuvable")
@@ -1449,7 +1456,11 @@ def _executer_relances_auto():
                 print(f"[relances] profil {profile.user_id} sans signature — relance suspendue", flush=True)
                 continue
             utilisateur = db.query(User).filter(User.id == profile.user_id).first()
-            email_reponse = utilisateur.email if utilisateur else None
+            # Relances = fonction Premium : on ne relance PAS les comptes gratuits
+            # (défense en profondeur, même si un profil avait activé l'option avant/hors premium).
+            if not utilisateur or not billing.is_premium(db, utilisateur):
+                continue
+            email_reponse = utilisateur.email
             seuil = date.today() - timedelta(days=profile.relance_auto_jours)
             factures = (
                 db.query(ClientInvoice)
