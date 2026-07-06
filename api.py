@@ -3310,6 +3310,7 @@ class CheckoutRequest(BaseModel):
     promo_code: Optional[str] = None
     mode: Optional[str] = None      # "auto_entrepreneur" | "intermittent" (pour revenir dans le bon mode)
     origin: Optional[str] = None    # origine du front (pour revenir sur le bon domaine)
+    plan: Optional[str] = None      # "annuel" pour le tarif à l'année ; sinon mensuel par défaut
 
 
 class PromoRequest(BaseModel):
@@ -3324,7 +3325,7 @@ def billing_create_checkout(
 ):
     """Crée une Checkout Session Stripe (abonnement récurrent). Renvoie l'URL à ouvrir."""
     try:
-        url = billing.create_checkout_session(db, user, req.promo_code, app_mode=req.mode, origin=req.origin)
+        url = billing.create_checkout_session(db, user, req.promo_code, app_mode=req.mode, origin=req.origin, plan=req.plan)
     except Exception as e:
         # On LOGGE l'erreur réelle (masquée) côté serveur, mais on ne renvoie JAMAIS
         # l'exception brute au client : elle peut contenir une clé secrète.

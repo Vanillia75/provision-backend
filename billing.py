@@ -28,7 +28,8 @@ from models import Subscription, PromoCode, StripeEvent, User, AIUsage
 # retour à la ligne invisible en fin de valeur. Sur une clé, ce caractère rend
 # l'en-tête HTTP invalide (« Invalid header value ... \n ») et Stripe refuse tout.
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
-STRIPE_PRICE_PREMIUM = os.environ.get("STRIPE_PRICE_PREMIUM", "").strip()
+STRIPE_PRICE_PREMIUM = os.environ.get("STRIPE_PRICE_PREMIUM", "").strip()          # mensuel
+STRIPE_PRICE_PREMIUM_ANNUAL = os.environ.get("STRIPE_PRICE_PREMIUM_ANNUAL", "").strip()  # annuel (optionnel)
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://hector-app.fr")
 
@@ -192,18 +193,23 @@ def premium_source(db: Session, user: User):
 #  Checkout & Portal
 # ════════════════════════════════════════════════════════════════════════
 def create_checkout_session(db: Session, user: User, promo_code: str | None = None,
-                            app_mode: str | None = None, origin: str | None = None) -> str:
+                            app_mode: str | None = None, origin: str | None = None,
+                            plan: str | None = None) -> str:
     """Crée une Checkout Session (abonnement récurrent) et renvoie son URL.
     NB : l'activation du premium se fera au WEBHOOK, pas au retour de cette URL.
     `app_mode` (auto_entrepreneur/intermittent) et `origin` permettent de revenir sur le
-    bon domaine ET dans le bon mode après le paiement."""
+    bon domaine ET dans le bon mode après le paiement.
+    `plan` = "annuel" pour le tarif à l'année (si configuré) ; sinon mensuel par défaut."""
     sub = get_or_create_subscription(db, user)
+
+    # Tarif : annuel si demandé ET configuré, sinon mensuel.
+    price_id = STRIPE_PRICE_PREMIUM_ANNUAL if (plan == "annuel" and STRIPE_PRICE_PREMIUM_ANNUAL) else STRIPE_PRICE_PREMIUM
 
     base = _safe_return_base(origin)
     mode_q = f"&mode={app_mode}" if app_mode else ""
     params = {
         "mode": "subscription",
-        "line_items": [{"price": STRIPE_PRICE_PREMIUM, "quantity": 1}],
+        "line_items": [{"price": price_id, "quantity": 1}],
         "client_reference_id": user.id,
         "success_url": f"{base}/?billing=success{mode_q}",
         "cancel_url": f"{base}/?billing=cancel",
