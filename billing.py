@@ -180,27 +180,13 @@ def activate_comp_premium(db: Session, user: User, months=None):
     db.commit()
 
 
-def start_trial(db: Session, user: User, days: int = 14):
-    """Essai Premium GRATUIT (sans carte) : premium pendant `days` jours, puis retour
-    automatique au gratuit (is_premium repasse à False à l'expiration). Ne fait RIEN si
-    l'utilisateur a déjà un premium (VIP à vie, abonné Stripe, ou essai déjà actif)."""
-    if is_premium(db, user):
-        return
-    sub = get_or_create_subscription(db, user)
-    sub.plan = "premium"
-    sub.status = "trialing"          # ∈ GRANTING_STATUSES → premium actif
-    sub.source = "trial"
-    sub.current_period_end = datetime.utcnow() + timedelta(days=days)
-    sub.cancel_at_period_end = False
-    sub.updated_at = datetime.utcnow()
-    db.commit()
-
-
 def trial_days_left(db: Session, user: User):
-    """Jours restants d'essai Premium (source='trial'), arrondi au jour supérieur ;
-    None si l'utilisateur n'est pas en période d'essai."""
+    """Jours restants d'essai Premium (abonnement Stripe en statut 'trialing'), arrondi
+    au jour supérieur ; None si l'utilisateur n'est pas en période d'essai.
+    L'essai 14 j se fait AU CHECKOUT (carte enregistrée + trial_period_days=14, prélèvement
+    auto ensuite sauf annulation ; Stripe envoie un rappel avant la fin)."""
     sub = db.query(Subscription).filter(Subscription.user_id == user.id).first()
-    if not sub or sub.source != "trial" or not sub.current_period_end:
+    if not sub or sub.status != "trialing" or not sub.current_period_end:
         return None
     secs = (sub.current_period_end - datetime.utcnow()).total_seconds()
     if secs <= 0:
@@ -209,7 +195,7 @@ def trial_days_left(db: Session, user: User):
 
 
 def premium_source(db: Session, user: User):
-    """'stripe' | 'comp' | 'trial' | None — d'où vient le premium (pour adapter l'UI :
+    """'stripe' | 'comp' | None — d'où vient le premium (pour adapter l'UI :
     un premium 'comp' (offert) n'a pas d'abonnement Stripe à gérer)."""
     if not is_premium(db, user):
         return None
@@ -242,7 +228,10 @@ def create_checkout_session(db: Session, user: User, promo_code: str | None = No
         "success_url": f"{base}/?billing=success{mode_q}",
         "cancel_url": f"{base}/?billing=cancel",
         "metadata": {"user_id": user.id},
-        "subscription_data": {"metadata": {"user_id": user.id}},
+        # Essai 14 jours : carte enregistrée au checkout, aucun prélèvement pendant l'essai,
+        # puis prélèvement auto (sauf annulation). Stripe envoie un rappel avant la fin
+        # (à activer dans Réglages Stripe > e-mails clients > « fin d'essai »).
+        "subscription_data": {"metadata": {"user_id": user.id}, "trial_period_days": 14},
     }
     if sub.stripe_customer_id:
         params["customer"] = sub.stripe_customer_id
