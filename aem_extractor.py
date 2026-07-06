@@ -80,11 +80,7 @@ def extract_are_data(file_path: str) -> dict:
 
     import requests
 
-    media_type, b64, kind = _encode_file(file_path)
-    if kind == "document":
-        source_block = {"type": "document", "source": {"type": "base64", "media_type": media_type, "data": b64}}
-    else:
-        source_block = {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}}
+    source_blocks = _build_source_blocks(file_path)
 
     resp = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -96,7 +92,7 @@ def extract_are_data(file_path: str) -> dict:
         json={
             "model": MODEL,
             "max_tokens": 600,
-            "messages": [{"role": "user", "content": [source_block, {"type": "text", "text": PROMPT_ARE}]}],
+            "messages": [{"role": "user", "content": source_blocks + [{"type": "text", "text": PROMPT_ARE}]}],
         },
         timeout=60,
     )
@@ -140,16 +136,72 @@ def extract_are_data(file_path: str) -> dict:
     return {"date_anniversaire": date_anniv, "montant_journalier": montant, "filename": os.path.basename(file_path)}
 
 
-def _encode_file(file_path: str):
-    """Retourne (media_type, base64, kind) où kind est 'image' ou 'document' (pdf)."""
+def _render_pdf_form_pages(raw: bytes) -> list:
+    """
+    Rend chaque page d'un PDF en image PNG, AVEC les champs de formulaire dessinés.
+
+    Pourquoi : beaucoup d'AEM/FCTU (ex. TF1, éditées par France Travail) sont des
+    formulaires PDF (AcroForm). Les valeurs saisies (employeur, SIRET, cachets…)
+    vivent dans des champs de saisie, PAS dans le contenu imprimé de la page.
+    Quand on envoie le PDF brut à l'IA, elle l'aplatit et ne voit qu'un gabarit
+    VIDE → « attestation non reconnue ». En rendant nous-mêmes les pages avec les
+    champs, l'IA voit l'attestation remplie, exactement comme un humain.
+
+    Retourne une liste de blocs image (base64 PNG). Liste vide si échec.
+    """
+    import io
+    import pypdfium2 as pdfium
+
+    blocks = []
+    doc = pdfium.PdfDocument(raw)
+    try:
+        doc.init_forms()  # nécessaire pour que le rendu dessine les champs remplis
+        n = min(len(doc), 15)  # garde-fou : on ne rend pas un PDF interminable
+        for i in range(n):
+            pil = doc[i].render(scale=2.0).to_pil()
+            buf = io.BytesIO()
+            pil.save(buf, format="PNG")
+            data = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
+            blocks.append({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}})
+    finally:
+        doc.close()
+    return blocks
+
+
+def _build_source_blocks(file_path: str) -> list:
+    """
+    Prépare les blocs de contenu (image / document) à envoyer à l'IA pour ce fichier.
+
+    - PDF contenant un formulaire rempli → pages rendues en images (voir
+      _render_pdf_form_pages). C'est le cas des FCTU/AEM France Travail.
+    - PDF « normal » (contenu imprimé) → bloc document PDF natif (multi-pages géré
+      par l'API, comportement éprouvé pour les autres employeurs).
+    - Image → bloc image.
+    """
     ext = os.path.splitext(file_path)[1].lower()
     with open(file_path, "rb") as f:
         raw = f.read()
-    b64 = base64.standard_b64encode(raw).decode("utf-8")
+
     if ext == ".pdf":
-        return "application/pdf", b64, "document"
+        # Détecte un formulaire PDF (AcroForm/XFA). Si oui, on rend les pages avec
+        # les champs. En cas de souci, on retombe proprement sur le PDF natif.
+        try:
+            import pypdfium2 as pdfium
+            doc = pdfium.PdfDocument(raw)
+            has_form = doc.get_formtype() != 0
+            doc.close()
+            if has_form:
+                blocks = _render_pdf_form_pages(raw)
+                if blocks:
+                    return blocks
+        except Exception:
+            pass  # repli sur le document natif ci-dessous
+        b64 = base64.standard_b64encode(raw).decode("utf-8")
+        return [{"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}]
+
+    b64 = base64.standard_b64encode(raw).decode("utf-8")
     media_type = mimetypes.guess_type(file_path)[0] or "image/jpeg"
-    return media_type, b64, "image"
+    return [{"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}}]
 
 
 def _clean_json(text: str) -> str:
@@ -227,12 +279,7 @@ def extract_aem_data(file_path: str) -> dict:
 
     import requests  # déjà présent dans les dépendances backend
 
-    media_type, b64, kind = _encode_file(file_path)
-
-    if kind == "document":
-        source_block = {"type": "document", "source": {"type": "base64", "media_type": media_type, "data": b64}}
-    else:
-        source_block = {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}}
+    source_blocks = _build_source_blocks(file_path)
 
     resp = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -247,10 +294,7 @@ def extract_aem_data(file_path: str) -> dict:
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        source_block,
-                        {"type": "text", "text": PROMPT},
-                    ],
+                    "content": source_blocks + [{"type": "text", "text": PROMPT}],
                 }
             ],
         },
