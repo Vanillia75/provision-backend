@@ -47,9 +47,11 @@ def _safe_return_base(origin: str | None) -> str:
 
 
 def redact_secrets(text) -> str:
-    """Masque toute clé Stripe (sk_…, rk_…, whsec_…) dans un texte destiné aux logs
-    ou aux messages d'erreur, pour qu'un secret ne fuite jamais en clair."""
-    return re.sub(r"(sk|rk|whsec)_[A-Za-z0-9]+", r"\1_***", str(text))
+    """Masque toute clé secrète dans un texte destiné aux logs ou aux messages d'erreur,
+    pour qu'un secret ne fuite jamais en clair : Stripe (sk_/rk_/whsec_) ET Anthropic (sk-ant-…)."""
+    s = re.sub(r"sk-ant-[A-Za-z0-9_-]+", "sk-ant-***", str(text))   # clé Anthropic (x-api-key)
+    # [A-Za-z0-9_]+ (underscore INCLUS) : sinon "sk_live_XXXX" ne masque que "sk_live" et laisse "_XXXX".
+    return re.sub(r"(sk|rk|whsec)_[A-Za-z0-9_]+", r"\1_***", s)     # clés Stripe (sk_live_/sk_test_/rk_/whsec_)
 
 # ── Quotas freemium MENSUELS (surchargeables par env) ──
 FREE_AEM_SCAN_PER_MONTH = int(os.environ.get("FREE_AEM_SCAN_PER_MONTH", "2"))

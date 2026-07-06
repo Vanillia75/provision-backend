@@ -21,7 +21,7 @@ import base64
 import mimetypes
 from datetime import datetime
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()  # .strip() : cf api.py (Railway ajoute un \n en fin de valeur)
 MODEL = "claude-sonnet-4-6"
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}

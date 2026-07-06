@@ -44,7 +44,7 @@ import billing
 Base.metadata.create_all(bind=engine)
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()  # .strip() : Railway garde parfois un \n en fin de valeur -> en-tete x-api-key invalide
 
 # ── Plafonds anti-abus des appels IA (par utilisateur, par jour) ──
 # Bornent le coût Anthropic. Largement au-dessus d'un usage normal : ils ne
@@ -2713,7 +2713,10 @@ def assistant_chat(
                 reply = reply.replace("\x00DOC\x00", blk, 1)
             reply = reply.strip()
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Erreur assistant IA : {e}")
+        # On logge l'erreur reelle (masquee) cote serveur, jamais l'exception brute au client
+        # (elle peut contenir la cle Anthropic si l'en-tete x-api-key est invalide).
+        print(f"[ASSISTANT ERROR] {type(e).__name__}: {billing.redact_secrets(e)}", flush=True)
+        raise HTTPException(status_code=502, detail="L'assistant n'est pas disponible pour le moment. Réessaie dans un instant.")
 
     return {"reply": reply or "Desole, je n'ai pas pu generer de reponse."}
 
@@ -2938,7 +2941,7 @@ async def extract_aem(
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=422, detail=str(e) or "Impossible de lire cette AEM.")
+            raise HTTPException(status_code=422, detail=billing.redact_secrets(str(e)) or "Impossible de lire cette AEM.")
 
         # Conserve le document original sur R2 (si configuré). Le même document peut contenir
         # plusieurs AEM : on stocke le fichier une fois et on lie la même clé à chacune.
@@ -3012,7 +3015,7 @@ async def extract_are(
                         return extract_are_data(img_path)
                 except Exception:
                     pass  # le repli a échoué -> on renvoie l'erreur d'origine
-            raise HTTPException(status_code=422, detail=str(e) or "Impossible de lire cette attestation.")
+            raise HTTPException(status_code=422, detail=billing.redact_secrets(str(e)) or "Impossible de lire cette attestation.")
 
         return data
     finally:
