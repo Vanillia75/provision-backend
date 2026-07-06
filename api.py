@@ -159,6 +159,8 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
+    billing.start_trial(db, user)   # 14 jours d'essai Premium offerts, sans carte
+
     verify_token = create_purpose_token(user.id, "verify_email", expire_minutes=60 * 24)
     send_verification_email(user.email, verify_token)
 
@@ -235,6 +237,7 @@ def auth_google(req: GoogleAuthRequest, db: Session = Depends(get_db)):
         db.add(user)
         db.commit()
         db.refresh(user)
+        billing.start_trial(db, user)   # 14 jours d'essai Premium offerts, sans carte
     elif not user.google_id:
         user.google_id = google_id
         db.commit()
@@ -365,7 +368,8 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "email": user.email,
         "email_verified": user.email_verified,
         "is_premium": prem,
-        "premium_source": billing.premium_source(db, user),   # "stripe" | "comp" | None
+        "premium_source": billing.premium_source(db, user),   # "stripe" | "comp" | "trial" | None
+        "trial_days_left": billing.trial_days_left(db, user),  # jours restants si essai, sinon None
         "quotas": quotas,
         # Paramètres TVA de facturation (table isolée fiscal_settings, fallback franchise).
         "fiscal_settings": _read_fiscal_settings(db, user.id),
