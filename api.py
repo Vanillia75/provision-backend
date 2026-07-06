@@ -40,6 +40,20 @@ import allocation_engine as ae
 import conges_spectacles as cs
 from insee_lookup import lookup_siret, SiretLookupError
 import billing
+import sentry_sdk
+
+# ── Observabilité backend (Sentry) — INERTE tant qu'aucun SENTRY_DSN n'est fourni ──
+# (même logique que les sourcemaps front : sans la variable d'env, rien ne s'active,
+#  aucun risque). send_default_pii=False : on n'envoie JAMAIS de données perso
+# (NIR, noms, emails, corps de requête) à Sentry — cf. règle vie privée du projet.
+_SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
+if _SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=_SENTRY_DSN,
+        environment="production",
+        traces_sample_rate=0.1,
+        send_default_pii=False,
+    )
 
 Base.metadata.create_all(bind=engine)
 
