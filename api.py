@@ -89,8 +89,10 @@ app = FastAPI(title="API Provision Cotisations")
 
 ALLOWED_ORIGINS = [
     "https://provision-frontend-nu.vercel.app",
-    "https://hector-app.fr",
+    "https://hector-app.fr",       # ancien domaine : garde pour la transition (redirigera vers montotor.fr)
     "https://www.hector-app.fr",
+    "https://montotor.fr",         # nouveau domaine TOTOR (rebranding 07/2026)
+    "https://www.montotor.fr",
     "http://localhost:5173",  # developpement local (Vite)
 ]
 
