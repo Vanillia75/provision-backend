@@ -174,6 +174,10 @@ class IntermittentActivity(Base):
     # Salaire brut du contrat (renseigné à la saisie ou lu sur l'AEM). Sert au récap
     # d'actualisation France Travail. Nullable : pas toujours connu.
     salaire_brut = Column(Float, nullable=True)
+    # Métier du contrat : "artiste" | "technicien" | NULL (non départagé). Renseigné à la
+    # saisie (heures) ou proposé par le scan AEM (emploi occupé). INFORMATIF uniquement :
+    # sert à la répartition annexe 8/10 affichée, ne touche AUCUN calcul d'heures ou d'AJ.
+    metier = Column(String, nullable=True)
     # true si l'AEM (Attestation Employeur Mensuelle) correspondante a été reçue/scannée.
     # Sert à la check-list d'actualisation ("il te manque une AEM").
     aem_recue = Column(Boolean, nullable=False, default=False)

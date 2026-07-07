@@ -43,7 +43,8 @@ Réponds STRICTEMENT en JSON, sans aucun texte autour, sans balises Markdown. Le
     "date_fin": "date de FIN du contrat au format YYYY-MM-DD si elle est indiquée, sinon null",
     "type_activite": "cachet_isole, cachet_groupe ou heures",
     "nombre": nombre de cachets OU nombre d'heures (un nombre),
-    "salaire_brut": salaire brut total de la période en euros (un nombre, sans symbole), sinon null
+    "salaire_brut": salaire brut total de la période en euros (un nombre, sans symbole), sinon null,
+    "metier": "artiste" ou "technicien" selon l'emploi occupé indiqué sur l'attestation, sinon null
   }
 ]
 
@@ -53,6 +54,10 @@ Règles importantes :
 - "date_fin" : c'est le dernier jour travaillé / date de fin de contrat. Si le contrat est sur un seul jour, date_fin peut être égale à date. Si elle n'est pas indiquée, mets null. Ne confonds JAMAIS début et fin : si tu n'as qu'une date, mets-la dans "date" et mets "date_fin" à null.
 - "type_activite" : si l'AEM mentionne des CACHETS, utilise "cachet_isole" (cas le plus courant) ou "cachet_groupe" si explicitement groupés. Si elle est en HEURES réelles (technicien, annexe 8), utilise "heures".
 - "nombre" : si ce sont des cachets, mets le NOMBRE DE CACHETS. Si ce sont des heures, mets le NOMBRE D'HEURES. Ne convertis pas toi-même.
+- "metier" : regarde l'EMPLOI OCCUPÉ écrit sur l'attestation. Métiers techniques (monteur, régisseur,
+  ingénieur du son, cadreur, électricien, machiniste, habilleuse, maquilleuse, décorateur…) → "technicien".
+  Métiers d'interprétation ou de création artistique (comédien, musicien, danseur, chanteur,
+  circassien, metteur en scène, chorégraphe…) → "artiste". Si l'emploi n'est pas indiqué ou ambigu → null.
 - Si une information est absente ou illisible, mets null (sauf "nombre" : mets 0 si introuvable).
 - Ne devine jamais un SIRET ou un montant : si tu n'es pas sûr, mets null.
 - Réponds en JSON pur (une liste []), rien d'autre."""
@@ -261,6 +266,11 @@ def _normalise(data: dict, filename: str) -> dict:
     if date_fin_iso and date_iso and date_fin_iso == date_iso:
         date_fin_iso = None
 
+    # métier : uniquement les deux valeurs connues (sinon None — jamais de devinette).
+    metier = data.get("metier")
+    if metier not in ("artiste", "technicien"):
+        metier = None
+
     return {
         "employeur": (data.get("employeur") or None),
         "siret": (data.get("siret") or None),
@@ -269,6 +279,7 @@ def _normalise(data: dict, filename: str) -> dict:
         "type_activite": type_act,
         "nombre": nombre,
         "salaire_brut": brut,
+        "metier": metier,
         "filename": filename,
     }
 

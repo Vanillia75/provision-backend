@@ -2770,6 +2770,12 @@ class IntermittentActiviteRequest(BaseModel):
     estime: Optional[bool] = False
     aem_filename: Optional[str] = None
     aem_r2_key: Optional[str] = None
+    metier: Optional[str] = None  # "artiste" | "technicien" | None (informatif, annexe 8/10)
+
+
+def _metier_valide(m):
+    """Ne laisse entrer que les deux valeurs connues — tout le reste devient None."""
+    return m if m in ("artiste", "technicien") else None
 
 
 class DateAnniversaireRequest(BaseModel):
@@ -2892,6 +2898,7 @@ def list_intermittent_activites(
             "aem_filename": r.aem_filename,
             "a_document": bool(r.aem_r2_key),
             "source": r.source,
+            "metier": r.metier,
         }
         for r in rows
     ]
@@ -2920,6 +2927,7 @@ def add_intermittent_activite(
         aem_filename=(req.aem_filename or None),
         aem_r2_key=(req.aem_r2_key or None),
         source=("ocr" if req.aem_recue else "manuel"),
+        metier=_metier_valide(req.metier),
     )
     db.add(row)
     db.commit()
@@ -3078,6 +3086,7 @@ def update_intermittent_activite(
         row.salaire_brut = req.salaire_brut
     # On met à jour le statut "estimé" (passe à False quand l'utilisateur confirme l'AEM réelle).
     row.estime = bool(req.estime)
+    row.metier = _metier_valide(req.metier)
     db.commit()
     return {"ok": True}
 
