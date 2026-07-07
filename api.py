@@ -26,7 +26,7 @@ from auth import (
     hash_password, verify_password, create_token, get_current_user,
     create_purpose_token, verify_purpose_token,
 )
-from emailing import send_reset_password_email, send_verification_email, send_invoice_email
+from emailing import send_reset_password_email, send_verification_email, send_invoice_email, send_email
 from invoice_pdf import generate_invoice_pdf
 from legal_mentions import get_franchise_vat_mention, append_ei_mention, resolve_fiscal_settings, compute_invoice_totals, format_vat_rate
 from numerotation import compute_next_numero, normalize_numero_depart
@@ -2995,6 +2995,80 @@ async def extract_aem(
     finally:
         # Nettoyage systématique du fichier temporaire (évite l'accumulation sur disque).
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# Adresse qui reçoit les documents signalés illisibles (lecture humaine).
+SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "vanilliabusiness@gmail.com")
+
+
+@app.post("/intermittent/aem/signalement")
+async def signaler_document_illisible(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Quand le scan n'a pas su lire un document, l'utilisateur peut l'envoyer pour
+    lecture humaine. Le fichier part dans le coffre R2 sous le préfixe de l'utilisateur
+    (donc couvert par la suppression RGPD, comme ses AEM) et un email prévient l'équipe
+    avec un lien signé temporaire — le contenu du document ne transite jamais par l'email."""
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+    if not file.filename or not file.filename.lower().endswith(allowed_ext):
+        raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
+    if not r2_storage.R2_ENABLED:
+        raise HTTPException(status_code=503, detail="L'envoi n'est pas disponible pour le moment. Réessaie un peu plus tard.")
+
+    # Garde-fou anti-abus : quelques envois par jour suffisent largement.
+    _verifier_et_incrementer_quota_ia(db, user.id, "aem_signalement", 5)
+
+    tmp_dir = tempfile.mkdtemp()
+    file_path = os.path.join(tmp_dir, os.path.basename(file.filename))
+    try:
+        taille = 0
+        with open(file_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                taille += len(chunk)
+                if taille > AEM_MAX_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Fichier trop volumineux (max {AEM_MAX_BYTES // (1024*1024)} Mo). "
+                               "Réduis la taille de la photo et réessaie.",
+                    )
+                f.write(chunk)
+        try:
+            key = r2_storage.upload_aem(file_path, str(user.id), file.filename)
+        except Exception:
+            raise HTTPException(status_code=502, detail="L'envoi a échoué. Réessaie dans un moment.")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    lien = r2_storage.get_signed_url(key, expires_seconds=72 * 3600)
+    nom_fichier = html.escape(file.filename)
+    corps = f"""
+    <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto;">
+      <h2 style="color:#0A2540;">Un document attend une lecture humaine</h2>
+      <p>Un utilisateur a envoyé un document que le scan n'a pas su lire.</p>
+      <ul style="color:#0A2540; font-size:14px; line-height:1.7;">
+        <li>Utilisateur : {html.escape(user.email or "")}</li>
+        <li>Fichier : {nom_fichier}</li>
+      </ul>
+      <p>
+        <a href="{lien}" style="background:#378ADD; color:white; padding:12px 20px;
+           border-radius:8px; text-decoration:none; display:inline-block;">
+          Ouvrir le document (lien valable 72h)
+        </a>
+      </p>
+      <p style="color:#6B7A8D; font-size:13px;">
+        Document sensible (peut contenir un NIR) : à consulter, jamais à transférer.
+        Le fichier reste dans le coffre R2 sous le préfixe de l'utilisateur.
+      </p>
+    </div>
+    """
+    if not send_email(SUPPORT_EMAIL, "H€CTOR — document à vérifier (lecture humaine)", corps):
+        raise HTTPException(status_code=502, detail="L'envoi a échoué. Réessaie dans un moment.")
+    return {"ok": True}
 
 
 @app.post("/intermittent/are/extract")
