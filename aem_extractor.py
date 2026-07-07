@@ -44,7 +44,8 @@ Réponds STRICTEMENT en JSON, sans aucun texte autour, sans balises Markdown. Le
     "type_activite": "cachet_isole, cachet_groupe ou heures",
     "nombre": nombre de cachets OU nombre d'heures (un nombre),
     "salaire_brut": salaire brut total de la période en euros (un nombre, sans symbole), sinon null,
-    "metier": "artiste" ou "technicien" selon l'emploi occupé indiqué sur l'attestation, sinon null
+    "metier": "artiste" ou "technicien" selon l'emploi occupé indiqué sur l'attestation, sinon null,
+    "type_document": "aem", "guso", "cddu_usage" ou "inconnu" (voir règles)
   }
 ]
 
@@ -58,6 +59,15 @@ Règles importantes :
   ingénieur du son, cadreur, électricien, machiniste, habilleuse, maquilleuse, décorateur…) → "technicien".
   Métiers d'interprétation ou de création artistique (comédien, musicien, danseur, chanteur,
   circassien, metteur en scène, chorégraphe…) → "artiste". Si l'emploi n'est pas indiqué ou ambigu → null.
+  ATTENTION : mannequin, figurant, publicité → null (statut à part, ne devine pas). Ne déduis JAMAIS
+  le métier de la case « niveau de qualification » (ex. « profession intermédiaire (techniciens…) » est
+  une catégorie administrative, PAS l'emploi occupé).
+- "type_document" : identifie le FORMULAIRE. « Attestation employeur pour les activités relevant des
+  annexes 8 et 10 » (AEM/FCTU spectacle) → "aem". Attestation GUSO → "guso". « Attestation employeur
+  ayant conclu des contrats à durée déterminée d'usage » (formulaire Unédic AE-DSN / DAJ 1260,
+  art. D.1242-1 — hors spectacle : pub, mannequinat…) → "cddu_usage". Tout AUTRE document (fiche de
+  paie, contrat de travail, courrier, notification de droits…) → renvoie UNIQUEMENT
+  [{"type_document": "inconnu"}] et aucun autre champ.
 - Si une information est absente ou illisible, mets null (sauf "nombre" : mets 0 si introuvable).
 - Ne devine jamais un SIRET ou un montant : si tu n'es pas sûr, mets null.
 - Réponds en JSON pur (une liste []), rien d'autre."""
@@ -271,7 +281,13 @@ def _normalise(data: dict, filename: str) -> dict:
     if metier not in ("artiste", "technicien"):
         metier = None
 
+    # type de document : valeurs connues uniquement (défaut "aem" — rétro-compatible).
+    type_doc = data.get("type_document")
+    if type_doc not in ("aem", "guso", "cddu_usage"):
+        type_doc = "aem"
+
     return {
+        "type_document": type_doc,
         "employeur": (data.get("employeur") or None),
         "siret": (data.get("siret") or None),
         "date": date_iso,
@@ -333,7 +349,16 @@ def extract_aem_data(file_path: str) -> dict:
     if not isinstance(data, list):
         raise RuntimeError("Lecture impossible : format inattendu. Saisis à la main.")
 
-    resultats = [_normalise(item, fname) for item in data if isinstance(item, dict)]
+    # Garde-fou : document reconnu comme N'ÉTANT PAS une attestation employeur (fiche de paie,
+    # contrat, courrier…) → on le dit honnêtement au lieu d'extraire des données fausses en silence.
+    items = [item for item in data if isinstance(item, dict)]
+    if items and all(item.get("type_document") == "inconnu" for item in items):
+        raise RuntimeError(
+            "Je ne sais pas encore lire ce type de document — ça ne ressemble pas à une attestation "
+            "employeur que je connais. Tu peux saisir ses heures à la main dans « Mes activités »."
+        )
+
+    resultats = [_normalise(item, fname) for item in items]
     # On écarte les entrées totalement vides (ni date, ni nombre exploitable).
     resultats = [r for r in resultats if r.get("date") or (r.get("nombre") or 0) > 0]
     if not resultats:

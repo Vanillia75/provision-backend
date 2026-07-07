@@ -88,3 +88,29 @@ C'est exactement le litige de dates du cas réel n°1. En version **humaine** (e
 - Le dossier du cas réel n°1 (maternité 112j + AEM) est déjà le cas de référence. Il manque **ses
   AEM de travail de la période** pour boucler les 636h — même besoin que le moteur arrêts.
 - Tant qu'aucune reconstitution réelle n'égale la NHT officielle, la conformité reste `estimation`.
+
+
+## 6. Types d'heures au statut incertain — cas réel n°3 (CDDU pub/mannequinat)
+
+**Constat (2026-07-07)** : une testeuse comédienne a reçu d'une agence de publicité une
+« Attestation employeur ayant conclu des contrats à durée déterminée d'usage » (formulaire
+Unédic AE-DSN / DAJ 1260, art. D.1242-1) — PAS une AEM spectacle. Données anonymisées du
+cas : 1 contrat d'un jour (18/02/2026), 8 heures payées, 682,56 € bruts servant aux calculs
+AC, ICCP 86,40 €, emploi déclaré « Mannequin ».
+
+**Statut 507h : INCERTAIN.** Le mannequinat/la publicité relèvent en principe du régime
+général (hors annexes 8/10), mais la testeuse elle-même hésite (« il me semble que si
+pourtant »). **On ne tranche pas par déduction (Loi X)** : elle vérifie sur son décompte
+France Travail si ces 8 h ont été comptées — **sa réponse fera règle** et sera consignée ici.
+
+**Côté produit (état au 2026-07-07)** :
+- Le lecteur d'AEM identifie désormais ce formulaire (`type_document: "cddu_usage"`) et ne
+  classe plus l'emploi « Mannequin » en artiste/technicien (métier → null, jamais déduit de
+  la case « niveau de qualification »). Backtesté sur le document réel : dates/heures/brut
+  exacts, ICCP non confondue avec le brut.
+- Les documents inconnus (fiche de paie, contrat, courrier) sont refusés honnêtement au
+  lieu d'être extraits en silence.
+- **Option C validée sur le principe** (à coder après la réponse de la testeuse) : double
+  lecture du compteur — total « sûr » + « + X h à confirmer par ton décompte FT » (même
+  motif que le disponible prudent/brut du cockpit). Aucune heure incertaine ne gonfle un
+  total affiché sans le dire.
