@@ -17,7 +17,7 @@ intermittent_engine.py — Moteur de calcul des droits intermittent du spectacle
      "cachet groupé = 8h" est ABANDONNÉE (source douteuse) — tous les cachets
      comptent 12h tant qu'un expert n'a pas confirmé un autre forfait.
    - Clause de rattrapage / filet : palier à 338h (Circulaire Unédic 2018-04).
-   - Paliers d'évolution d'Hector (émotionnel, ancré dans le réel) :
+   - Paliers d'évolution de Totor (émotionnel, ancré dans le réel) :
        100h chiot · 250h ado · 338h filet · 400h adulte · 507h niche complète.
 
  Le moteur ne lit JAMAIS la base de données : on lui passe une liste d'activités
@@ -68,7 +68,7 @@ TYPES_ARRET_ASSIMILE = ("arret_maternite", "arret_accident", "arret_ald", "arret
 # fenêtre de 365 jours d'autant. Cf. MOTEUR_PERIODE_REFERENCE_SOURCES.md (guide FT p.5).
 TYPES_ARRET_NEUTRALISE = ("arret_maladie_ordinaire", "arret_paternite")
 
-# Paliers d'évolution d'Hector (seuil en heures → état). Trié croissant.
+# Paliers d'évolution de Totor (seuil en heures → état). Trié croissant.
 # Le palier "filet" est aligné sur le seuil de la clause de rattrapage (référentiel).
 PALIERS_HECTOR = [
     (0,             "oeuf",    "On démarre. Chaque heure compte, je note tout."),
@@ -182,7 +182,7 @@ def heures_de(activite: Activite) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  PALIER D'HECTOR selon le total d'heures
+#  PALIER DE TOTOR selon le total d'heures
 # ─────────────────────────────────────────────────────────────────────────────
 def etat_hector(total_heures: float) -> tuple:
     etat, message = PALIERS_HECTOR[0][1], PALIERS_HECTOR[0][2]
@@ -193,7 +193,7 @@ def etat_hector(total_heures: float) -> tuple:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  VERDICT (niveau C) — le conseil bienveillant d'Hector, basé sur les HEURES
+#  VERDICT (niveau C) — le conseil bienveillant de Totor, basé sur les HEURES
 #  uniquement (jamais sur des euros). C'est l'âme du produit.
 # ─────────────────────────────────────────────────────────────────────────────
 def construire_verdict(total: float, manquant: float, jours_restants: Optional[int]) -> str:

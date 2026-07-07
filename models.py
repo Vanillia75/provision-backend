@@ -326,7 +326,7 @@ class Quote(Base):
 #  AI USAGE — compteur d'appels IA par utilisateur, par jour, par type.
 #  Sert à plafonner la consommation (coût Anthropic borné) et à tracer l'usage.
 #  Une ligne = (user, jour, type d'appel). On incrémente "count" à chaque appel.
-#  type : "chat" (assistant Hector) | "aem_scan" (lecture AEM via Vision)
+#  type : "chat" (assistant Totor) | "aem_scan" (lecture AEM via Vision)
 # ============================================================================
 class AIUsage(Base):
     __tablename__ = "ai_usage"

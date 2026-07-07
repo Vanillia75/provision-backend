@@ -166,7 +166,7 @@ def generate_invoice_pdf(invoice: dict, emitter: dict, fiscal: dict = None, kind
         story.append(Paragraph(f"<b>Notes :</b> {e(invoice['notes'])}", small_style))
 
     story.append(Spacer(1, 14 * mm))
-    story.append(Paragraph("Document généré par H€CTOR — hector-app.fr", small_style))
+    story.append(Paragraph("Document généré par TOTOR — hector-app.fr", small_style))
 
     doc.build(story)
     buffer.seek(0)

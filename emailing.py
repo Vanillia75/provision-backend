@@ -9,7 +9,7 @@ import os
 import requests
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-FROM_EMAIL = os.environ.get("EMAIL_FROM", "H€CTOR <noreply@hector-app.fr>")
+FROM_EMAIL = os.environ.get("EMAIL_FROM", "TOTOR <noreply@hector-app.fr>")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://hector-app.fr")
 
 
@@ -29,7 +29,7 @@ def send_email(to: str, subject: str, html: str, from_name: str = None, reply_to
     """
     from_name : nom d'affichage de l'expéditeur (ex. le nom de l'utilisateur pour les
                 emails envoyés à SES clients). L'adresse technique reste celle de
-                FROM_EMAIL (DMARC en place). Sans from_name : expéditeur H€CTOR habituel.
+                FROM_EMAIL (DMARC en place). Sans from_name : expéditeur TOTOR habituel.
     reply_to  : adresse de réponse (ex. l'email de l'utilisateur, pour que son client
                 puisse lui répondre directement).
     """
@@ -63,7 +63,7 @@ def send_reset_password_email(to: str, token: str) -> bool:
     html = f"""
     <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
       <h2 style="color:#0A2540;">Reinitialisation de votre mot de passe</h2>
-      <p>Vous avez demande la reinitialisation de votre mot de passe H€CTOR.</p>
+      <p>Vous avez demande la reinitialisation de votre mot de passe TOTOR.</p>
       <p>
         <a href="{link}" style="background:#378ADD; color:white; padding:12px 20px;
            border-radius:8px; text-decoration:none; display:inline-block;">
@@ -76,7 +76,7 @@ def send_reset_password_email(to: str, token: str) -> bool:
       </p>
     </div>
     """
-    return send_email(to, "Reinitialisation de votre mot de passe H€CTOR", html)
+    return send_email(to, "Reinitialisation de votre mot de passe TOTOR", html)
 
 
 def send_verification_email(to: str, token: str) -> bool:
@@ -84,7 +84,7 @@ def send_verification_email(to: str, token: str) -> bool:
     html = f"""
     <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
       <h2 style="color:#0A2540;">Confirmez votre adresse email</h2>
-      <p>Bienvenue sur H€CTOR ! Confirmez votre adresse email pour activer votre compte.</p>
+      <p>Bienvenue sur TOTOR ! Confirmez votre adresse email pour activer votre compte.</p>
       <p>
         <a href="{link}" style="background:#378ADD; color:white; padding:12px 20px;
            border-radius:8px; text-decoration:none; display:inline-block;">
@@ -94,7 +94,7 @@ def send_verification_email(to: str, token: str) -> bool:
       <p style="color:#6B7A8D; font-size:13px;">Ce lien expire dans 24 heures.</p>
     </div>
     """
-    return send_email(to, "Confirmez votre email H€CTOR", html)
+    return send_email(to, "Confirmez votre email TOTOR", html)
 
 
 def send_invoice_email(to: str, subject: str, html: str, from_name: str = None, reply_to: str = None) -> bool:

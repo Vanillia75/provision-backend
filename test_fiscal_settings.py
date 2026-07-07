@@ -66,11 +66,11 @@ def test_ei_ajoutee_prenom_nom():
 
 def test_ei_ajoutee_nom_commercial():
     # Le cas « nom commercial » n'est pas cassé : on suffixe la valeur existante.
-    assert append_ei_mention("H€CTOR", "auto_entrepreneur") == "H€CTOR – EI"
+    assert append_ei_mention("TOTOR", "auto_entrepreneur") == "TOTOR – EI"
 
 
 def test_ei_non_dupliquee():
-    assert append_ei_mention("H€CTOR – EI", "auto_entrepreneur") == "H€CTOR – EI"
+    assert append_ei_mention("TOTOR – EI", "auto_entrepreneur") == "TOTOR – EI"
 
 
 def test_ei_pas_de_faux_positif_dans_un_mot():

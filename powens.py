@@ -2,7 +2,7 @@
 Module de connexion bancaire via Powens (agrégateur DSP2, lecture seule).
 
 Rôle : permettre à un utilisateur de relier son compte bancaire pour que son
-solde se mette à jour automatiquement, SANS que H€CTOR ne voie jamais ses
+solde se mette à jour automatiquement, SANS que TOTOR ne voie jamais ses
 identifiants bancaires (tout passe par la webview Powens) et SANS jamais
 pouvoir toucher à l'argent (lecture seule, contrainte réglementaire DSP2).
 
@@ -285,7 +285,7 @@ def bank_disconnect(
     db: Session = Depends(get_db),
 ):
     """
-    Débranche la banque : oublie le lien Powens côté H€CTOR. L'utilisateur
+    Débranche la banque : oublie le lien Powens côté TOTOR. L'utilisateur
     revient à la saisie manuelle. (Le solde déjà saisi est conservé.)
     """
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()

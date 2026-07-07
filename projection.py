@@ -3,7 +3,7 @@ Projection de trésorerie auto-entrepreneur — « vais-je m'en sortir le mois p
 
 Fonction PURE : aucun accès base. On lui passe le solde, le train de vie et les
 listes de factures / devis (déjà extraites en amont), elle renvoie deux scénarios
-chiffrés + un message d'Hector :
+chiffrés + un message de Totor :
 
   - PLANCHER  (le sûr)      : solde + factures déjà émises − train de vie − charges
   - OPTIMISTE (le probable) : plancher + devis acceptés (pipeline) − charges associées

@@ -1,5 +1,5 @@
 """
-billing.py — Abonnement Stripe pour H€CTOR.
+billing.py — Abonnement Stripe pour TOTOR.
 
 Toute la logique de facturation est isolée ici.
 

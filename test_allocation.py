@@ -147,7 +147,7 @@ def test_mois_exact_pas_de_drapeau():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  3. LOI X — ce qu'Hector a le DROIT d'afficher
+#  3. LOI X — ce que Totor a le DROIT d'afficher
 # ─────────────────────────────────────────────────────────────────────────────
 def test_affichable_artiste_sous_60_le_cas_reel():
     """La seule branche validée sur cas réel : annexe 10, AJ ≤ 60 € (cas Héloïse)."""

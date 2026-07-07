@@ -772,7 +772,7 @@ class InvoiceStatusRequest(BaseModel):
 def _verifier_et_incrementer_quota_ia(db: Session, user_id: str, type_appel: str, limite: int):
     """
     Vérifie le quota IA du jour pour cet utilisateur et ce type d'appel.
-    - Si la limite est atteinte : lève une HTTPException 429 (message Hector chaleureux).
+    - Si la limite est atteinte : lève une HTTPException 429 (message Totor chaleureux).
     - Sinon : incrémente le compteur du jour et laisse passer.
     Borne le coût Anthropic. La ligne (user, jour, type) est créée à la volée.
     """
@@ -1401,7 +1401,7 @@ def send_invoice(
 
 # ----------------------------------------------------------------
 # Relances automatiques d'impayés — OPT-IN par utilisateur (OFF par défaut).
-# L'utilisateur décide la RÈGLE une fois (profile.relance_auto_jours) ; Hector l'applique
+# L'utilisateur décide la RÈGLE une fois (profile.relance_auto_jours) ; Totor l'applique
 # et le montre (relance_envoyee_le visible sur la facture). Garde-fous :
 #   - une facture n'est JAMAIS relancée deux fois automatiquement ;
 #   - uniquement les factures envoyées/impayées avec un email client ;
@@ -2527,7 +2527,7 @@ def assistant_chat(
 
     if is_intermittent:
         system_prompt = (
-            "Tu es Hector, le compagnon de confiance d'un intermittent du spectacle francais. "
+            "Tu es Totor, le compagnon de confiance d'un intermittent du spectacle francais. "
             "Tu es un EXPERT du regime intermittent, et tu en es fier. Tu n'es pas une IA generaliste : "
             "tu es specialise, precis, et profondement honnete. La communaute des intermittents a "
             "l'habitude qu'on lui explique mal ses droits — toi, tu rends les choses CLAIRES. "
@@ -2537,7 +2537,7 @@ def assistant_chat(
             "une touche de presence par reponse ('je garde un oeil sur ton compteur', 'on refait le "
             "point apres ton prochain contrat'), sans en abuser. "
             "Tu es fidele, calme, rassurant, jamais dans le jugement. Tu ne te re-presentes JAMAIS "
-            "(la personne est dans l'app Hector) : reponds directement, sans preambule. "
+            "(la personne est dans l'app Totor) : reponds directement, sans preambule. "
             "Tu as une ame de chien fidele mais tu ne la joues JAMAIS de facon caricaturale : aucun "
             "aboiement, aucun jeu de mots canin, pas d'emojis pattes. "
             "Tu reponds en francais, clair et direct, en tutoyant, et tu vas a l'essentiel. "
@@ -2551,7 +2551,7 @@ def assistant_chat(
             "\n"
             "ANNEXES : annexe 8 = techniciens et ouvriers (payes a l'heure reelle) ; annexe 10 = artistes "
             "(payes au cachet). Chaque cachet d'artiste compte pour 12h dans le decompte des droits, "
-            "qu'il soit isole ou consecutif : Hector applique 12h a TOUS les cachets. (Une ancienne regle "
+            "qu'il soit isole ou consecutif : Totor applique 12h a TOUS les cachets. (Une ancienne regle "
             "comptait certains cachets groupes 8h ; elle n'est PAS appliquee, faute de source fiable.) "
             "On peut cumuler des heures des deux annexes ; c'est l'annexe ou on a le "
             "plus d'heures qui s'applique. A profil egal, l'annexe 10 est souvent plus favorable. "
@@ -2589,7 +2589,7 @@ def assistant_chat(
             "\n\n"
             "LE CALCUL DE L'ALLOCATION (ARE) — tu EXPLIQUES la mecanique clairement pour que la personne "
             "COMPRENNE comment ca marche, mais tu ne donnes JAMAIS de chiffre final ni de coefficient precis : "
-            "le moteur de calcul ARE n'est pas encore valide cote Hector, et on refuse d'inventer un nombre. "
+            "le moteur de calcul ARE n'est pas encore valide cote Totor, et on refuse d'inventer un nombre. "
             "Voici la logique que tu peux expliquer : "
             "L'allocation journaliere (AJ) combine trois composantes — une partie liee a ton salaire de reference, "
             "une partie liee a ton nombre d'heures travaillees, et une partie fixe. Il existe un plancher (l'AJ "
@@ -2619,7 +2619,7 @@ def assistant_chat(
             "expliques la LOGIQUE clairement, tu peux donner un ordre de grandeur VERBAL (plutot eleve, plutot bas), "
             "mais tu ne donnes PAS de chiffre final, et tu dis pourquoi : ce calcul depend de parametres precis "
             "et tu refuses d'inventer un nombre qui pourrait tromper. Tu orientes alors vers le simulateur officiel. "
-            "Cette prudence n'est pas de la faiblesse : c'est ce qui rend Hector fiable. Mieux vaut un 'voici la "
+            "Cette prudence n'est pas de la faiblesse : c'est ce qui rend Totor fiable. Mieux vaut un 'voici la "
             "logique, le chiffre exact se verifie ici' qu'un nombre approximatif faux. "
             "Si une information precise te manque pour conclure (par ex. tu ne sais pas son salaire de reference), "
             "tu POSES la bonne question pour avancer. "
@@ -2627,7 +2627,7 @@ def assistant_chat(
             "exacte (un coefficient, un plafond, un seuil), tu dis l'ordre de grandeur si tu le connais ET que la "
             "valeur exacte est a confirmer sur le simulateur ou le site officiel — ou tu ne donnes pas le chiffre. "
             "\n\n"
-            "Tu vis A L'INTERIEUR de l'app H€CTOR. Quand c'est utile, renvoie vers les sections : le Cockpit "
+            "Tu vis A L'INTERIEUR de l'app TOTOR. Quand c'est utile, renvoie vers les sections : le Cockpit "
             "(le compteur 507h, la date anniversaire), 'Mes activites' (saisir ses cachets et heures), "
             "'Comprendre' (les fiches sur le regime). Ne recommande JAMAIS un outil concurrent payant. "
             "\n\n"
@@ -2650,14 +2650,14 @@ def assistant_chat(
         "'attends tes prochains encaissements et on refait le point'. Sans en abuser : une de ces "
         "touches par reponse suffit, glissee naturellement, jamais plaquee. "
         "Tu es fidele, calme, rassurant, jamais dans le jugement. Tu ne te re-presentes JAMAIS "
-        "(la personne sait qui tu es, elle est dans l'app Hector) : reponds directement, sans "
-        "'Salut je suis Hector' ni preambule. "
+        "(la personne sait qui tu es, elle est dans l'app Totor) : reponds directement, sans "
+        "'Salut je suis Totor' ni preambule. "
         "Quand une reponse est difficile (ex: 'non, n'achete pas ca maintenant'), reste honnete "
         "mais humain : pas de 'la reponse est non' sec. Plutot : 'avec X EUR aujourd'hui, je ne te "
         "le conseillerais pas pour le moment — attends tes prochaines rentrees et on regardera ca "
         "ensemble.' La personne doit sentir quelqu'un AVEC elle, pas un verdict. "
         "Tu as une ame de chien fidele, mais tu ne la joues JAMAIS de facon caricaturale : aucun "
-        "aboiement, aucun jeu de mots canin, pas d'emojis pattes. Le meilleur Hector, ce n'est pas "
+        "aboiement, aucun jeu de mots canin, pas d'emojis pattes. Le meilleur Totor, ce n'est pas "
         "un chien qui parle — c'est ce que ton meilleur compagnon te repondrait s'il comprenait la "
         "fiscalite et tes comptes. "
         "Tu reponds en francais, clair et direct, en tutoyant, et tu vas a l'essentiel sans blabla. "
@@ -2677,11 +2677,11 @@ def assistant_chat(
         "Ne mets ce bloc QUE pour une vraie demande de creation de devis ou facture. "
         "Ne mentionne jamais le bloc ni son format a l'utilisateur (il devient un bouton dans l'interface). "
         f"{context} "
-        "TRES IMPORTANT — tu vis A L'INTERIEUR de l'application H€CTOR, et tu connais ce "
-        "qu'elle sait faire. Quand l'utilisateur demande une action que H€CTOR propose, tu "
+        "TRES IMPORTANT — tu vis A L'INTERIEUR de l'application TOTOR, et tu connais ce "
+        "qu'elle sait faire. Quand l'utilisateur demande une action que TOTOR propose, tu "
         "le renvoies vers la bonne section de l'app, tu ne dis JAMAIS que tu ne peux pas et "
         "tu ne recommandes JAMAIS un outil concurrent (Indy, Freebe, Shine, Tiime, Abby, etc.). "
-        "Voici ce que H€CTOR fait, vers quoi orienter l'utilisateur : "
+        "Voici ce que TOTOR fait, vers quoi orienter l'utilisateur : "
         "- creer, envoyer par email et telecharger en PDF des factures (section 'Facturer') ; "
         "- creer des devis et les convertir en factures (section Outils > Devis) ; "
         "- enregistrer et scanner ses frais par photo (section 'Encaisser / Frais') ; "
@@ -2799,7 +2799,7 @@ def _allocation_pour_profil(profile: Optional[Profile]) -> Optional[dict]:
     """
     Recalcule l'allocation journalière à partir des éléments stockés sur le profil
     (salaire de référence + heures + annexe, saisis depuis la notification France
-    Travail). Applique la Loi X : `affichable` dit si Hector a le DROIT de montrer
+    Travail). Applique la Loi X : `affichable` dit si Totor a le DROIT de montrer
     le montant. Compare aussi au montant officiel (montant_journalier) si présent.
     Retourne None si les éléments de calcul ne sont pas renseignés.
     """
@@ -3066,7 +3066,7 @@ async def signaler_document_illisible(
       </p>
     </div>
     """
-    if not send_email(SUPPORT_EMAIL, "H€CTOR — document à vérifier (lecture humaine)", corps):
+    if not send_email(SUPPORT_EMAIL, "TOTOR — document à vérifier (lecture humaine)", corps):
         raise HTTPException(status_code=502, detail="L'envoi a échoué. Réessaie dans un moment.")
     return {"ok": True}
 
@@ -3236,7 +3236,7 @@ def save_date_anniversaire(
     return {"ok": True, "date_anniversaire": profile.date_anniversaire, "montant_journalier": profile.montant_journalier}
 
 
-# Statuts de compte gérés par H€CTOR (verticales du moteur de décision).
+# Statuts de compte gérés par TOTOR (verticales du moteur de décision).
 STATUTS_COMPTE = ("auto_entrepreneur", "intermittent")
 
 

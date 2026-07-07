@@ -142,7 +142,7 @@ REGLES = {
         "verifie": True,
         "commentaire": "Les heures d'enseignement DISPENSÉ (artiste/technicien enseignant dans un "
                        "établissement agréé) comptent heure pour heure, plafonnées à 70h. Le cas 120h "
-                       "(≥50 ans à la fin de contrat) est HORS V1 : Hector n'a pas la date de naissance. "
+                       "(≥50 ans à la fin de contrat) est HORS V1 : Totor n'a pas la date de naissance. "
                        "Sous-plafond de 70h ET plafond partagé de 338h avec la formation (le total des deux "
                        "ne peut dépasser 338h). Conditions FT (contrat + fiches de paie) non vérifiables → estimation.",
     },
