@@ -1507,13 +1507,117 @@ def _executer_relances_auto():
         db.close()
 
 
+# ─── Rappel d'actualisation France Travail (intermittents) ──────────────────
+# Le 28 du mois, la fenêtre d'actualisation ouvre. TOTOR envoie UN email de rappel
+# par mois et par intermittent (dédup : profiles.dernier_rappel_actu = "AAAA-MM").
+# L'email ne contient AUCUN chiffre calculé (pas d'heures, pas de brut) : uniquement
+# des faits (nombre de contrats, d'employeurs) et l'invitation à ouvrir TOTOR, qui
+# reste la seule source des chiffres. Mode "dry" par défaut (logs sans envoi),
+# passer RAPPELS_ACTU_MODE=live sur Railway pour armer.
+RAPPELS_ACTU_MODE = os.environ.get("RAPPELS_ACTU_MODE", "dry")
+FT_ESPACE_URL = "https://candidat.francetravail.fr/espacepersonnel/"
+MOIS_FR_NOMS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+                "août", "septembre", "octobre", "novembre", "décembre"]
+
+
+def _html_rappel_actu(mois_nom: str, nb_contrats: int, nb_employeurs: int) -> str:
+    frontend = os.environ.get("FRONTEND_URL", "https://www.montotor.fr")
+    if nb_contrats > 0:
+        resume = (f"J'ai <strong>{nb_contrats} contrat{'s' if nb_contrats > 1 else ''}</strong> "
+                  f"chez <strong>{nb_employeurs} employeur{'s' if nb_employeurs > 1 else ''}</strong> "
+                  f"enregistré{'s' if nb_contrats > 1 else ''} pour {mois_nom}. "
+                  "Ton récap complet (heures, brut, employeurs) t'attend dans TOTOR, prêt à recopier.")
+    else:
+        resume = (f"Je n'ai aucun contrat enregistré pour {mois_nom}. "
+                  "Rappel important : même un mois sans cachet, l'actualisation reste "
+                  "obligatoire pour garder tes droits.")
+    return f"""
+    <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; color:#0A2540;">
+      <h2 style="color:#0A2540;">🐾 C'est le moment de t'actualiser</h2>
+      <p>Salut, c'est Totor. La fenêtre d'actualisation France Travail de <strong>{mois_nom}</strong>
+      vient d'ouvrir (elle ferme vers le 15 du mois prochain).</p>
+      <p>{resume}</p>
+      <p style="margin:24px 0;">
+        <a href="{frontend}" style="background:#5DCAA5; color:#04342C; padding:12px 20px;
+           border-radius:8px; text-decoration:none; display:inline-block; font-weight:bold;">
+          Ouvrir TOTOR
+        </a>
+        &nbsp;&nbsp;
+        <a href="{FT_ESPACE_URL}" style="color:#378ADD; text-decoration:underline;">
+          Aller sur France Travail
+        </a>
+      </p>
+      <p style="color:#6B7A8D; font-size:13px;">
+        C'est toujours toi qui valides sur France Travail : je prépare, tu recopies, tu restes aux commandes.
+      </p>
+      <p style="color:#6B7A8D; font-size:12px; border-top:1px solid #e5e9f0; padding-top:12px;">
+        Tu reçois ce rappel une fois par mois parce que tu utilises TOTOR.
+        Pour ne plus le recevoir, réponds simplement à ce mail.
+      </p>
+    </div>
+    """
+
+
+def _executer_rappels_actualisation():
+    aujourdhui = date.today()
+    # La fenêtre ouvre le 28 (26 en février côté FT ; on garde le 28, simple et sûr).
+    # RAPPELS_ACTU_FORCE=1 : ignore la date (tests avant le 28, en mode dry).
+    if aujourdhui.day < 28 and os.environ.get("RAPPELS_ACTU_FORCE") != "1":
+        return
+    cle_mois = aujourdhui.strftime("%Y-%m")
+    mois_nom = MOIS_FR_NOMS[aujourdhui.month - 1] + " " + str(aujourdhui.year)
+    db = SessionLocal()
+    try:
+        profils = db.query(Profile).filter(Profile.statut == "intermittent").all()
+        print(f"[rappels-actu] passe (mode {RAPPELS_ACTU_MODE}) — {len(profils)} intermittent(s), fenêtre {cle_mois}", flush=True)
+        for profile in profils:
+            if profile.dernier_rappel_actu == cle_mois:
+                continue  # déjà rappelé ce mois-ci
+            utilisateur = db.query(User).filter(User.id == profile.user_id).first()
+            if not utilisateur or not utilisateur.email or not utilisateur.email_verified:
+                continue  # jamais d'email vers une adresse non vérifiée
+            debut_mois = aujourdhui.replace(day=1)
+            activites = (
+                db.query(IntermittentActivity)
+                .filter(
+                    IntermittentActivity.user_id == profile.user_id,
+                    IntermittentActivity.date >= debut_mois,
+                    IntermittentActivity.date <= aujourdhui,
+                )
+                .all()
+            )
+            nb_contrats = len(activites)
+            nb_employeurs = len({(a.employeur or "").strip().lower() for a in activites if (a.employeur or "").strip()})
+            if RAPPELS_ACTU_MODE != "live":
+                print(f"[rappels-actu][repetition] AURAIT rappelé {utilisateur.email} "
+                      f"({nb_contrats} contrat(s), {nb_employeurs} employeur(s)) — mode dry, rien d'envoyé", flush=True)
+                continue
+            try:
+                html = _html_rappel_actu(mois_nom, nb_contrats, nb_employeurs)
+                if send_email(utilisateur.email, f"🐾 Ton actualisation de {mois_nom} est ouverte", html,
+                              reply_to=SUPPORT_EMAIL):
+                    profile.dernier_rappel_actu = cle_mois
+                    db.commit()
+                    print(f"[rappels-actu] rappel envoyé à {utilisateur.email}", flush=True)
+                else:
+                    print(f"[rappels-actu] échec d'envoi pour {utilisateur.email} (on retentera au prochain passage)", flush=True)
+            except Exception as e:
+                db.rollback()
+                print(f"[rappels-actu] erreur pour {profile.user_id}: {e}", flush=True)
+    except Exception as e:
+        print(f"[rappels-actu] erreur globale: {e}", flush=True)
+    finally:
+        db.close()
+
+
 @app.on_event("startup")
 async def _demarrer_relances_auto():
     async def boucle():
         await asyncio.sleep(120)  # laisser l'app finir de démarrer
         while True:
             await asyncio.to_thread(_executer_relances_auto)
-            await asyncio.sleep(6 * 3600)  # 4 passages par jour, dédupliqués par relance_envoyee_le
+            await asyncio.to_thread(_executer_rappels_actualisation)
+            await asyncio.sleep(6 * 3600)  # 4 passages par jour, dédupliqués en base
     asyncio.create_task(boucle())
 
 

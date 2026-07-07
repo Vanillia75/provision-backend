@@ -87,6 +87,12 @@ class Profile(Base):
     # Relances automatiques d'impayés : délai en jours (NULL = désactivé, le défaut).
     relance_auto_jours = Column(Integer, nullable=True)
 
+    # Rappel d'actualisation France Travail (intermittents) : mois du dernier email
+    # de rappel envoyé, au format "AAAA-MM". Sert de dédoublonnage : un seul rappel
+    # par fenêtre d'actualisation. NULL = jamais rappelé.
+    # ⚠️ Nouvelle colonne : ALTER TABLE profiles ADD COLUMN dernier_rappel_actu VARCHAR;
+    dernier_rappel_actu = Column(String, nullable=True)
+
     # Connexion bancaire Powens (agrégateur DSP2, lecture seule).
     # powens_token : token permanent de l'utilisateur côté Powens (sensible).
     # powens_user_id : id utilisateur Powens (debug / webhooks éventuels).
