@@ -1653,6 +1653,18 @@ def _executer_relances_auto():
 # passer RAPPELS_ACTU_MODE=live sur Railway pour armer.
 RAPPELS_ACTU_MODE = os.environ.get("RAPPELS_ACTU_MODE", "dry")
 FT_ESPACE_URL = "https://candidat.francetravail.fr/espacepersonnel/"
+
+# En-tête commun des emails de rappel : la tête d'Hector + le logotype TOTOR
+# (image hébergée sur le frontend — URL absolue obligatoire dans un email).
+EMAIL_ENTETE_TOTOR = """
+      <div style="text-align:center; margin:8px 0 20px;">
+        <img src="https://www.montotor.fr/hector-tete.png" alt="TOTOR" width="64" height="64"
+             style="border-radius:50%; display:inline-block;" />
+        <div style="font-size:20px; font-weight:800; letter-spacing:3px; color:#0A2540; margin-top:6px;">
+          T<span style="color:#5DCAA5">O</span>T<span style="color:#5DCAA5">O</span>R
+        </div>
+      </div>
+"""
 MOIS_FR_NOMS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
                 "août", "septembre", "octobre", "novembre", "décembre"]
 
@@ -1670,6 +1682,7 @@ def _html_rappel_actu(mois_nom: str, nb_contrats: int, nb_employeurs: int) -> st
                   "obligatoire pour garder tes droits.")
     return f"""
     <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; color:#0A2540;">
+      {EMAIL_ENTETE_TOTOR}
       <h2 style="color:#0A2540;">🐾 C'est le moment de t'actualiser</h2>
       <p>Salut, c'est Totor. La fenêtre d'actualisation France Travail de <strong>{mois_nom}</strong>
       vient d'ouvrir (elle ferme vers le 15 du mois prochain).</p>
@@ -1776,6 +1789,7 @@ def _html_rappel_urssaf(periode_label: str, date_limite: date) -> str:
     limite_txt = f"{date_limite.day} {MOIS_FR_NOMS[date_limite.month - 1]}"
     return f"""
     <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; color:#0A2540;">
+      {EMAIL_ENTETE_TOTOR}
       <h2 style="color:#0A2540;">🐾 Ta déclaration URSSAF approche</h2>
       <p>Salut, c'est Totor. Ta déclaration de <strong>{periode_label}</strong> est à faire
       au plus tard le <strong>{limite_txt}</strong>.</p>
