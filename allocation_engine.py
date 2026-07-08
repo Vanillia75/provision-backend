@@ -155,6 +155,10 @@ def calculer_mois(
     remunerations_brutes: float,
     jours_calendaires: int,
     pmss_mensuel: float = None,
+    franchise_cp_restante: float = 0.0,
+    franchise_cp_totale: float = 0.0,
+    franchise_salaires_restante: float = 0.0,
+    franchise_salaires_totale: float = 0.0,
 ) -> dict:
     p = _params(annexe)
     heures_mois = max(0.0, float(heures_mois or 0))
@@ -182,6 +186,8 @@ def calculer_mois(
             "seuil_atteint": True,
             "jours_non_indemnisables": jours_non_indemnisables,
             "jours_indemnisables": 0,
+            "franchise_cp_imputee": 0,
+            "franchise_salaires_imputee": 0,
             "are_avant_plafond": 0.0,
             "plafond_cumul": plafond_cumul,
             "plafond_cumul_applique": False,
@@ -191,6 +197,24 @@ def calculer_mois(
         }
 
     jours_indemnisables = max(0, int(jours_calendaires) - jours_non_indemnisables)
+
+    # Franchises (annexe X art. 29 §1 et 31 §2, texte 2016 en vigueur) :
+    # seuls les jours indemnisables servent à leur computation, ordre = congés
+    # payés puis salaires. CP : 2 j/mois si le total acquis est < 24 j, 3 j/mois
+    # au-delà, jusqu'à épuisement. Salaires : total réparti sur les 8 premiers
+    # mois (total/8, arrondi supérieur), le reliquat est reporté ensuite.
+    franchise_cp_imputee = 0
+    if franchise_cp_restante > 0 and jours_indemnisables > 0:
+        rythme_cp = 3 if franchise_cp_totale > 24 else 2
+        franchise_cp_imputee = int(min(rythme_cp, math.ceil(franchise_cp_restante), jours_indemnisables))
+        jours_indemnisables -= franchise_cp_imputee
+
+    franchise_salaires_imputee = 0
+    if franchise_salaires_restante > 0 and jours_indemnisables > 0:
+        quota_salaires = math.ceil(franchise_salaires_totale / 8) if franchise_salaires_totale > 0 else franchise_salaires_restante
+        franchise_salaires_imputee = int(min(quota_salaires, math.ceil(franchise_salaires_restante), jours_indemnisables))
+        jours_indemnisables -= franchise_salaires_imputee
+
     are_avant_plafond = round(aj_brute * jours_indemnisables, 2)
 
     plafond_cumul_applique = False
@@ -209,6 +233,8 @@ def calculer_mois(
         "seuil_atteint": False,
         "jours_non_indemnisables": jours_non_indemnisables,
         "jours_indemnisables": jours_indemnisables,
+        "franchise_cp_imputee": franchise_cp_imputee,
+        "franchise_salaires_imputee": franchise_salaires_imputee,
         "are_avant_plafond": are_avant_plafond,
         "plafond_cumul": plafond_cumul,
         "plafond_cumul_applique": plafond_cumul_applique,

@@ -150,7 +150,7 @@ def test_mois_exact_pas_de_drapeau():
 #  3. LOI X — ce que Totor a le DROIT d'afficher
 # ─────────────────────────────────────────────────────────────────────────────
 def test_affichable_artiste_sous_60_le_cas_reel():
-    """La seule branche validée sur cas réel : annexe 10, AJ ≤ 60 € (cas Héloïse)."""
+    """La seule branche validée sur cas réel : annexe 10, AJ ≤ 60 € (cas réel n°1)."""
     r = calculer_aj("annexe10", sr=8537.10, nht=636.0)  # 51,18 € net
     affichable, raison = branche_affichable("annexe10", r)
     assert affichable is True
@@ -172,6 +172,77 @@ def test_non_affichable_au_dela_60():
     affichable, raison = branche_affichable("annexe10", r)
     assert affichable is False
     assert raison == "au_dela_60"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Franchises (annexe X art. 29 §1 et 31 §2, texte 2016 en vigueur) :
+#  ordre CP puis salaires, computation sur les seuls jours indemnisables.
+# ─────────────────────────────────────────────────────────────────────────────
+def test_franchise_cp_rythme_2_jours():
+    """Total CP acquis < 24 j → 2 jours imputés par mois, pas plus."""
+    r = calculer_mois("annexe10", aj_brute=52.43, heures_mois=0.0,
+                      remunerations_brutes=0.0, jours_calendaires=31,
+                      franchise_cp_restante=10.0, franchise_cp_totale=10.0)
+    assert r["franchise_cp_imputee"] == 2
+    assert r["jours_indemnisables"] == 29
+    assert r["are_versee"] == round(52.43 * 29, 2)
+
+
+def test_franchise_cp_rythme_3_jours():
+    """Total CP acquis > 24 j → 3 jours imputés par mois."""
+    r = calculer_mois("annexe10", aj_brute=52.43, heures_mois=0.0,
+                      remunerations_brutes=0.0, jours_calendaires=31,
+                      franchise_cp_restante=27.0, franchise_cp_totale=27.0)
+    assert r["franchise_cp_imputee"] == 3
+    assert r["jours_indemnisables"] == 28
+
+
+def test_franchise_cp_epuisement():
+    """Il ne reste qu'1 jour de franchise : on n'impute que ce reliquat."""
+    r = calculer_mois("annexe10", aj_brute=52.43, heures_mois=0.0,
+                      remunerations_brutes=0.0, jours_calendaires=30,
+                      franchise_cp_restante=1.0, franchise_cp_totale=10.0)
+    assert r["franchise_cp_imputee"] == 1
+    assert r["jours_indemnisables"] == 29
+
+
+def test_franchise_salaires_quota_huitieme():
+    """Franchise salaires répartie sur 8 mois : 16 j de total → 2 j/mois."""
+    r = calculer_mois("annexe10", aj_brute=52.43, heures_mois=0.0,
+                      remunerations_brutes=0.0, jours_calendaires=31,
+                      franchise_salaires_restante=16.0, franchise_salaires_totale=16.0)
+    assert r["franchise_salaires_imputee"] == 2
+    assert r["jours_indemnisables"] == 29
+
+
+def test_franchises_ordre_et_cumul():
+    """CP puis salaires le même mois (art. 31 §1er : cet ordre-là)."""
+    r = calculer_mois("annexe10", aj_brute=52.43, heures_mois=0.0,
+                      remunerations_brutes=0.0, jours_calendaires=31,
+                      franchise_cp_restante=27.0, franchise_cp_totale=27.0,
+                      franchise_salaires_restante=16.0, franchise_salaires_totale=16.0)
+    assert r["franchise_cp_imputee"] == 3
+    assert r["franchise_salaires_imputee"] == 2
+    assert r["jours_indemnisables"] == 26
+
+
+def test_franchise_seulement_sur_jours_indemnisables():
+    """Mois saturé de travail (seuil atteint) : rien n'est imputé, la franchise
+    reste entière (art. 31 §2 : seuls les jours indemnisables la consomment)."""
+    r = calculer_mois("annexe8", aj_brute=64.78, heures_mois=208.0,
+                      remunerations_brutes=5000.0, jours_calendaires=30,
+                      franchise_cp_restante=10.0, franchise_cp_totale=10.0)
+    assert r["seuil_atteint"] is True
+    assert r["franchise_cp_imputee"] == 0
+
+
+def test_franchise_sans_franchise_rien_ne_change():
+    """Paramètres par défaut : comportement identique à avant (non-régression)."""
+    r = calculer_mois("annexe10", aj_brute=52.43, heures_mois=0.0,
+                      remunerations_brutes=0.0, jours_calendaires=31)
+    assert r["franchise_cp_imputee"] == 0
+    assert r["franchise_salaires_imputee"] == 0
+    assert r["jours_indemnisables"] == 31
 
 
 def test_mois_remunerations_seules_depassent_plafond():
