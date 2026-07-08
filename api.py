@@ -369,6 +369,8 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         # true si le compte a un mot de passe local (false = connexion Google uniquement).
         # Sert à afficher ou masquer la section « changer mon mot de passe » des réglages.
         "has_password": bool(user.password_hash),
+        # Rappel d'actualisation (email du 28) : actif par défaut, opt-out dans les Réglages.
+        "rappel_actu_active": not bool(profile.rappel_actu_desactive),
         "is_premium": prem,
         "premium_source": billing.premium_source(db, user),   # "stripe" | "comp" | None
         "trial_days_left": billing.trial_days_left(db, user),  # jours restants si essai Stripe (trialing), sinon None
@@ -492,6 +494,26 @@ def save_relance_auto(
     profile.relance_auto_jours = req.jours
     db.commit()
     return {"relance_auto_jours": profile.relance_auto_jours}
+
+
+class RappelActuRequest(BaseModel):
+    active: bool
+
+
+@app.post("/profile/rappel-actu")
+def save_rappel_actu(
+    req: RappelActuRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Active/désactive le rappel mensuel d'actualisation (email du 28).
+    Jamais premium : couper un email doit toujours être gratuit et immédiat."""
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+    profile.rappel_actu_desactive = not req.active
+    db.commit()
+    return {"rappel_actu_active": req.active}
 
 
 class SettingsRequest(BaseModel):
@@ -1555,7 +1577,8 @@ def _html_rappel_actu(mois_nom: str, nb_contrats: int, nb_employeurs: int) -> st
       </p>
       <p style="color:#6B7A8D; font-size:12px; border-top:1px solid #e5e9f0; padding-top:12px;">
         Tu reçois ce rappel une fois par mois parce que tu utilises TOTOR.
-        Pour ne plus le recevoir, réponds simplement à ce mail.
+        Tu peux le couper à tout moment dans TOTOR, Réglages → Rappel d'actualisation
+        (ou en répondant à ce mail).
       </p>
     </div>
     """
@@ -1576,9 +1599,22 @@ def _executer_rappels_actualisation():
         for profile in profils:
             if profile.dernier_rappel_actu == cle_mois:
                 continue  # déjà rappelé ce mois-ci
+            if profile.rappel_actu_desactive:
+                continue  # opt-out explicite dans les Réglages
             utilisateur = db.query(User).filter(User.id == profile.user_id).first()
-            if not utilisateur or not utilisateur.email or not utilisateur.email_verified:
-                continue  # jamais d'email vers une adresse non vérifiée
+            if not utilisateur or not utilisateur.email:
+                continue
+            # Éligibilité : email vérifié OU au moins une activité enregistrée (preuve d'un
+            # compte réellement utilisé — décision Camille 08/07 : les testeurs n'ont presque
+            # jamais cliqué le lien de vérification, on ne les prive pas du rappel pour ça).
+            a_deja_une_activite = (
+                db.query(IntermittentActivity.id)
+                .filter(IntermittentActivity.user_id == profile.user_id)
+                .first()
+                is not None
+            )
+            if not utilisateur.email_verified and not a_deja_une_activite:
+                continue
             debut_mois = aujourdhui.replace(day=1)
             activites = (
                 db.query(IntermittentActivity)

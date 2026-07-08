@@ -92,6 +92,10 @@ class Profile(Base):
     # par fenêtre d'actualisation. NULL = jamais rappelé.
     # ⚠️ Nouvelle colonne : ALTER TABLE profiles ADD COLUMN dernier_rappel_actu VARCHAR;
     dernier_rappel_actu = Column(String, nullable=True)
+    # Opt-out du rappel d'actualisation. NULL ou false = rappel actif (défaut),
+    # true = l'utilisateur a coupé le rappel dans ses Réglages.
+    # ⚠️ Nouvelle colonne : ALTER TABLE profiles ADD COLUMN rappel_actu_desactive BOOLEAN;
+    rappel_actu_desactive = Column(Boolean, nullable=True)
 
     # Connexion bancaire Powens (agrégateur DSP2, lecture seule).
     # powens_token : token permanent de l'utilisateur côté Powens (sensible).
