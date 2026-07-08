@@ -496,6 +496,50 @@ def save_relance_auto(
     return {"relance_auto_jours": profile.relance_auto_jours}
 
 
+class AvisRequest(BaseModel):
+    message: str
+    prenom: Optional[str] = None
+    metier: Optional[str] = None
+    consentement_publication: bool = False
+
+
+@app.post("/avis")
+def envoyer_avis(
+    req: AvisRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Dépôt d'un avis/retour par l'utilisateur. Part par email à l'équipe (aucune table :
+    Camille lit, trie, et publie sur le site UNIQUEMENT les avis avec consentement coché —
+    le consentement est horodaté par l'email lui-même). Reply-To = l'utilisateur."""
+    texte = (req.message or "").strip()
+    if len(texte) < 10:
+        raise HTTPException(status_code=400, detail="Dis-m'en un peu plus (10 caractères minimum).")
+    if len(texte) > 2000:
+        raise HTTPException(status_code=400, detail="Ton avis est trop long (2000 caractères max).")
+    # Anti-abus : quelques envois par jour suffisent.
+    _verifier_et_incrementer_quota_ia(db, user.id, "avis", 3)
+    consent = "OUI — publiable avec prénom + métier" if req.consentement_publication else "NON — retour privé, ne pas publier"
+    corps = f"""
+    <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; color:#0A2540;">
+      <h2>⭐ Nouvel avis d'un utilisateur</h2>
+      <ul style="font-size:14px; line-height:1.7;">
+        <li>De : {html.escape(user.email or "")}</li>
+        <li>Prénom : {html.escape(req.prenom or "(non renseigné)")}</li>
+        <li>Métier : {html.escape(req.metier or "(non renseigné)")}</li>
+        <li><strong>Consentement publication : {consent}</strong></li>
+      </ul>
+      <blockquote style="border-left:3px solid #5DCAA5; margin:16px 0; padding:8px 16px; font-size:15px; line-height:1.6;">
+        {html.escape(texte)}
+      </blockquote>
+      <p style="color:#6B7A8D; font-size:12px;">Réponds directement à ce mail pour remercier — le Reply-To est l'utilisateur.</p>
+    </div>
+    """
+    if not send_email(SUPPORT_EMAIL, "⭐ TOTOR — nouvel avis utilisateur", corps, reply_to=user.email):
+        raise HTTPException(status_code=502, detail="L'envoi a échoué. Réessaie dans un moment.")
+    return {"ok": True}
+
+
 class RappelActuRequest(BaseModel):
     active: bool
 
