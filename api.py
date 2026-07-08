@@ -366,6 +366,9 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "annexe_allocation": profile.annexe_allocation,
         "email": user.email,
         "email_verified": user.email_verified,
+        # true si le compte a un mot de passe local (false = connexion Google uniquement).
+        # Sert à afficher ou masquer la section « changer mon mot de passe » des réglages.
+        "has_password": bool(user.password_hash),
         "is_premium": prem,
         "premium_source": billing.premium_source(db, user),   # "stripe" | "comp" | None
         "trial_days_left": billing.trial_days_left(db, user),  # jours restants si essai Stripe (trialing), sinon None
