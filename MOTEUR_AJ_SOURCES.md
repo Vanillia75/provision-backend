@@ -99,6 +99,28 @@ Disponible aujourd'hui :
   - **Verdict Loi X** : « mois plein » **affichable** ; **mois travaillé = branche NON validée → aucun affichage** tant qu'un mois travaillé n'est pas reproduit au jour près.
   - **PAS variable** (ici 5,6 %) → confirme **« net-net jamais estimé »** (net social affiché, jamais l'après-impôt).
   - **Prochain juge** : décompte de **juillet 2026** (cas réel n°1, réindemnisée depuis le 27/06/2026 ; notification du 03/07 : AJ 51,18 €, franchises congés payés mentionnées), dispo **début août 2026**. **Chantier mensuel EN PAUSE** d'ici là.
+- ✅ **BACKTEST DÉCALAGE — cas réel n°2, annexe 8 (2026-07-09)** : relevé de situation FT réel
+  du 14/04/2026 (période 30/03 → 09/04/2026). Profil : SJR 168,37 €, AJ brute 63,69 €,
+  droit ouvert le 17/05/2025, date limite 11/05/2026.
+  - **Février 2026 — VALIDÉ AU JOUR PRÈS** : 34,5 h déclarées → (34,5 ÷ 8) × 1,4 = 6,04
+    → **6 jours non indemnisables**, exactement ce que FT retient (22 AJ sur 28 j). La
+    formule décalage **annexe 8 = (h ÷ 8) × 1,4, tronquée**, tient sur un cas réel.
+  - **Mars 2026 — la régularisation du 03/04 VALIDE la conversion cachet isolé = 12 h** :
+    déclaré 40 h + 5 cachets. FT retient d'abord **10 jours** = les cachets seuls
+    (5 × 12 h = 60 h → 60 ÷ 8 × 1,4 = 10,5 → 10) : les AEM des cachets sont arrivées
+    avant celles des 40 h. Puis régularisation du 09/04 : mars entièrement gelé
+    (« somme en attente de décision administrative », trop-perçus 610 € + 732 €) =
+    **gel conservatoire le temps de l'instruction, PAS une formule** ; le total réel
+    (40 + 60 = 100 h → 17 j) devrait rendre ~5 AJ sur un relevé ultérieur. À suivre.
+  - **Prélèvements réels observés (AJ 63,69 €)** : retraite comp. = 0,93 % × SJR
+    = 1,57 €/j ✓ (notre formule) ; mais **CSG réelle = 1,12 €/j** alors que la formule
+    plate (6,2 % × 98,25 % × AJ) donnerait 3,88 €/j → **écrêtement/seuil CSG NON modélisé**
+    (net réel 61,00 €/j). ⚠️ Toute estimation nette pour AJ > ~60 € est fausse tant que
+    cette règle n'est pas sourcée et codée. (Cohérent avec la Loi X : > 60 € jamais affiché.)
+  - **Mystère persistant** : 9 jours « non indemnisé » chaque mois, même sans travail déclaré
+    (mars avant régul : 22 AJ + 9 = 31 j). Hypothèse forte : **franchise congés payés**
+    (déjà identifiée comme chaînon manquant). Preuve = notification de franchise du dossier,
+    non disponible.
 - 👍 Souhaitable : 1-2 notifications supplémentaires (autres profils : annexe 8,
   SR > plafond, AJ > 60 € avec CSG) pour couvrir les autres branches du calcul.
 
