@@ -13,9 +13,25 @@ import re
 from datetime import date
 from typing import Optional
 
-# Modes de TVA côté facturation (table fiscal_settings).
+# Modes de TVA côté facturation.
+# - fiscal_settings (réglage global de l'émetteur) : FRANCHISE ou ASSUJETTI uniquement.
+# - Snapshot FACTURE/DEVIS (vat_mode figé sur le document) : peut aussi valoir
+#   ASSUJETTI_UE / ASSUJETTI_EXPORT — le cas « client professionnel à l'étranger »
+#   se décide document par document, jamais dans les réglages.
 FRANCHISE = "franchise"
 ASSUJETTI = "assujetti"
+ASSUJETTI_UE = "assujetti_ue"          # client pro dans l'UE (hors France) : autoliquidation
+ASSUJETTI_EXPORT = "assujetti_export"  # client pro hors UE : prestation hors champ français
+
+# Sources vérifiées le 08/07/2026 (impots.gouv.fr « Prestations entre assujettis »,
+# entreprendre.service-public.gouv.fr F37527, BOFiP BOI-TVA-DECLA-30-20-20-30) :
+# prestations de services B2B → lieu = pays du preneur (art. 259-1 du CGI), donc
+# facture SANS TVA française. Client UE : mention « Autoliquidation » obligatoire
+# (CGI ann. II, art. 242 nonies A, I-13°) + n° TVA des DEUX parties + DES à déposer.
+# Client hors UE : la seule mention 259-1 suffit. Les VENTES DE BIENS à l'étranger
+# (262 ter I / 262 I) sont un autre sujet, hors périmètre ici (nos AE vendent des services).
+MENTION_HORS_FRANCE = "TVA non applicable, art. 259-1 du CGI"
+MENTION_AUTOLIQUIDATION = "Autoliquidation"
 
 
 def get_franchise_vat_mention(invoice_date: Optional[date] = None) -> str:
@@ -91,7 +107,8 @@ def compute_invoice_totals(montant_ht, fiscal, invoice_date=None) -> dict:
     """
     ht = round(float(montant_ht or 0), 2)
     fiscal = fiscal or {}
-    if fiscal.get("vat_mode") == ASSUJETTI:
+    mode = fiscal.get("vat_mode")
+    if mode == ASSUJETTI:
         rate = fiscal.get("vat_rate")
         rate = 20.0 if rate is None else float(rate)
         tva = round(ht * rate / 100.0, 2)
@@ -100,6 +117,18 @@ def compute_invoice_totals(montant_ht, fiscal, invoice_date=None) -> dict:
             "tva": tva, "ttc": round(ht + tva, 2),
             "vat_number": fiscal.get("vat_number"),
             "mention": None,
+        }
+    if mode in (ASSUJETTI_UE, ASSUJETTI_EXPORT):
+        # Client professionnel à l'étranger : 0 % de TVA française, HT = TTC.
+        # Le n° TVA de l'ÉMETTEUR reste affiché (obligatoire pour l'autoliquidation).
+        mention = MENTION_HORS_FRANCE
+        if mode == ASSUJETTI_UE:
+            mention = f"{MENTION_HORS_FRANCE} · {MENTION_AUTOLIQUIDATION}"
+        return {
+            "mode": mode, "ht": ht, "rate": 0.0,
+            "tva": 0.0, "ttc": ht,
+            "vat_number": fiscal.get("vat_number"),
+            "mention": mention,
         }
     return {
         "mode": FRANCHISE, "ht": ht, "rate": 0.0,

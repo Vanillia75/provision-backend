@@ -123,9 +123,32 @@ def test_totals_assujetti_defaut_rate_20():
     assert t["tva"] == 10.0 and t["ttc"] == 60.0
 
 
+# ── Calcul des totaux : client pro à l'étranger (art. 259-1 du CGI) ──
+def test_totals_client_ue():
+    from legal_mentions import ASSUJETTI_UE
+    t = compute_invoice_totals(100, {"vat_mode": ASSUJETTI_UE, "vat_rate": 0, "vat_number": "FR123"})
+    assert t["mode"] == ASSUJETTI_UE
+    assert t["ht"] == 100 and t["tva"] == 0 and t["ttc"] == 100   # 0 % : HT = TTC
+    assert "259-1" in t["mention"] and "Autoliquidation" in t["mention"]
+    assert "293 B" not in t["mention"]                             # jamais la mention franchise
+    assert t["vat_number"] == "FR123"                              # n° TVA émetteur conservé
+
+
+def test_totals_client_hors_ue():
+    from legal_mentions import ASSUJETTI_EXPORT
+    t = compute_invoice_totals(250, {"vat_mode": ASSUJETTI_EXPORT, "vat_rate": 0, "vat_number": "FR123"})
+    assert t["mode"] == ASSUJETTI_EXPORT
+    assert t["tva"] == 0 and t["ttc"] == 250
+    assert "259-1" in t["mention"]
+    assert "Autoliquidation" not in t["mention"]                   # hors UE : pas d'autoliquidation
+    assert "293 B" not in t["mention"]
+
+
 # ── GARDE-FOU : le HT (= montant) n'est JAMAIS modifié, quel que soit le mode ──
 def test_ht_jamais_modifie():
-    for fiscal in (None, {"vat_mode": "franchise"}, {"vat_mode": ASSUJETTI, "vat_rate": 20}):
+    from legal_mentions import ASSUJETTI_UE, ASSUJETTI_EXPORT
+    for fiscal in (None, {"vat_mode": "franchise"}, {"vat_mode": ASSUJETTI, "vat_rate": 20},
+                   {"vat_mode": ASSUJETTI_UE}, {"vat_mode": ASSUJETTI_EXPORT}):
         assert compute_invoice_totals(137.5, fiscal)["ht"] == 137.5
 
 

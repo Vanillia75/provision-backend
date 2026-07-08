@@ -28,7 +28,11 @@ from auth import (
 )
 from emailing import send_reset_password_email, send_verification_email, send_invoice_email, send_email
 from invoice_pdf import generate_invoice_pdf
-from legal_mentions import get_franchise_vat_mention, append_ei_mention, resolve_fiscal_settings, compute_invoice_totals, format_vat_rate
+from legal_mentions import (
+    get_franchise_vat_mention, append_ei_mention, resolve_fiscal_settings,
+    compute_invoice_totals, format_vat_rate,
+    ASSUJETTI, ASSUJETTI_UE, ASSUJETTI_EXPORT,
+)
 from numerotation import compute_next_numero, normalize_numero_depart
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
 from projection import projeter_tresorerie
@@ -816,6 +820,9 @@ class InvoiceCreateRequest(BaseModel):
     client_type: Optional[str] = None      # "particulier" | "professionnel"
     client_siret: Optional[str] = None
     client_tva: Optional[str] = None
+    # "france" (défaut) | "ue" | "hors_ue" — client PRO à l'étranger (émetteur assujetti
+    # uniquement) : TVA 0 % + mention art. 259-1 (+ Autoliquidation pour l'UE).
+    client_localisation: Optional[str] = None
     date_emission: date
     date_echeance: Optional[date] = None
     lignes: list[FactureLigne] = []
@@ -830,6 +837,7 @@ class InvoiceUpdateRequest(BaseModel):
     client_type: Optional[str] = None
     client_siret: Optional[str] = None
     client_tva: Optional[str] = None
+    client_localisation: Optional[str] = None  # None = conserver la localisation figée
     date_emission: Optional[date] = None
     date_echeance: Optional[date] = None
     lignes: Optional[list[FactureLigne]] = None
@@ -950,6 +958,7 @@ def _invoice_to_dict(inv: ClientInvoice) -> dict:
         "vat_mode": inv.vat_mode,
         "vat_rate": inv.vat_rate,
         "vat_number": inv.vat_number,
+        "client_localisation": _localisation_de(inv),
         "solde_integre": bool(inv.solde_integre),
     }
 
@@ -1011,7 +1020,8 @@ def create_invoice(
         lignes=lignes_dicts,
         notes=req.notes,
     )
-    _snapshot_fiscal(inv, db, user.id)   # fige le régime TVA courant sur la facture
+    _verifier_localisation(req.client_localisation, cf["client_tva"])
+    _snapshot_fiscal(inv, db, user.id, req.client_localisation)   # fige le régime TVA courant sur la facture
     db.add(inv)
     db.commit()
     db.refresh(inv)
@@ -1055,7 +1065,9 @@ def update_invoice(
     # Tant que la facture est un BROUILLON, son régime suit le réglage courant.
     # Une fois émise (Envoyée/Payée), elle n'est plus modifiable ici → snapshot intact.
     if inv.statut == "brouillon":
-        _snapshot_fiscal(inv, db, user.id)
+        loc = req.client_localisation if req.client_localisation is not None else _localisation_de(inv)
+        _verifier_localisation(loc, inv.client_tva)
+        _snapshot_fiscal(inv, db, user.id, loc)
 
     db.commit()
     db.refresh(inv)
@@ -1084,7 +1096,9 @@ def update_invoice_status(
         inv.date_paiement = None
 
     # Émission (sortie de brouillon) : on fige définitivement le régime TVA du moment.
+    # La localisation client déjà figée est conservée (garde-fou UE sans n° TVA inclus).
     if was_brouillon and req.statut != "brouillon":
+        _verifier_localisation(_localisation_de(inv), inv.client_tva)
         _snapshot_fiscal(inv, db, user.id)
 
     db.commit()
@@ -1195,16 +1209,48 @@ def _read_fiscal_settings(db: Session, user_id: str) -> dict:
     return resolve_fiscal_settings(row)
 
 
-def _snapshot_fiscal(obj, db: Session, user_id: str) -> None:
+def _localisation_de(obj) -> str:
+    """Localisation client déduite du snapshot d'un document : "france" | "ue" | "hors_ue"."""
+    if obj.vat_mode == ASSUJETTI_UE:
+        return "ue"
+    if obj.vat_mode == ASSUJETTI_EXPORT:
+        return "hors_ue"
+    return "france"
+
+
+def _snapshot_fiscal(obj, db: Session, user_id: str, client_localisation: Optional[str] = None) -> None:
     """
     Fige sur la facture/devis `obj` le régime TVA COURANT de l'utilisateur.
     Appelé à la création et tant que le document est en brouillon ; au passage à
     « émise » (Envoyée/Payée), c'est ce snapshot qui devient définitif et immuable.
+
+    `client_localisation` ("france" | "ue" | "hors_ue") : cas du client PRO à
+    l'étranger, décidé DOCUMENT PAR DOCUMENT (jamais dans les réglages). Si None
+    (appels de re-snapshot : changement de statut, envoi), on CONSERVE la
+    localisation déjà figée sur le document — sinon l'émission l'écraserait.
+    Ne s'applique qu'à un émetteur assujetti : en franchise, la 293 B couvre tout.
     """
+    if client_localisation is None:
+        client_localisation = _localisation_de(obj)
     f = _read_fiscal_settings(db, user_id)
     obj.vat_mode = f["vat_mode"]
     obj.vat_rate = f["vat_rate"]
     obj.vat_number = f["vat_number"]
+    if f["vat_mode"] == ASSUJETTI and client_localisation in ("ue", "hors_ue"):
+        obj.vat_mode = ASSUJETTI_UE if client_localisation == "ue" else ASSUJETTI_EXPORT
+        obj.vat_rate = 0.0
+
+
+def _verifier_localisation(client_localisation: Optional[str], client_tva: Optional[str]) -> None:
+    """Garde-fous du cas étranger : valeur connue, et n° TVA client obligatoire pour l'UE
+    (sans lui, la mention « Autoliquidation » serait irrégulière)."""
+    if client_localisation not in (None, "france", "ue", "hors_ue"):
+        raise HTTPException(status_code=400, detail="Localisation client inconnue.")
+    if client_localisation == "ue" and not (client_tva or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Pour un client professionnel dans l'UE, son n° de TVA intracommunautaire est obligatoire (autoliquidation).",
+        )
 
 
 class FiscalRequest(BaseModel):
@@ -1715,6 +1761,7 @@ class QuoteCreateRequest(BaseModel):
     client_type: Optional[str] = None
     client_siret: Optional[str] = None
     client_tva: Optional[str] = None
+    client_localisation: Optional[str] = None  # "france" | "ue" | "hors_ue" (cf. factures)
     date_emission: date
     date_validite: Optional[date] = None
     lignes: list[FactureLigne] = []
@@ -1729,6 +1776,7 @@ class QuoteUpdateRequest(BaseModel):
     client_type: Optional[str] = None
     client_siret: Optional[str] = None
     client_tva: Optional[str] = None
+    client_localisation: Optional[str] = None  # None = conserver la localisation figée
     date_emission: Optional[date] = None
     date_validite: Optional[date] = None
     lignes: Optional[list[FactureLigne]] = None
@@ -1767,6 +1815,7 @@ def _quote_to_dict(q: Quote) -> dict:
         "vat_mode": q.vat_mode,
         "vat_rate": q.vat_rate,
         "vat_number": q.vat_number,
+        "client_localisation": _localisation_de(q),
     }
 
 
@@ -1827,7 +1876,8 @@ def create_quote(
         lignes=lignes_dicts,
         notes=req.notes,
     )
-    _snapshot_fiscal(q, db, user.id)   # fige le régime TVA courant sur le devis
+    _verifier_localisation(req.client_localisation, cf["client_tva"])
+    _snapshot_fiscal(q, db, user.id, req.client_localisation)   # fige le régime TVA courant sur le devis
     db.add(q)
     db.commit()
     db.refresh(q)
@@ -1869,7 +1919,9 @@ def update_quote(
 
     # Tant que le devis est un brouillon, son régime suit le réglage courant.
     if q.statut == "brouillon":
-        _snapshot_fiscal(q, db, user.id)
+        loc = req.client_localisation if req.client_localisation is not None else _localisation_de(q)
+        _verifier_localisation(loc, q.client_tva)
+        _snapshot_fiscal(q, db, user.id, loc)
 
     db.commit()
     db.refresh(q)
@@ -1894,6 +1946,7 @@ def update_quote_status(
     q.statut = req.statut
     # Émission (sortie de brouillon) : on fige définitivement le régime TVA du moment.
     if was_brouillon and req.statut != "brouillon":
+        _verifier_localisation(_localisation_de(q), q.client_tva)
         _snapshot_fiscal(q, db, user.id)
     db.commit()
     db.refresh(q)
@@ -2064,7 +2117,8 @@ def convert_quote_to_invoice(
         lignes=q.lignes,
         notes=q.notes,
     )
-    _snapshot_fiscal(inv, db, user.id)   # nouvelle facture (brouillon) → fige le régime courant
+    # La facture hérite de la localisation client figée sur le devis converti.
+    _snapshot_fiscal(inv, db, user.id, _localisation_de(q))
     db.add(inv)
     q.statut = "accepte"
     db.commit()
