@@ -138,10 +138,21 @@ Disponible aujourd'hui :
     plate (6,2 % × 98,25 % × AJ) donnerait 3,88 €/j → **écrêtement/seuil CSG NON modélisé**
     (net réel 61,00 €/j). ⚠️ Toute estimation nette pour AJ > ~60 € est fausse tant que
     cette règle n'est pas sourcée et codée. (Cohérent avec la Loi X : > 60 € jamais affiché.)
-  - **Mystère persistant** : 9 jours « non indemnisé » chaque mois, même sans travail déclaré
-    (mars avant régul : 22 AJ + 9 = 31 j). Hypothèse forte : **franchise congés payés**
-    (déjà identifiée comme chaînon manquant). Preuve = notification de franchise du dossier,
-    non disponible.
+  - **Mystère des « 9 jours » RÉSOLU (2026-07-09, lecture visuelle des pages)** : le relevé
+    distingue DEUX lignes aux libellés différents.
+    « **Jours non indemnisés : travail** » = le décalage calculé après réception des AEM
+    (février 6 ✓, mars 10 puis 31). « **Non indemnisé** » tout court = les jours **déclarés
+    travaillés à l'actualisation** par l'allocataire = blocage PROVISOIRE avant AEM
+    (ici 9 j ≈ 5 jours de cachets + ~4 jours pour les 40 h). Ce ne sont **PAS des franchises**
+    (droit ouvert 05/2025 → franchises épuisées depuis des mois ; rythme CP max 3 j/mois ;
+    février n'en montre aucun). Mécanique complète du versement intermittent :
+    1) actualisation → jours déclarés bloqués provisoirement, le reste payé ;
+    2) AEM reçues → décalage réel calculé → régularisation (trop-perçu ou complément) ;
+    3) si doute → gel du mois entier « en attente de décision administrative ».
+  - **PRÉDICTION à vérifier sur le prochain relevé du dossier** : mars = 100 h → décalage
+    17 j (tronqué) → **14 AJ dues** une fois l'instruction close, soit 854,00 € net à lui
+    reverser (14 × 61,00). Si le prochain relevé confirme, le moteur décalage est validé
+    au jour près sur un mois complexe de bout en bout.
 - 👍 Souhaitable : 1-2 notifications supplémentaires (autres profils : annexe 8,
   SR > plafond, AJ > 60 € avec CSG) pour couvrir les autres branches du calcul.
 
