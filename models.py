@@ -97,6 +97,15 @@ class Profile(Base):
     # ⚠️ Nouvelle colonne : ALTER TABLE profiles ADD COLUMN rappel_actu_desactive BOOLEAN;
     rappel_actu_desactive = Column(Boolean, nullable=True)
 
+    # Rappel de déclaration URSSAF (auto-entrepreneurs) — miroir du rappel d'actualisation.
+    # dernier_rappel_urssaf : clé "AAAA-MM" du mois d'échéance du dernier email envoyé
+    # (dédoublonnage : un seul rappel par échéance). NULL = jamais rappelé.
+    # ⚠️ Nouvelle colonne : ALTER TABLE profiles ADD COLUMN dernier_rappel_urssaf VARCHAR;
+    dernier_rappel_urssaf = Column(String, nullable=True)
+    # Opt-out du rappel URSSAF. NULL ou false = rappel actif (défaut).
+    # ⚠️ Nouvelle colonne : ALTER TABLE profiles ADD COLUMN rappel_urssaf_desactive BOOLEAN;
+    rappel_urssaf_desactive = Column(Boolean, nullable=True)
+
     # Connexion bancaire Powens (agrégateur DSP2, lecture seule).
     # powens_token : token permanent de l'utilisateur côté Powens (sensible).
     # powens_user_id : id utilisateur Powens (debug / webhooks éventuels).

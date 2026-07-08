@@ -34,7 +34,7 @@ from legal_mentions import (
     ASSUJETTI, ASSUJETTI_UE, ASSUJETTI_EXPORT,
 )
 from numerotation import compute_next_numero, normalize_numero_depart
-from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES
+from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES, periode_urssaf_a_declarer
 from projection import projeter_tresorerie
 from invoice_extractor import extract_invoice_data
 from aem_extractor import extract_aem_data, extract_are_data
@@ -375,6 +375,8 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "has_password": bool(user.password_hash),
         # Rappel d'actualisation (email du 28) : actif par défaut, opt-out dans les Réglages.
         "rappel_actu_active": not bool(profile.rappel_actu_desactive),
+        # Rappel de déclaration URSSAF (auto-entrepreneurs) : même philosophie.
+        "rappel_urssaf_active": not bool(profile.rappel_urssaf_desactive),
         "is_premium": prem,
         "premium_source": billing.premium_source(db, user),   # "stripe" | "comp" | None
         "trial_days_left": billing.trial_days_left(db, user),  # jours restants si essai Stripe (trialing), sinon None
@@ -562,6 +564,26 @@ def save_rappel_actu(
     profile.rappel_actu_desactive = not req.active
     db.commit()
     return {"rappel_actu_active": req.active}
+
+
+class RappelUrssafRequest(BaseModel):
+    active: bool
+
+
+@app.post("/profile/rappel-urssaf")
+def save_rappel_urssaf(
+    req: RappelUrssafRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Active/désactive le rappel d'échéance URSSAF (auto-entrepreneurs).
+    Jamais premium : couper un email doit toujours être gratuit et immédiat."""
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+    profile.rappel_urssaf_desactive = not req.active
+    db.commit()
+    return {"rappel_urssaf_active": req.active}
 
 
 class SettingsRequest(BaseModel):
@@ -1739,6 +1761,102 @@ def _executer_rappels_actualisation():
         db.close()
 
 
+# ─── Rappel d'échéance URSSAF (auto-entrepreneurs) ──────────────────────────
+# Miroir du rappel d'actualisation : présence au bon moment, jamais de chiffre
+# calculé dans l'email (le chiffre exact vit dans TOTOR). Un email par échéance
+# (dédup : profiles.dernier_rappel_urssaf = "AAAA-MM" du mois d'échéance), envoyé
+# à partir du 20 du mois d'échéance. Mode "dry" par défaut, RAPPELS_URSSAF_MODE=live
+# sur Railway pour armer. Opt-out : Réglages → Rappel URSSAF.
+RAPPELS_URSSAF_MODE = os.environ.get("RAPPELS_URSSAF_MODE", "dry")
+URSSAF_AE_URL = "https://www.autoentrepreneur.urssaf.fr"
+
+
+def _html_rappel_urssaf(periode_label: str, date_limite: date) -> str:
+    frontend = os.environ.get("FRONTEND_URL", "https://www.montotor.fr")
+    limite_txt = f"{date_limite.day} {MOIS_FR_NOMS[date_limite.month - 1]}"
+    return f"""
+    <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; color:#0A2540;">
+      <h2 style="color:#0A2540;">🐾 Ta déclaration URSSAF approche</h2>
+      <p>Salut, c'est Totor. Ta déclaration de <strong>{periode_label}</strong> est à faire
+      au plus tard le <strong>{limite_txt}</strong>.</p>
+      <p>Ton chiffre exact à recopier t'attend dans TOTOR, préparé à partir des encaissements
+      que tu m'as confiés. Deux minutes, pas plus.</p>
+      <p style="margin:24px 0;">
+        <a href="{frontend}" style="background:#5DCAA5; color:#04342C; padding:12px 20px;
+           border-radius:8px; text-decoration:none; display:inline-block; font-weight:bold;">
+          Ouvrir TOTOR
+        </a>
+        &nbsp;&nbsp;
+        <a href="{URSSAF_AE_URL}" style="color:#378ADD; text-decoration:underline;">
+          Aller sur l'URSSAF
+        </a>
+      </p>
+      <p style="color:#6B7A8D; font-size:13px;">
+        C'est toujours toi qui déclares sur le site officiel : je prépare, tu recopies, tu restes aux commandes.
+      </p>
+      <p style="color:#6B7A8D; font-size:12px; border-top:1px solid #e5e9f0; padding-top:12px;">
+        Tu reçois ce rappel à chaque échéance parce que tu utilises TOTOR.
+        Tu peux le couper à tout moment dans TOTOR, Réglages → Rappel URSSAF
+        (ou en répondant à ce mail).
+      </p>
+    </div>
+    """
+
+
+def _executer_rappels_urssaf():
+    aujourdhui = date.today()
+    # On rappelle en fin de fenêtre (à partir du 20), quand la déclaration devient urgente.
+    # RAPPELS_URSSAF_FORCE=1 : ignore la date (tests en mode dry).
+    if aujourdhui.day < 20 and os.environ.get("RAPPELS_URSSAF_FORCE") != "1":
+        return
+    cle_echeance = aujourdhui.strftime("%Y-%m")
+    db = SessionLocal()
+    try:
+        profils = db.query(Profile).filter(Profile.statut == "auto_entrepreneur").all()
+        print(f"[rappels-urssaf] passe (mode {RAPPELS_URSSAF_MODE}) — {len(profils)} AE, échéance {cle_echeance}", flush=True)
+        for profile in profils:
+            if profile.dernier_rappel_urssaf == cle_echeance:
+                continue  # déjà rappelé pour cette échéance
+            if profile.rappel_urssaf_desactive:
+                continue  # opt-out explicite dans les Réglages
+            periode = periode_urssaf_a_declarer(aujourdhui, profile.periodicite or "mensuelle")
+            if not periode:
+                continue  # trimestriel hors mois d'échéance
+            utilisateur = db.query(User).filter(User.id == profile.user_id).first()
+            if not utilisateur or not utilisateur.email:
+                continue
+            # Éligibilité (même décision que le rappel d'actualisation, 08/07) :
+            # email vérifié OU un compte réellement utilisé (au moins un encaissement
+            # ou une facture).
+            compte_utilise = (
+                db.query(IncomeEntry.id).filter(IncomeEntry.user_id == profile.user_id).first() is not None
+                or db.query(ClientInvoice.id).filter(ClientInvoice.user_id == profile.user_id).first() is not None
+            )
+            if not utilisateur.email_verified and not compte_utilise:
+                continue
+            label, date_limite = periode
+            if RAPPELS_URSSAF_MODE != "live":
+                print(f"[rappels-urssaf][repetition] AURAIT rappelé {utilisateur.email} "
+                      f"({label}, limite {date_limite}) — mode dry, rien d'envoyé", flush=True)
+                continue
+            try:
+                html_mail = _html_rappel_urssaf(label, date_limite)
+                if send_email(utilisateur.email, f"🐾 Ta déclaration URSSAF de {label} approche", html_mail,
+                              reply_to=SUPPORT_EMAIL):
+                    profile.dernier_rappel_urssaf = cle_echeance
+                    db.commit()
+                    print(f"[rappels-urssaf] rappel envoyé à {utilisateur.email}", flush=True)
+                else:
+                    print(f"[rappels-urssaf] échec d'envoi pour {utilisateur.email} (on retentera au prochain passage)", flush=True)
+            except Exception as e:
+                db.rollback()
+                print(f"[rappels-urssaf] erreur pour {profile.user_id}: {e}", flush=True)
+    except Exception as e:
+        print(f"[rappels-urssaf] erreur globale: {e}", flush=True)
+    finally:
+        db.close()
+
+
 @app.on_event("startup")
 async def _demarrer_relances_auto():
     async def boucle():
@@ -1746,6 +1864,7 @@ async def _demarrer_relances_auto():
         while True:
             await asyncio.to_thread(_executer_relances_auto)
             await asyncio.to_thread(_executer_rappels_actualisation)
+            await asyncio.to_thread(_executer_rappels_urssaf)
             await asyncio.sleep(6 * 3600)  # 4 passages par jour, dédupliqués en base
     asyncio.create_task(boucle())
 

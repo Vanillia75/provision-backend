@@ -128,6 +128,29 @@ def _period_bounds(periodicite: str, reference_day: date) -> tuple[date, date, s
     return start, end, label
 
 
+def periode_urssaf_a_declarer(aujourdhui: date, periodicite: str):
+    """La déclaration URSSAF actionnable ce mois-ci : (label, date_limite) ou None.
+
+    Mensuelle : le CA du mois M se déclare pendant M+1, au plus tard le dernier
+    jour de M+1. Trimestrielle : le trimestre civil écoulé se déclare le mois
+    suivant sa fin (échéances fin janvier, avril, juillet, octobre)."""
+    mois_fr = ["janvier", "février", "mars", "avril", "mai", "juin",
+               "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+    dernier_jour = _last_day_of_month(aujourdhui)
+    if periodicite == "trimestrielle":
+        if aujourdhui.month not in (1, 4, 7, 10):
+            return None
+        fin_trimestre = aujourdhui.month - 1 or 12
+        annee = aujourdhui.year if aujourdhui.month != 1 else aujourdhui.year - 1
+        numero = fin_trimestre // 3
+        label = f"{numero}{'er' if numero == 1 else 'e'} trimestre {annee}"
+        return (label, dernier_jour)
+    # Mensuelle (défaut) : le mois civil précédent.
+    mois_prec = aujourdhui.month - 1 or 12
+    annee = aujourdhui.year if aujourdhui.month != 1 else aujourdhui.year - 1
+    return (f"{mois_fr[mois_prec - 1]} {annee}", dernier_jour)
+
+
 def _period_key(periodicite: str, d: date) -> str:
     """Clé canonique de la période d'ENCAISSEMENT d'une date (ex. "2026-05" ou "2026-T2").
     Chaque date appartient à exactement une période → attribution unique, anti-double-comptage."""
