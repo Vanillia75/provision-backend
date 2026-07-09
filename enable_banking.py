@@ -238,6 +238,74 @@ def bank_balance(
     }
 
 
+def _uids_de_session(profile: Profile) -> list:
+    """Les uid des comptes accessibles sur la session en cours (liste vide si expirée)."""
+    if not profile.eb_session_id:
+        return []
+    resp = _eb("GET", f"/sessions/{profile.eb_session_id}")
+    if resp.status_code != 200:
+        return []
+    bruts = resp.json().get("accounts", [])
+    return [b.get("uid") if isinstance(b, dict) else b for b in bruts if b]
+
+
+@router.get("/comptes")
+def bank_comptes(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Liste les comptes accessibles sur la connexion en cours, pour laisser
+    l'utilisateur choisir LE compte suivi (retour testeur n°1 : la banque en
+    renvoie plusieurs, le choix automatique ne suffit pas)."""
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile or not profile.eb_session_id:
+        raise HTTPException(status_code=404, detail="Aucune banque reliée.")
+    uids = _uids_de_session(profile)
+    if not uids:
+        raise HTTPException(status_code=502, detail="Session bancaire expirée — relie ta banque.")
+    comptes = []
+    for uid in uids[:10]:
+        det = _eb("GET", f"/accounts/{uid}/details")
+        iban, nom = "", None
+        if det.status_code == 200:
+            dd = det.json()
+            iban = ((dd.get("account_id") or {}).get("iban")) or ""
+            nom = dd.get("name") or dd.get("product") or dd.get("details")
+        comptes.append({
+            "uid": uid,
+            "iban_fin": iban[-4:] if iban else None,
+            "nom": nom,
+            "suivi": uid == profile.eb_account_uid,
+        })
+    return {"comptes": comptes}
+
+
+class BankCompteRequest(BaseModel):
+    uid: str
+
+
+@router.post("/compte")
+def bank_choisir_compte(
+    req: BankCompteRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Change le compte suivi (sécurité : il doit appartenir à la session de l'utilisateur)."""
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile or not profile.eb_session_id:
+        raise HTTPException(status_code=404, detail="Aucune banque reliée.")
+    if req.uid not in _uids_de_session(profile):
+        raise HTTPException(status_code=403, detail="Ce compte n'appartient pas à ta connexion.")
+    profile.eb_account_uid = req.uid
+    det = _eb("GET", f"/accounts/{req.uid}/details")
+    if det.status_code == 200:
+        iban = ((det.json().get("account_id") or {}).get("iban")) or ""
+        profile.eb_iban_fin = iban[-4:] if iban else None
+    db.commit()
+    solde = _lire_solde(profile, db)
+    return {"ok": True, "solde": solde}
+
+
 @router.post("/disconnect")
 def bank_disconnect(
     user: User = Depends(get_current_user),
