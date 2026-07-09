@@ -78,6 +78,33 @@ AI_DOC_SCAN_DAILY_LIMIT = int(os.environ.get("AI_DOC_SCAN_DAILY_LIMIT", "30"))
 # Taille maximale d'un fichier AEM uploadé (anti-DoS disque/mémoire/coût Vision).
 AEM_MAX_BYTES = int(os.environ.get("AEM_MAX_BYTES", str(10 * 1024 * 1024)))  # 10 Mo
 
+
+def _enregistrer_upload(file, max_bytes: int = None):
+    """Écrit un upload dans un dossier temporaire, de façon sûre (audit 09/07/2026) :
+    - nom de fichier NEUTRALISÉ (anti-traversée de chemin : basename + caractères sûrs) ;
+    - taille PLAFONNÉE pendant la copie (413 au-delà, disque protégé).
+    Renvoie (tmp_dir, file_path). L'appelant nettoie tmp_dir dans un finally."""
+    import re as _re
+    if max_bytes is None:
+        max_bytes = AEM_MAX_BYTES
+    nom = _re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(file.filename or "document"))[-100:] or "document"
+    tmp_dir = tempfile.mkdtemp()
+    file_path = os.path.join(tmp_dir, nom)
+    taille = 0
+    with open(file_path, "wb") as f:
+        while True:
+            chunk = file.file.read(1024 * 1024)
+            if not chunk:
+                break
+            taille += len(chunk)
+            if taille > max_bytes:
+                f.close()
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                raise HTTPException(status_code=413,
+                                    detail=f"Fichier trop volumineux (max {max_bytes // (1024 * 1024)} Mo).")
+            f.write(chunk)
+    return tmp_dir, file_path
+
 # Protection anti brute-force du login : au-delà de N échecs consécutifs, on
 # bloque temporairement les tentatives pour cet email pendant un délai.
 LOGIN_MAX_ECHECS = int(os.environ.get("LOGIN_MAX_ECHECS", "8"))
@@ -728,15 +755,13 @@ async def extract_invoice(
     # Quota freemium : scans factures + frais partagent le compteur mensuel "doc_scan".
     _consommer_quota(db, user, "doc_scan", AI_DOC_SCAN_DAILY_LIMIT)
 
-    tmp_dir = tempfile.mkdtemp()
-    file_path = os.path.join(tmp_dir, file.filename)
-    with open(file_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-
+    tmp_dir, file_path = _enregistrer_upload(file)
     try:
         data = extract_invoice_data(file_path)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Impossible de lire la facture : {e}")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     if data["amount"] is None:
         raise HTTPException(
@@ -2411,15 +2436,13 @@ async def extract_expense(
     # Quota freemium : scans factures + frais partagent le compteur mensuel "doc_scan".
     _consommer_quota(db, user, "doc_scan", AI_DOC_SCAN_DAILY_LIMIT)
 
-    tmp_dir = tempfile.mkdtemp()
-    file_path = os.path.join(tmp_dir, file.filename)
-    with open(file_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-
+    tmp_dir, file_path = _enregistrer_upload(file)
     try:
         data = extract_invoice_data(file_path)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Impossible de lire la facture : {e}")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     if data["amount"] is None:
         raise HTTPException(
