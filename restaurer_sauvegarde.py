@@ -31,6 +31,12 @@ def main():
     jour = sys.argv[1]
     verifier_seulement = "--verifier-seulement" in sys.argv
 
+    # R2_VERIFY_SSL=non : contournement pour le PC de Camille dont l'antivirus
+    # intercepte le TLS (piège local connu). Jamais utilisé côté serveur.
+    verify = False if os.environ.get("R2_VERIFY_SSL") == "non" else True
+    if not verify:
+        import urllib3
+        urllib3.disable_warnings()
     client = boto3.client(
         "s3",
         endpoint_url=os.environ["R2_ENDPOINT"],
@@ -38,6 +44,7 @@ def main():
         aws_secret_access_key=os.environ["R2_SECRET_KEY"],
         config=Config(signature_version="s3v4"),
         region_name="auto",
+        verify=verify,
     )
     cle = f"backups/db/{jour}.zip"
     print(f"Téléchargement de {cle}…")
