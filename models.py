@@ -126,6 +126,13 @@ class Profile(Base):
     eb_banque = Column(String, nullable=True)
     eb_iban_fin = Column(String, nullable=True)
 
+    # Quotas de jours par employeur (intermittents techniciens) : chaîne JSON, une liste
+    # [{"nom": "M6", "quota": 59}, ...]. Saisis par l'utilisateur (valeurs internes aux
+    # boîtes, JAMAIS codées en dur). Le comptage des jours réels est calculé côté front
+    # à partir des activités. NULL = aucun quota défini.
+    # ⚠️ Nouvelle colonne : ALTER TABLE profiles ADD COLUMN quotas_employeurs VARCHAR;
+    quotas_employeurs = Column(String, nullable=True)
+
     user = relationship("User", back_populates="profile")
 
 

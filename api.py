@@ -5,6 +5,7 @@ Lancer avec : uvicorn api:app --reload
 
 import os
 import html
+import json
 import asyncio
 import shutil
 import tempfile
@@ -408,6 +409,8 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "rappel_actu_active": not bool(profile.rappel_actu_desactive),
         # Rappel de déclaration URSSAF (auto-entrepreneurs) : même philosophie.
         "rappel_urssaf_active": not bool(profile.rappel_urssaf_desactive),
+        # Quotas de jours par employeur (intermittent technicien). Liste [{nom, quota}].
+        "quotas_employeurs": _lire_quotas_employeurs(profile),
         "is_premium": prem,
         "premium_source": billing.premium_source(db, user),   # "stripe" | "comp" | None
         "trial_days_left": billing.trial_days_left(db, user),  # jours restants si essai Stripe (trialing), sinon None
@@ -615,6 +618,53 @@ def save_rappel_urssaf(
     profile.rappel_urssaf_desactive = not req.active
     db.commit()
     return {"rappel_urssaf_active": req.active}
+
+
+# ─── Quotas de jours par employeur (intermittent technicien) ────────────────
+def _lire_quotas_employeurs(profile: Profile) -> list:
+    """Renvoie la liste [{nom, quota}] stockée en JSON, ou [] si absente/illisible."""
+    if not profile or not profile.quotas_employeurs:
+        return []
+    try:
+        data = json.loads(profile.quotas_employeurs)
+        if isinstance(data, list):
+            return [
+                {"nom": str(e.get("nom", "")).strip(), "quota": int(e.get("quota"))}
+                for e in data
+                if isinstance(e, dict) and str(e.get("nom", "")).strip() and e.get("quota") is not None
+            ]
+    except (ValueError, TypeError):
+        pass
+    return []
+
+
+class QuotaEmployeurRequest(BaseModel):
+    nom: str
+    quota: Optional[int] = None  # None ou 0 = on retire le quota de cet employeur
+
+
+@app.post("/profile/quota-employeur")
+def save_quota_employeur(
+    req: QuotaEmployeurRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Ajoute, met à jour ou retire (quota None/0) le quota de jours d'un employeur.
+    Les valeurs sont saisies par l'utilisateur (internes aux boîtes), jamais codées."""
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+    nom = (req.nom or "").strip()
+    if not nom:
+        raise HTTPException(status_code=400, detail="Nom d'employeur requis.")
+    quotas = _lire_quotas_employeurs(profile)
+    # On retire l'entrée existante pour ce nom (comparaison insensible à la casse), puis on la remet.
+    quotas = [e for e in quotas if e["nom"].lower() != nom.lower()]
+    if req.quota and req.quota > 0:
+        quotas.append({"nom": nom, "quota": int(req.quota)})
+    profile.quotas_employeurs = json.dumps(quotas, ensure_ascii=False)
+    db.commit()
+    return {"quotas_employeurs": quotas}
 
 
 class SettingsRequest(BaseModel):
