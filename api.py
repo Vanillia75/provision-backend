@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request, Body
-from fastapi.responses import Response
+from fastapi.responses import Response, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
@@ -229,6 +229,74 @@ def admin_stats(key: str = "", db: Session = Depends(get_db)):
         "abonnes_payants": abonnes,
         "places_pionnier_restantes": max(0, PIONNIER_PLACES - abonnes),
     }
+
+
+@app.get("/admin/dashboard", response_class=HTMLResponse)
+def admin_dashboard(key: str = "", db: Session = Depends(get_db)):
+    """Tableau de bord fondateur (page HTML). Mêmes chiffres que /admin/stats, mais
+    présentés joliment (charte TOTOR), avec rafraîchissement auto toutes les 60 s.
+    Protégé par ADMIN_STATS_KEY. Sans clé valide -> 404."""
+    expected = os.environ.get("ADMIN_STATS_KEY", "")
+    if not expected or key != expected:
+        raise HTTPException(status_code=404, detail="Not found")
+    inscrits = db.query(User).count()
+    abonnes = (
+        db.query(Subscription)
+        .filter(Subscription.source == "stripe", Subscription.plan == "premium")
+        .count()
+    )
+    places = max(0, PIONNIER_PLACES - abonnes)
+    pct = min(100, int(abonnes * 100 / PIONNIER_PLACES)) if PIONNIER_PLACES else 0
+    maj = datetime.utcnow().strftime("%d/%m/%Y a %H:%M UTC")
+    html_page = f"""<!doctype html>
+<html lang="fr"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="60">
+<title>TOTOR - Tableau de bord</title>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background:#07192E; color:#F8FAFC; font-family:-apple-system,Segoe UI,Roboto,sans-serif;
+          min-height:100vh; padding:40px 20px; }}
+  .wrap {{ max-width:900px; margin:0 auto; }}
+  .brand {{ text-align:center; font-family:Georgia,'Times New Roman',serif; font-weight:800;
+            font-size:38px; letter-spacing:1px; margin-bottom:4px; }}
+  .brand .o {{ color:#5DCAA5; }}
+  .sub {{ text-align:center; color:#9BB0C4; font-size:14px; margin-bottom:36px; }}
+  .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:20px; }}
+  .card {{ background:#0A2540; border:1px solid #16324f; border-radius:18px; padding:28px 24px; text-align:center; }}
+  .label {{ color:#9BB0C4; font-size:13px; text-transform:uppercase; letter-spacing:1.5px; margin-bottom:12px; }}
+  .num {{ font-family:Georgia,serif; font-weight:800; font-size:64px; line-height:1; color:#F8FAFC; }}
+  .num.green {{ color:#5DCAA5; }}
+  .hint {{ color:#6B8199; font-size:12px; margin-top:10px; }}
+  .barwrap {{ background:#07192E; border-radius:99px; height:10px; margin-top:16px; overflow:hidden; }}
+  .bar {{ background:#5DCAA5; height:100%; width:{pct}%; border-radius:99px; }}
+  .foot {{ text-align:center; color:#6B8199; font-size:12px; margin-top:32px; }}
+</style></head>
+<body><div class="wrap">
+  <div class="brand">T<span class="o">O</span>T<span class="o">O</span>R</div>
+  <div class="sub">Tableau de bord fondateur</div>
+  <div class="grid">
+    <div class="card">
+      <div class="label">Inscrits</div>
+      <div class="num">{inscrits}</div>
+      <div class="hint">comptes créés (gratuit + payant)</div>
+    </div>
+    <div class="card">
+      <div class="label">Abonnés payants</div>
+      <div class="num green">{abonnes}</div>
+      <div class="hint">abonnements Stripe actifs</div>
+    </div>
+    <div class="card">
+      <div class="label">Places Pionnier</div>
+      <div class="num">{places}</div>
+      <div class="hint">restantes sur {PIONNIER_PLACES}</div>
+      <div class="barwrap"><div class="bar"></div></div>
+    </div>
+  </div>
+  <div class="foot">Mis à jour le {maj} · rafraîchissement automatique toutes les 60 s</div>
+</div></body></html>"""
+    return HTMLResponse(html_page)
 
 
 def _login_verifier_blocage(db: Session, email: str):
