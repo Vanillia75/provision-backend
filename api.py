@@ -3250,10 +3250,11 @@ def assistant_chat(
         print(f"[ASSISTANT ERROR] {type(e).__name__}: {billing.redact_secrets(e)}", flush=True)
         raise HTTPException(status_code=502, detail="L'assistant n'est pas disponible pour le moment. Réessaie dans un instant.")
 
-    # Radar UX (mode aide) : chaque question part en copie à Camille — la question et
-    # l'écran courant SEULEMENT (jamais de données du compte, aucun identifiant en clair).
-    # Dix fois la même question = un écran à corriger. Best effort : jamais bloquant.
-    if mode_aide:
+    # Radar UX (mode aide) : la PREMIÈRE question de chaque conversation part en copie
+    # à Camille — la question et l'écran SEULEMENT (jamais de données du compte, aucun
+    # identifiant en clair). Les relances de la même conversation ne partent pas
+    # (retour Camille 09/07 : un email par message = trop bavard). Jamais bloquant.
+    if mode_aide and sum(1 for m in req.messages if m.role == "user") == 1:
         try:
             question = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
             send_email(

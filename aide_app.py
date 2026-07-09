@@ -43,6 +43,9 @@ MODE AUTO-ENTREPRENEUR (menu de gauche) :
 - Réglages : le rappel URSSAF par email (Activé/Désactivé), les relances automatiques
   d'impayés (délai ou désactivées), la réserve de sécurité, changer son mot de passe,
   exporter ses données ou supprimer son compte (RGPD), et basculer en mode intermittent.
+- Laisser un témoignage ou un avis : la carte « Ton avis compte » dans les Réglages
+  (des deux modes) envoie le message à Camille, avec une case de consentement si on
+  accepte qu'il soit publié (prénom + métier).
 
 MODE INTERMITTENT (menu de gauche) :
 - Cockpit : le compteur des 507 heures (fenêtre de 12 mois glissants), la date anniversaire
