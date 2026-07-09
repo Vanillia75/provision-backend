@@ -36,6 +36,7 @@ from legal_mentions import (
 from numerotation import compute_next_numero, normalize_numero_depart
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES, periode_urssaf_a_declarer
 from projection import projeter_tresorerie
+from paie_engine import calculer_paie
 from invoice_extractor import extract_invoice_data
 from aem_extractor import extract_aem_data, extract_are_data
 import r2_storage
@@ -2675,6 +2676,79 @@ def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(g
         "provision_periode_courante": result.provision_periode_courante,
         "regularisations_periodes_passees": result.regularisations_periodes_passees,
         "total_a_prevoir": result.total_a_prevoir,
+    }
+
+
+@app.get("/paie")
+def get_paie(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """La Paie d'Hector : le salaire lissé recommandé de l'auto-entrepreneur.
+    Trois montants (prudent / recommandé / maximum) calculés par paie_engine sur
+    les 6 derniers mois civils complets de net réel (encaissé − provision URSSAF).
+    RECOMMANDATION seulement : c'est l'utilisateur qui décide et qui vire."""
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile or not profile.onboarding_complete:
+        return {"disponible": False}
+    if profile.statut != "auto_entrepreneur" or not profile.activite:
+        return {"disponible": False}
+
+    entries = db.query(IncomeEntry).filter(IncomeEntry.user_id == user.id).all()
+    incomes = [(e.date, e.amount) for e in entries]
+    paid_invoices = (
+        db.query(ClientInvoice)
+        .filter(ClientInvoice.user_id == user.id, ClientInvoice.statut == "payee")
+        .all()
+    )
+    incomes += [(inv.date_paiement or inv.date_emission, inv.montant) for inv in paid_invoices]
+
+    # Le taux global vient du moteur fiscal existant (activité + versement libératoire).
+    try:
+        res = estimate(
+            statut=profile.statut, activite=profile.activite,
+            periodicite=profile.periodicite or "mensuelle",
+            acre=profile.acre, versement_liberatoire=profile.versement_liberatoire,
+            incomes=incomes, today=date.today(),
+        )
+    except Exception:
+        return {"disponible": False}
+    taux = (res.taux_global_pct or 0) / 100.0
+
+    # Les 6 derniers mois civils COMPLETS (le mois en cours n'est pas fini, on ne le juge pas).
+    aujourdhui = date.today()
+    mois_fr = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+               "août", "septembre", "octobre", "novembre", "décembre"]
+    fenetres = []
+    annee, mois = aujourdhui.year, aujourdhui.month
+    for _ in range(6):
+        mois -= 1
+        if mois == 0:
+            mois, annee = 12, annee - 1
+        fenetres.append((annee, mois))
+    fenetres.reverse()
+
+    nets, historique = [], []
+    for (a, m) in fenetres:
+        ca = sum(float(mnt or 0) for (d, mnt) in incomes if d and d.year == a and d.month == m)
+        net = round(ca * (1 - taux), 2)
+        nets.append(net)
+        historique.append({"mois": f"{mois_fr[m - 1]} {a}", "encaisse": round(ca, 2), "net": net})
+
+    paie = calculer_paie(nets)
+    dernier = historique[-1]
+    return {
+        "disponible": True,
+        "mois_label": f"{mois_fr[aujourdhui.month - 1]} {aujourdhui.year}",
+        "cle_mois": aujourdhui.strftime("%Y-%m"),
+        "dernier_mois": {
+            "label": dernier["mois"],
+            "encaisse": dernier["encaisse"],
+            "provision": round(dernier["encaisse"] * taux, 2),
+            "net": dernier["net"],
+        },
+        "historique": historique,
+        "taux_global_pct": res.taux_global_pct,
+        "versement_liberatoire": bool(profile.versement_liberatoire),
+        "reserve_visee": profile.reserve_securite,
+        **paie,
     }
 
 
