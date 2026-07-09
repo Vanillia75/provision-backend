@@ -107,12 +107,24 @@ class Profile(Base):
     rappel_urssaf_desactive = Column(Boolean, nullable=True)
 
     # Connexion bancaire Powens (agrégateur DSP2, lecture seule).
-    # powens_token : token permanent de l'utilisateur côté Powens (sensible).
-    # powens_user_id : id utilisateur Powens (debug / webhooks éventuels).
-    # powens_connection_id : id de la connexion bancaire active (None = pas de banque reliée).
+    # ⚠️ RAIL ABANDONNÉ (09/07/2026) au profit d'Enable Banking — colonnes conservées
+    # en base (inertes) pour ne pas toucher au schéma existant.
     powens_token = Column(String, nullable=True)
     powens_user_id = Column(String, nullable=True)
     powens_connection_id = Column(Integer, nullable=True)
+
+    # Connexion bancaire Enable Banking (AISP agréé UE, lecture seule).
+    # eb_session_id : session de lecture active (None = pas de banque reliée).
+    # eb_account_uid : compte principal choisi pour le solde.
+    # eb_banque : nom d'affichage de la banque reliée. eb_iban_fin : 4 derniers chiffres.
+    # ⚠️ Nouvelles colonnes : ALTER TABLE profiles ADD COLUMN eb_session_id VARCHAR;
+    #    ALTER TABLE profiles ADD COLUMN eb_account_uid VARCHAR;
+    #    ALTER TABLE profiles ADD COLUMN eb_banque VARCHAR;
+    #    ALTER TABLE profiles ADD COLUMN eb_iban_fin VARCHAR;
+    eb_session_id = Column(String, nullable=True)
+    eb_account_uid = Column(String, nullable=True)
+    eb_banque = Column(String, nullable=True)
+    eb_iban_fin = Column(String, nullable=True)
 
     user = relationship("User", back_populates="profile")
 

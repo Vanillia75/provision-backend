@@ -108,7 +108,8 @@ app.add_middleware(
 )
 
 # Module de connexion bancaire (Powens, lecture seule DSP2).
-from powens import router as bank_router
+# Rail bancaire : Enable Banking depuis le 09/07/2026 (powens.py conservé comme squelette).
+from enable_banking import router as bank_router
 app.include_router(bank_router)
 
 
