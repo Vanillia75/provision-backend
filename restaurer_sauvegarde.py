@@ -89,9 +89,15 @@ def main():
     import psycopg
     if "--creer-tables" in sys.argv:
         # Base cible VIERGE (exercice de restauration) : créer le schéma d'abord.
+        # ⚠️ Il faut IMPORTER les modèles pour qu'ils s'enregistrent sur Base.metadata.
         from database import engine, Base  # DATABASE_URL doit pointer la cible
+        import models  # noqa: F401 — enregistre les tables applicatives
+        try:
+            import billing  # noqa: F401 — enregistre subscriptions/stripe_events/promo_codes
+        except Exception as e:
+            print(f"(billing non importé : {e} — ses tables ne seront pas créées)")
         Base.metadata.create_all(bind=engine)
-        print("Schéma créé sur la base cible.")
+        print(f"Schéma créé sur la base cible ({len(Base.metadata.sorted_tables)} tables).")
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
         with conn.cursor() as cur:
             # Ordre du manifeste = ordre de création (parents d'abord).
@@ -102,7 +108,12 @@ def main():
                 cur.execute(f'TRUNCATE TABLE "{nom}" CASCADE')
             for nom in noms:
                 donnees = zf.read(f"{nom}.csv")
-                with cur.copy(f'COPY "{nom}" FROM STDIN (FORMAT csv, HEADER true)') as copie:
+                # L'ordre des colonnes de l'archive (base vivante, ALTER successifs) peut
+                # différer de celui d'un schéma recréé à neuf : on nomme donc explicitement
+                # les colonnes à partir de l'en-tête du CSV.
+                entete = donnees.split(b"\n", 1)[0].decode("utf-8").strip()
+                colonnes = ", ".join(f'"{c.strip()}"' for c in entete.split(",") if c.strip())
+                with cur.copy(f'COPY "{nom}" ({colonnes}) FROM STDIN (FORMAT csv, HEADER true)') as copie:
                     copie.write(donnees)
                 print(f"  restauré {nom}")
             cur.execute("SET session_replication_role = DEFAULT")
