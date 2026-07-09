@@ -41,6 +41,7 @@ from aide_app import prompt_aide
 from invoice_extractor import extract_invoice_data
 from aem_extractor import extract_aem_data, extract_are_data
 import r2_storage
+import sauvegarde
 import intermittent_engine as ie
 import allocation_engine as ae
 import conges_spectacles as cs
@@ -1907,6 +1908,8 @@ async def _demarrer_relances_auto():
             await asyncio.to_thread(_executer_relances_auto)
             await asyncio.to_thread(_executer_rappels_actualisation)
             await asyncio.to_thread(_executer_rappels_urssaf)
+            # Sauvegarde quotidienne de la base vers R2 (dédupliquée par jour).
+            await asyncio.to_thread(sauvegarde.executer_sauvegarde_quotidienne)
             await asyncio.sleep(6 * 3600)  # 4 passages par jour, dédupliqués en base
     asyncio.create_task(boucle())
 
