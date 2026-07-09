@@ -37,6 +37,7 @@ from numerotation import compute_next_numero, normalize_numero_depart
 from tax_engine import estimate, STATUTS_DISPONIBLES, STATUTS_A_VENIR, AUTO_ENTREPRENEUR_RATES, periode_urssaf_a_declarer
 from projection import projeter_tresorerie
 from paie_engine import calculer_paie
+from aide_app import prompt_aide
 from invoice_extractor import extract_invoice_data
 from aem_extractor import extract_aem_data, extract_are_data
 import r2_storage
@@ -2829,6 +2830,47 @@ def get_projection(user: User = Depends(get_current_user), db: Session = Depends
     }
 
 
+class BugReportRequest(BaseModel):
+    """Signalement de bug depuis l'Aide vivante. Totor ne répare pas : il collecte
+    et transmet. Infos techniques utiles au debug autorisées (écran, URL, navigateur,
+    dernières erreurs console) — JAMAIS de données financières ou personnelles du compte."""
+    description: str
+    email: Optional[str] = None      # optionnel : « si tu veux que Camille te réponde »
+    ecran: Optional[str] = None
+    url: Optional[str] = None
+    navigateur: Optional[str] = None
+    erreurs_console: Optional[list] = None
+
+
+@app.post("/aide/bug")
+def signaler_bug(
+    req: BugReportRequest,
+    user: User = Depends(get_current_user),
+):
+    """Transmet un signalement de bug à Camille (email [BUG], distinct de [Aide])."""
+    description = (req.description or "").strip()
+    if not description:
+        raise HTTPException(status_code=400, detail="Décris ce qui s'est passé, même en deux mots.")
+    erreurs = ""
+    for e in (req.erreurs_console or [])[:5]:
+        erreurs += f"<div style='font-family:monospace;font-size:11px;color:#A32D2D'>{html.escape(str(e)[:300])}</div>"
+    corps = (
+        "<div style='font-family:sans-serif;max-width:520px'>"
+        f"<p><strong>Écran :</strong> {html.escape(req.ecran or 'inconnu')}"
+        f" · <strong>URL :</strong> {html.escape((req.url or '')[:200])}</p>"
+        f"<p><strong>Navigateur :</strong> {html.escape((req.navigateur or '')[:200])}</p>"
+        f"<p><strong>Description :</strong><br/>{html.escape(description[:2000])}</p>"
+        f"<p><strong>Email pour réponse :</strong> {html.escape(req.email or 'non fourni')}</p>"
+        + (f"<p><strong>Dernières erreurs console :</strong>{erreurs}</p>" if erreurs else "")
+        + "<p style='color:#6B7A8D;font-size:12px'>Signalement via l'Aide vivante — aucune donnée de compte.</p></div>"
+    )
+    ok = send_email(SUPPORT_EMAIL, f"[BUG] {req.ecran or 'écran inconnu'}", corps,
+                    reply_to=(req.email or None))
+    if not ok:
+        raise HTTPException(status_code=502, detail="L'envoi n'a pas marché — réessaie, ou écris directement à bonjour@montotor.fr.")
+    return {"ok": True}
+
+
 class ChatMessage(BaseModel):
     role: str
     content: str
@@ -2836,6 +2878,10 @@ class ChatMessage(BaseModel):
 
 class AssistantRequest(BaseModel):
     messages: list[ChatMessage]
+    # Mode "aide" (pastille L'Aide vivante) : questions sur le FONCTIONNEMENT de l'app.
+    # Le canal décide du régime de quota, pas une classification IA.
+    mode: Optional[str] = None
+    ecran: Optional[str] = None  # écran courant (pour les stats UX, jamais de données du compte)
 
 
 @app.post("/assistant/chat")
@@ -2848,7 +2894,13 @@ def assistant_chat(
         raise HTTPException(status_code=500, detail="Assistant IA non configure")
 
     # Quota freemium (mensuel pour les gratuits) + garde-fou anti-abus journalier.
-    _consommer_quota(db, user, "chat", AI_CHAT_DAILY_LIMIT)
+    # Le mode "aide" (mode d'emploi de l'app) ne consomme PAS le quota chat : le quota
+    # protège l'expertise métier, pas le droit de comprendre l'app. Garde-fou séparé.
+    mode_aide = req.mode == "aide"
+    if mode_aide:
+        _verifier_et_incrementer_quota_ia(db, user.id, "aide", 30)
+    else:
+        _consommer_quota(db, user, "chat", AI_CHAT_DAILY_LIMIT)
 
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     context = ""
@@ -2976,7 +3028,10 @@ def assistant_chat(
         except Exception:
             context = "L'utilisateur est intermittent du spectacle. Ses donnees de compteur ne sont pas disponibles pour le moment."
 
-    if is_intermittent:
+    if mode_aide:
+        # L'Aide vivante : Totor guide dans l'app (carte des écrans + lexique dans aide_app.py).
+        system_prompt = prompt_aide(profile.statut if profile else "auto_entrepreneur")
+    elif is_intermittent:
         system_prompt = (
             "Tu es Totor, le compagnon de confiance d'un intermittent du spectacle francais. "
             "Tu es un EXPERT du regime intermittent, et tu en es fier. Tu n'es pas une IA generaliste : "
@@ -3194,6 +3249,23 @@ def assistant_chat(
         # (elle peut contenir la cle Anthropic si l'en-tete x-api-key est invalide).
         print(f"[ASSISTANT ERROR] {type(e).__name__}: {billing.redact_secrets(e)}", flush=True)
         raise HTTPException(status_code=502, detail="L'assistant n'est pas disponible pour le moment. Réessaie dans un instant.")
+
+    # Radar UX (mode aide) : chaque question part en copie à Camille — la question et
+    # l'écran courant SEULEMENT (jamais de données du compte, aucun identifiant en clair).
+    # Dix fois la même question = un écran à corriger. Best effort : jamais bloquant.
+    if mode_aide:
+        try:
+            question = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
+            send_email(
+                SUPPORT_EMAIL,
+                f"[Aide] {req.ecran or 'écran inconnu'}",
+                f"<div style='font-family:sans-serif;max-width:480px'>"
+                f"<p><strong>Écran :</strong> {html.escape(req.ecran or 'inconnu')}</p>"
+                f"<p><strong>Question :</strong> {html.escape(question[:500])}</p>"
+                f"<p style='color:#6B7A8D;font-size:12px'>Radar UX de l'Aide vivante — aucune donnée de compte.</p></div>",
+            )
+        except Exception:
+            pass
 
     return {"reply": reply or "Desole, je n'ai pas pu generer de reponse."}
 

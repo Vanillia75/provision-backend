@@ -48,3 +48,12 @@ C'est la plus grosse évolution produit depuis le début. Tout le reste en déco
 Le **Cockpit (Salon)** est l'écran de référence : une fois qu'il sonne juste, il donne le ton à tous les autres. C'est par lui que commencera la reconstruction.
 
 *Prochaine étape (à froid) : rédiger `ARCHITECTURE.md` — le détail écran par écran de la V2, en partant de ces décisions et de la vision « un compagnon pour une personne ».*
+
+## Règle gravée — L'Aide vivante (09/07/2026)
+La pastille d'aide (« Totor · aide & mode d'emploi ») guide les utilisateurs dans l'app à
+partir de la carte des écrans écrite dans `aide_app.py`. **Tout futur cadrage qui déplace,
+renomme ou supprime un élément d'interface DOIT mettre à jour `aide_app.py`** — sinon Totor
+guidera vers des boutons qui n'existent plus, ce qui est pire que de ne pas répondre.
+Autres règles : mode "aide" hors quota chat (garde-fou 30/jour) ; jamais d'ouverture
+automatique ni de badge (Loi VII) ; questions métier renvoyées vers « Parle à Totor » ;
+radar UX = chaque question part à bonjour@montotor.fr (écran + question, rien du compte).
