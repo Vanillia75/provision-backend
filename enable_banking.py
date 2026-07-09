@@ -140,7 +140,7 @@ def bank_connect(
     if not _configure():
         raise HTTPException(status_code=503, detail="Connexion bancaire pas encore activée.")
     if not _beta_autorise(user.email):
-        raise HTTPException(status_code=503, detail="Connexion bancaire en cours d'ouverture — bientôt disponible.")
+        raise HTTPException(status_code=503, detail="Connexion bancaire en cours d'ouverture : bientôt disponible.")
 
     valid_until = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(time.time() + CONSENT_DAYS * 86400))
     corps = {
@@ -262,7 +262,7 @@ def bank_comptes(
         raise HTTPException(status_code=404, detail="Aucune banque reliée.")
     uids = _uids_de_session(profile)
     if not uids:
-        raise HTTPException(status_code=502, detail="Session bancaire expirée — relie ta banque.")
+        raise HTTPException(status_code=502, detail="Session bancaire expirée : relie ta banque.")
     comptes = []
     for uid in uids[:10]:
         det = _eb("GET", f"/accounts/{uid}/details")
