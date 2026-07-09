@@ -90,12 +90,21 @@ def _nom_fichier_propre(filename: str) -> str:
 def extract_invoice_data(file_path: str) -> dict:
     ext = os.path.splitext(file_path)[1].lower()
 
+    # Photos et PDF scannés : lecture par Claude Vision (le même circuit que le scan AEM).
+    # ⚠️ L'ancien repli Tesseract est SUPPRIMÉ : le binaire n'existe pas sur Railway,
+    # toutes les photos échouaient en prod (bug détecté à la revue du 09/07/2026).
     if ext in IMAGE_EXTENSIONS:
-        text = _extract_text_from_image(file_path)
-    else:
-        text = _extract_pdf_text(file_path)
-        if not text.strip():
-            text = _extract_text_via_ocr_pdf(file_path)
+        vision = _extract_via_vision(file_path)
+        if vision:
+            return vision
+        raise RuntimeError("Je n'ai pas réussi à lire cette image. Essaie une photo plus nette, ou saisis à la main.")
+
+    text = _extract_pdf_text(file_path)
+    if not text.strip():
+        vision = _extract_via_vision(file_path)
+        if vision:
+            return vision
+        text = ""
 
     amount = _find_amount(text)
     invoice_date = _find_date(text)
@@ -128,23 +137,76 @@ def _extract_pdf_text(pdf_path: str) -> str:
         return "\n".join(page.extract_text() or "" for page in pdf.pages)
 
 
-def _ocr_image(image) -> str:
-    import pytesseract
+PROMPT_VISION_FACTURE = """Tu lis une facture ou un reçu (photo ou scan). Extrais ces champs en JSON :
+{"montant_ttc": nombre ou null, "date": "YYYY-MM-DD" ou null, "client": "..." ou null,
+ "description": "..." ou null, "numero_facture": "..." ou null, "tva_pct": nombre ou null}
+Règles :
+- "montant_ttc" = le TOTAL TTC (ou le montant payé), un nombre sans symbole.
+- "description" = l'objet de la facture en quelques mots (jamais un header de tableau).
+- Si une info est absente ou illisible, mets null. Ne devine jamais.
+- Réponds en JSON pur, rien d'autre."""
+
+
+def _extract_via_vision(file_path: str) -> Optional[dict]:
+    """Lecture par Claude Vision (photos, PDF scannés). None si indisponible/échec."""
     try:
-        return pytesseract.image_to_string(image, lang="fra+eng")
+        import json
+        import requests
+        from aem_extractor import _build_source_blocks, _clean_json, ANTHROPIC_API_KEY, MODEL
+
+        if not ANTHROPIC_API_KEY:
+            return None
+        blocks = _build_source_blocks(file_path)
+        if not blocks:
+            return None
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": MODEL, "max_tokens": 400,
+                  "messages": [{"role": "user", "content": blocks + [{"type": "text", "text": PROMPT_VISION_FACTURE}]}]},
+            timeout=60,
+        )
+        if resp.status_code != 200:
+            return None
+        parts = [b.get("text", "") for b in resp.json().get("content", []) if b.get("type") == "text"]
+        data = json.loads(_clean_json("".join(parts)))
+        if isinstance(data, list):
+            data = data[0] if data else {}
+        if not isinstance(data, dict):
+            return None
+
+        montant = data.get("montant_ttc")
+        try:
+            montant = float(montant) if montant is not None else None
+        except (TypeError, ValueError):
+            montant = None
+        dt = None
+        d = data.get("date")
+        if isinstance(d, str) and d.strip():
+            try:
+                dt = datetime.strptime(d.strip()[:10], "%Y-%m-%d")
+            except ValueError:
+                dt = None
+        tva = data.get("tva_pct")
+        try:
+            tva = float(tva) if tva is not None else None
+        except (TypeError, ValueError):
+            tva = None
+        description = data.get("description") or _nom_fichier_propre(os.path.basename(file_path)) or None
+        if montant is None and dt is None:
+            return None  # rien d'utile lu → on laisse le message d'échec honnête
+        return {
+            "amount": montant,
+            "date": dt,
+            "filename": os.path.basename(file_path),
+            "client": data.get("client") or None,
+            "description": description,
+            "numero_facture": data.get("numero_facture") or None,
+            "tva_pct": tva,
+        }
     except Exception:
-        return pytesseract.image_to_string(image)
-
-
-def _extract_text_from_image(image_path: str) -> str:
-    from PIL import Image
-    return _ocr_image(Image.open(image_path))
-
-
-def _extract_text_via_ocr_pdf(pdf_path: str) -> str:
-    from pdf2image import convert_from_path
-    pages = convert_from_path(pdf_path)
-    return "\n".join(_ocr_image(p) for p in pages)
+        return None
 
 
 CLIENT_PATTERNS = [
