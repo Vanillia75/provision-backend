@@ -22,12 +22,12 @@ from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
 from database import Base, engine, get_db, SessionLocal
-from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt, FiscalSettings
+from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt, FiscalSettings, Subscription
 from auth import (
     hash_password, verify_password, create_token, get_current_user,
     create_purpose_token, verify_purpose_token,
 )
-from emailing import send_reset_password_email, send_verification_email, send_invoice_email, send_email
+from emailing import send_reset_password_email, send_verification_email, send_invoice_email, send_email, send_founder_signup_alert, PIONNIER_PLACES
 from invoice_pdf import generate_invoice_pdf
 from legal_mentions import (
     get_franchise_vat_mention, append_ei_mention, resolve_fiscal_settings,
@@ -200,7 +200,35 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     verify_token = create_purpose_token(user.id, "verify_email", expire_minutes=60 * 24)
     send_verification_email(user.email, verify_token)
 
+    # Alerte fondateur : nouvel inscrit (best-effort, ne doit JAMAIS bloquer l'inscription).
+    try:
+        total_inscrits = db.query(User).count()
+        send_founder_signup_alert(total_inscrits, user.email)
+    except Exception:
+        pass
+
     return AuthResponse(token=create_token(user.id), email=user.email)
+
+
+@app.get("/admin/stats")
+def admin_stats(key: str = "", db: Session = Depends(get_db)):
+    """Compteur privé (fondateur) : inscrits, abonnés payants, places Pionnier restantes.
+    Protégé par la clé secrète ADMIN_STATS_KEY. Sans clé valide -> 404 (on ne révèle
+    même pas l'existence de l'endpoint)."""
+    expected = os.environ.get("ADMIN_STATS_KEY", "")
+    if not expected or key != expected:
+        raise HTTPException(status_code=404, detail="Not found")
+    inscrits = db.query(User).count()
+    abonnes = (
+        db.query(Subscription)
+        .filter(Subscription.source == "stripe", Subscription.plan == "premium")
+        .count()
+    )
+    return {
+        "inscrits": inscrits,
+        "abonnes_payants": abonnes,
+        "places_pionnier_restantes": max(0, PIONNIER_PLACES - abonnes),
+    }
 
 
 def _login_verifier_blocage(db: Session, email: str):

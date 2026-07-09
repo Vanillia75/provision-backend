@@ -12,6 +12,11 @@ RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 FROM_EMAIL = os.environ.get("EMAIL_FROM", "TOTOR <noreply@hector-app.fr>")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://hector-app.fr")
 
+# Alertes internes envoyées au fondateur (nouvel inscrit, nouvel abonné payant).
+FOUNDER_ALERT_EMAIL = os.environ.get("FOUNDER_ALERT_EMAIL", "gardereaucamille@gmail.com")
+# Nombre de places au tarif Pionnier (cf. PRICING.md : 100 premiers payants).
+PIONNIER_PLACES = int(os.environ.get("PIONNIER_PLACES", "100"))
+
 
 def _adresse_expedition() -> str:
     """Extrait l'adresse technique de FROM_EMAIL (ex. noreply@hector-app.fr)."""
@@ -99,3 +104,46 @@ def send_verification_email(to: str, token: str) -> bool:
 
 def send_invoice_email(to: str, subject: str, html: str, from_name: str = None, reply_to: str = None) -> bool:
     return send_email(to, subject, html, from_name=from_name, reply_to=reply_to)
+
+
+# ════════════════════════════════════════════════════════════════════════
+#  Alertes fondateur (croissance) — best-effort, ne bloquent jamais un flux
+# ════════════════════════════════════════════════════════════════════════
+def _founder_html(titre: str, gros_chiffre: str, sous_titre: str, detail: str) -> str:
+    return f"""
+    <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; text-align:center;
+                background:#07192E; color:#F8FAFC; padding:32px 24px; border-radius:16px;">
+      <p style="color:#5DCAA5; font-weight:bold; letter-spacing:1px; margin:0 0 8px;">{titre}</p>
+      <div style="font-size:56px; font-weight:800; color:#F8FAFC; line-height:1; margin:8px 0;">{gros_chiffre}</div>
+      <p style="color:#5DCAA5; font-size:16px; margin:4px 0 20px;">{sous_titre}</p>
+      <p style="color:#9BB0C4; font-size:13px; margin:0;">{detail}</p>
+    </div>
+    """
+
+
+def send_founder_signup_alert(count: int, user_email: str) -> bool:
+    """Alerte : une nouvelle personne vient de créer un compte (gratuit)."""
+    if not FOUNDER_ALERT_EMAIL:
+        return False
+    html = _founder_html(
+        "NOUVEL INSCRIT",
+        f"n&deg;{count}",
+        "TOTOR grandit.",
+        f"Inscrit : {user_email}",
+    )
+    return send_email(FOUNDER_ALERT_EMAIL, f"Nouvel inscrit TOTOR (n{count})", html)
+
+
+def send_founder_subscriber_alert(count: int, user_email: str) -> bool:
+    """Alerte : une nouvelle personne vient de s'abonner (payant, via Stripe)."""
+    if not FOUNDER_ALERT_EMAIL:
+        return False
+    places = max(0, PIONNIER_PLACES - count)
+    sous = f"Plus que {places} places Pionnier." if places > 0 else "Toutes les places Pionnier sont prises."
+    html = _founder_html(
+        "NOUVEL ABONNE PAYANT",
+        f"n&deg;{count}",
+        sous,
+        f"Abonne : {user_email}",
+    )
+    return send_email(FOUNDER_ALERT_EMAIL, f"Nouvel abonne payant TOTOR (n{count})", html)

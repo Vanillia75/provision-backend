@@ -155,6 +155,7 @@ def _apply_stripe_subscription(db: Session, stripe_sub: dict):
         if data:
             cpe = _g(data[0], "current_period_end")
 
+    old_plan = row.plan  # pour détecter la bascule free -> premium (nouvel abonné)
     row.stripe_customer_id = customer_id
     row.stripe_subscription_id = sub_id
     row.status = status
@@ -164,6 +165,21 @@ def _apply_stripe_subscription(db: Session, stripe_sub: dict):
     row.source = "stripe"
     row.updated_at = datetime.utcnow()
     db.commit()
+
+    # Nouvel abonné payant : alerte fondateur UNE seule fois (à la bascule vers premium,
+    # pas aux renouvellements). Best-effort : ne doit jamais casser le traitement du webhook.
+    if old_plan != "premium" and row.plan == "premium":
+        try:
+            from emailing import send_founder_subscriber_alert
+            nb = (
+                db.query(Subscription)
+                .filter(Subscription.source == "stripe", Subscription.plan == "premium")
+                .count()
+            )
+            u = db.query(User).filter(User.id == row.user_id).first()
+            send_founder_subscriber_alert(nb, u.email if u else "?")
+        except Exception:
+            pass
 
 
 def activate_comp_premium(db: Session, user: User, months=None):
