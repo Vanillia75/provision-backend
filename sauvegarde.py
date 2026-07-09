@@ -27,6 +27,18 @@ import r2_storage
 PREFIX = "backups/db/"
 RETENTION_JOURS = 30
 
+# Chiffrement applicatif des archives (exigence audit 09/07) : en PLUS du chiffrement
+# au repos de R2, l'archive elle-même est chiffrée (Fernet/AES) avec une clé qui ne
+# vit PAS chez Cloudflare. Sans SAUVEGARDE_CLE, aucune archive ne part (on refuse
+# d'écrire des données personnelles en clair). La clé est sauvegardée hors Railway
+# (gestionnaire de mots de passe de Camille) : sans elle, les archives sont illisibles.
+SAUVEGARDE_CLE = os.environ.get("SAUVEGARDE_CLE", "").strip()
+
+
+def _chiffrer(donnees: bytes) -> bytes:
+    from cryptography.fernet import Fernet
+    return Fernet(SAUVEGARDE_CLE.encode()) .encrypt(donnees)
+
 
 def creer_archive() -> tuple:
     """Exporte toutes les tables en CSV (COPY) dans un zip en mémoire.
@@ -55,7 +67,7 @@ def creer_archive() -> tuple:
 
 
 def _cle_du_jour() -> str:
-    return f"{PREFIX}{date.today().isoformat()}.zip"
+    return f"{PREFIX}{date.today().isoformat()}.zip.chiffre"
 
 
 def _existe(cle: str) -> bool:
@@ -89,14 +101,19 @@ def executer_sauvegarde_quotidienne():
     if not r2_storage.R2_ENABLED:
         print("[sauvegarde] R2 non configuré — AUCUNE sauvegarde ne part (à corriger !)", flush=True)
         return
+    if not SAUVEGARDE_CLE:
+        print("[sauvegarde] SAUVEGARDE_CLE absente — AUCUNE sauvegarde ne part "
+              "(on refuse d'écrire des données personnelles en clair !)", flush=True)
+        return
     cle = _cle_du_jour()
     try:
         if _existe(cle):
             return  # déjà sauvegardé aujourd'hui
         donnees, manifeste = creer_archive()
+        donnees = _chiffrer(donnees)
         r2_storage._get_client().put_object(
             Bucket=r2_storage.R2_BUCKET, Key=cle, Body=donnees,
-            ContentType="application/zip",
+            ContentType="application/octet-stream",
         )
         total = sum(manifeste["tables"].values())
         print(f"[sauvegarde] {cle} envoyée ({len(donnees) // 1024} Ko, {total} lignes, "

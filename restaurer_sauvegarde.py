@@ -46,9 +46,25 @@ def main():
         region_name="auto",
         verify=verify,
     )
-    cle = f"backups/db/{jour}.zip"
-    print(f"Téléchargement de {cle}…")
-    corps = client.get_object(Bucket=os.environ["R2_BUCKET"], Key=cle)["Body"].read()
+    # Les archives sont chiffrées (suffixe .zip.chiffre) depuis le 09/07/2026 au soir ;
+    # on retombe sur l'ancien nom .zip si besoin (première archive de l'histoire).
+    corps = None
+    for cle in (f"backups/db/{jour}.zip.chiffre", f"backups/db/{jour}.zip"):
+        try:
+            print(f"Téléchargement de {cle}…")
+            corps = client.get_object(Bucket=os.environ["R2_BUCKET"], Key=cle)["Body"].read()
+            break
+        except Exception:
+            corps = None
+    if corps is None:
+        raise SystemExit(f"Aucune archive trouvée pour le {jour}.")
+    if cle.endswith(".chiffre"):
+        from cryptography.fernet import Fernet
+        cle_chiffrement = os.environ.get("SAUVEGARDE_CLE", "").strip()
+        if not cle_chiffrement:
+            raise SystemExit("Archive chiffrée : pose SAUVEGARDE_CLE (la clé du gestionnaire de mots de passe).")
+        corps = Fernet(cle_chiffrement.encode()).decrypt(corps)
+        print("Archive déchiffrée.")
     zf = zipfile.ZipFile(io.BytesIO(corps))
     manifeste = json.loads(zf.read("MANIFESTE.json"))
     print(f"Archive du {manifeste['date']} — {len(manifeste['tables'])} tables :")
@@ -71,6 +87,11 @@ def main():
                          "(chaque table de la base cible sera VIDÉE puis rechargée).")
 
     import psycopg
+    if "--creer-tables" in sys.argv:
+        # Base cible VIERGE (exercice de restauration) : créer le schéma d'abord.
+        from database import engine, Base  # DATABASE_URL doit pointer la cible
+        Base.metadata.create_all(bind=engine)
+        print("Schéma créé sur la base cible.")
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
         with conn.cursor() as cur:
             # Ordre du manifeste = ordre de création (parents d'abord).
