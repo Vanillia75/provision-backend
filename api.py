@@ -215,9 +215,11 @@ def _compter_stats(db: Session):
     (motifs d'email dans ADMIN_STATS_EXCLUDE_PATTERNS). AUCUNE donnée n'est supprimée :
     c'est un simple filtre d'affichage pour un dashboard honnête. Ajuste la variable
     Railway pour changer les motifs exclus."""
+    # "gard" (pas "gardereau") car les emails de test brouillés cassent le mot
+    # (garder**ea f**dg...) ; tous commencent quand même par "gard".
     motifs = [m.strip().lower() for m in os.environ.get(
         "ADMIN_STATS_EXCLUDE_PATTERNS",
-        "gardereau,vanillia,leetoh,pomez,@example.com,exemple-hector",
+        "gard,vanillia,leetoh,pomez,@example.com,exemple-hector",
     ).split(",") if m.strip()]
 
     def exclu(email):
