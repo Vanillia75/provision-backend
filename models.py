@@ -18,6 +18,9 @@ class User(Base):
     password_hash = Column(String, nullable=True)
     google_id = Column(String, unique=True, nullable=True, index=True)
     email_verified = Column(Boolean, nullable=False, default=False)
+    # Compte de test/fondateur : exclu des stats du dashboard honnête (marque
+    # explicite, remplace l'ancienne devinette par motif d'email).
+    is_test = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     profile = relationship(

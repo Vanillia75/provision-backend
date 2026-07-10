@@ -211,27 +211,21 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
 
 def _compter_stats(db: Session):
-    """Compte inscrits + abonnés payants en EXCLUANT les comptes de test et du fondateur
-    (motifs d'email dans ADMIN_STATS_EXCLUDE_PATTERNS). AUCUNE donnée n'est supprimée :
-    c'est un simple filtre d'affichage pour un dashboard honnête. Ajuste la variable
-    Railway pour changer les motifs exclus."""
-    # "gard" (pas "gardereau") car les emails de test brouillés cassent le mot
-    # (garder**ea f**dg...) ; tous commencent quand même par "gard".
-    motifs = [m.strip().lower() for m in os.environ.get(
-        "ADMIN_STATS_EXCLUDE_PATTERNS",
-        "gard,vanillia,leetoh,pomez,@example.com,exemple-hector",
-    ).split(",") if m.strip()]
-
-    def exclu(email):
-        e = (email or "").lower()
-        return any(m in e for m in motifs)
-
-    reels = {uid for uid, email in db.query(User.id, User.email).all() if not exclu(email)}
-    inscrits = len(reels)
-    abonnes = sum(
-        1 for (uid,) in db.query(Subscription.user_id)
-        .filter(Subscription.source == "stripe", Subscription.plan == "premium").all()
-        if uid in reels
+    """Compte inscrits + abonnés payants en EXCLUANT les comptes marqués `is_test`.
+    Marque EXPLICITE (User.is_test), plus de devinette fragile sur l'email : un vrai
+    client ne peut plus être compté comme un test par hasard. AUCUNE donnée n'est
+    supprimée, les comptes de test existent toujours, ils ne sont juste pas comptés.
+    Pour marquer un compte plus tard : POST /admin/mark-test."""
+    inscrits = db.query(User).filter(User.is_test.is_(False)).count()
+    abonnes = (
+        db.query(Subscription)
+        .join(User, User.id == Subscription.user_id)
+        .filter(
+            User.is_test.is_(False),
+            Subscription.source == "stripe",
+            Subscription.plan == "premium",
+        )
+        .count()
     )
     return inscrits, abonnes
 
@@ -246,6 +240,38 @@ def admin_stats(key: str = "", db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Not found")
     inscrits, abonnes = _compter_stats(db)
     return {
+        "inscrits": inscrits,
+        "abonnes_payants": abonnes,
+        "places_pionnier_restantes": max(0, PIONNIER_PLACES - abonnes),
+    }
+
+
+class MarkTestRequest(BaseModel):
+    key: str
+    email: str
+    test: bool = True
+
+
+@app.post("/admin/mark-test")
+def admin_mark_test(req: MarkTestRequest, db: Session = Depends(get_db)):
+    """Marque (test=true) ou dé-marque (test=false) UN compte comme compte de test.
+    Cible le compte par email EXACT (email unique) → jamais d'ambiguïté.
+    POST : la clé et l'email sont dans le CORPS de la requête, JAMAIS dans l'URL,
+    pour ne pas fuiter dans les logs (les logs d'accès ne contiennent que méthode
+    + chemin, pas le corps). Protégé par ADMIN_STATS_KEY (sinon 404).
+    Renvoie l'état du compte + les nouveaux chiffres du dashboard."""
+    expected = os.environ.get("ADMIN_STATS_KEY", "")
+    if not expected or req.key != expected:
+        raise HTTPException(status_code=404, detail="Not found")
+    u = db.query(User).filter(User.email == req.email).first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Compte introuvable pour cet email")
+    u.is_test = bool(req.test)
+    db.commit()
+    inscrits, abonnes = _compter_stats(db)
+    return {
+        "email": u.email,
+        "is_test": u.is_test,
         "inscrits": inscrits,
         "abonnes_payants": abonnes,
         "places_pionnier_restantes": max(0, PIONNIER_PLACES - abonnes),
