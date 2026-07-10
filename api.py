@@ -210,6 +210,30 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     return AuthResponse(token=create_token(user.id), email=user.email)
 
 
+def _compter_stats(db: Session):
+    """Compte inscrits + abonnés payants en EXCLUANT les comptes de test et du fondateur
+    (motifs d'email dans ADMIN_STATS_EXCLUDE_PATTERNS). AUCUNE donnée n'est supprimée :
+    c'est un simple filtre d'affichage pour un dashboard honnête. Ajuste la variable
+    Railway pour changer les motifs exclus."""
+    motifs = [m.strip().lower() for m in os.environ.get(
+        "ADMIN_STATS_EXCLUDE_PATTERNS",
+        "gardereau,vanillia,leetoh,pomez,@example.com,exemple-hector",
+    ).split(",") if m.strip()]
+
+    def exclu(email):
+        e = (email or "").lower()
+        return any(m in e for m in motifs)
+
+    reels = {uid for uid, email in db.query(User.id, User.email).all() if not exclu(email)}
+    inscrits = len(reels)
+    abonnes = sum(
+        1 for (uid,) in db.query(Subscription.user_id)
+        .filter(Subscription.source == "stripe", Subscription.plan == "premium").all()
+        if uid in reels
+    )
+    return inscrits, abonnes
+
+
 @app.get("/admin/stats")
 def admin_stats(key: str = "", db: Session = Depends(get_db)):
     """Compteur privé (fondateur) : inscrits, abonnés payants, places Pionnier restantes.
@@ -218,12 +242,7 @@ def admin_stats(key: str = "", db: Session = Depends(get_db)):
     expected = os.environ.get("ADMIN_STATS_KEY", "")
     if not expected or key != expected:
         raise HTTPException(status_code=404, detail="Not found")
-    inscrits = db.query(User).count()
-    abonnes = (
-        db.query(Subscription)
-        .filter(Subscription.source == "stripe", Subscription.plan == "premium")
-        .count()
-    )
+    inscrits, abonnes = _compter_stats(db)
     return {
         "inscrits": inscrits,
         "abonnes_payants": abonnes,
@@ -239,12 +258,7 @@ def admin_dashboard(key: str = "", db: Session = Depends(get_db)):
     expected = os.environ.get("ADMIN_STATS_KEY", "")
     if not expected or key != expected:
         raise HTTPException(status_code=404, detail="Not found")
-    inscrits = db.query(User).count()
-    abonnes = (
-        db.query(Subscription)
-        .filter(Subscription.source == "stripe", Subscription.plan == "premium")
-        .count()
-    )
+    inscrits, abonnes = _compter_stats(db)
     places = max(0, PIONNIER_PLACES - abonnes)
     pct = min(100, int(abonnes * 100 / PIONNIER_PLACES)) if PIONNIER_PLACES else 0
     maj = datetime.utcnow().strftime("%d/%m/%Y a %H:%M UTC")
