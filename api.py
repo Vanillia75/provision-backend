@@ -5,6 +5,7 @@ Lancer avec : uvicorn api:app --reload
 
 import os
 import html
+import hashlib
 import json
 import asyncio
 import shutil
@@ -13,8 +14,8 @@ import requests as http_requests
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request, Body
-from fastapi.responses import Response, HTMLResponse
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request, Body, Form
+from fastapi.responses import Response, HTMLResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
@@ -230,13 +231,88 @@ def _compter_stats(db: Session):
     return inscrits, abonnes
 
 
-@app.get("/admin/stats")
-def admin_stats(key: str = "", db: Session = Depends(get_db)):
-    """Compteur privé (fondateur) : inscrits, abonnés payants, places Pionnier restantes.
-    Protégé par la clé secrète ADMIN_STATS_KEY. Sans clé valide -> 404 (on ne révèle
-    même pas l'existence de l'endpoint)."""
+_ADMIN_COOKIE = "totor_admin"
+
+
+def _cookie_token() -> str:
+    """Jeton dérivé de la clé admin (SHA-256 salé). C'est LUI qui est stocké dans le
+    cookie, JAMAIS la clé en clair : le secret ne traîne pas dans le navigateur.
+    Change automatiquement si la clé change → invalide les anciens cookies."""
+    expected = os.environ.get("ADMIN_STATS_KEY", "")
+    return hashlib.sha256(("totor-admin-cookie-v1|" + expected).encode()).hexdigest()
+
+
+def _admin_authed(request: Request, key: str = "") -> bool:
+    """Vrai si la requête est authentifiée : via le COOKIE (jeton dérivé, préféré) ou
+    via le paramètre ?key= (clé en clair, rétro-compat pour mes scripts). Le cookie
+    évite d'avoir la clé dans l'URL (donc dans les logs). Sans clé configurée : jamais."""
+    expected = os.environ.get("ADMIN_STATS_KEY", "")
+    if not expected:
+        return False
+    return request.cookies.get(_ADMIN_COOKIE, "") == _cookie_token() or key == expected
+
+
+def _poser_cookie_admin(resp):
+    # HttpOnly (pas lisible par JS) + Secure (HTTPS only) + SameSite=Strict (jamais
+    # envoyé depuis un autre site). Valeur = jeton dérivé, pas la clé en clair.
+    resp.set_cookie(_ADMIN_COOKIE, _cookie_token(), httponly=True, secure=True,
+                    samesite="strict", max_age=60 * 60 * 24 * 30)
+
+
+# Anti-brute-force sur la connexion admin (en mémoire ; se réinitialise au redéploiement,
+# acceptable pour cet usage). Derrière le proxy Railway, l'IP est souvent celle du proxy
+# → la limite devient quasi globale, ce qui va bien pour un outil mono-admin.
+_ADMIN_LOGIN_FAILS = {}
+_ADMIN_LOGIN_MAX = 5
+_ADMIN_LOGIN_BLOCK_MIN = 10
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_login_page():
+    """Page de connexion admin : un champ mot de passe qui POST la clé (jamais dans l'URL)."""
+    return HTMLResponse(
+        "<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "<title>TOTOR admin</title><style>"
+        "body{background:#07192E;color:#F8FAFC;font-family:system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;margin:0}"
+        "form{background:#0A2540;border:1px solid #16324f;border-radius:16px;padding:34px 30px;width:300px;text-align:center}"
+        ".b{font-family:Georgia,serif;font-weight:800;font-size:30px;letter-spacing:1px;margin-bottom:22px}.o{color:#5DCAA5}"
+        "input{width:100%;padding:12px;border-radius:8px;border:1px solid #16324f;background:#07192E;color:#fff;margin-bottom:14px;box-sizing:border-box;font-size:15px}"
+        "button{width:100%;padding:12px;border:0;border-radius:8px;background:#5DCAA5;color:#04342C;font-weight:700;font-size:15px;cursor:pointer}"
+        "</style></head><body><form method=\"post\" action=\"/admin/login\">"
+        "<div class=\"b\">T<span class=\"o\">O</span>T<span class=\"o\">O</span>R</div>"
+        "<input type=\"password\" name=\"key\" placeholder=\"Clé admin\" autofocus autocomplete=\"current-password\">"
+        "<button type=\"submit\">Entrer</button></form></body></html>"
+    )
+
+
+@app.post("/admin/login")
+def admin_login(request: Request, key: str = Form("")):
+    """Reçoit la clé dans le CORPS (jamais l'URL), pose le cookie (jeton dérivé, pas la
+    clé en clair), redirige vers le dashboard. Limité en tentatives (anti-brute-force) :
+    au-delà de 5 échecs, blocage temporaire. Clé fausse -> retour à la page de connexion."""
+    ip = request.client.host if request.client else "?"
+    now = datetime.utcnow()
+    nb, bloque = _ADMIN_LOGIN_FAILS.get(ip, (0, None))
+    if bloque and bloque > now:
+        raise HTTPException(status_code=429, detail="Trop de tentatives. Réessaie plus tard.")
     expected = os.environ.get("ADMIN_STATS_KEY", "")
     if not expected or key != expected:
+        nb += 1
+        bloque = now + timedelta(minutes=_ADMIN_LOGIN_BLOCK_MIN) if nb >= _ADMIN_LOGIN_MAX else None
+        _ADMIN_LOGIN_FAILS[ip] = (nb, bloque)
+        return RedirectResponse(url="/admin", status_code=303)
+    _ADMIN_LOGIN_FAILS.pop(ip, None)  # succès : on efface le compteur d'échecs
+    resp = RedirectResponse(url="/admin/dashboard", status_code=303)
+    _poser_cookie_admin(resp)
+    return resp
+
+
+@app.get("/admin/stats")
+def admin_stats(request: Request, key: str = "", db: Session = Depends(get_db)):
+    """Compteur privé (fondateur) : inscrits, abonnés payants, places Pionnier restantes.
+    Auth par cookie (préféré) ou ?key= (rétro-compat). Sans auth -> 404."""
+    if not _admin_authed(request, key):
         raise HTTPException(status_code=404, detail="Not found")
     inscrits, abonnes = _compter_stats(db)
     return {
@@ -279,13 +355,19 @@ def admin_mark_test(req: MarkTestRequest, db: Session = Depends(get_db)):
 
 
 @app.get("/admin/dashboard", response_class=HTMLResponse)
-def admin_dashboard(key: str = "", db: Session = Depends(get_db)):
-    """Tableau de bord fondateur (page HTML). Mêmes chiffres que /admin/stats, mais
-    présentés joliment (charte TOTOR), avec rafraîchissement auto toutes les 60 s.
-    Protégé par ADMIN_STATS_KEY. Sans clé valide -> 404."""
+def admin_dashboard(request: Request, key: str = "", db: Session = Depends(get_db)):
+    """Tableau de bord fondateur (page HTML), charte TOTOR, rafraîchissement auto 60 s.
+    Auth par COOKIE : l'URL et les rafraîchissements n'ont plus la clé. Un ancien
+    marque-page avec ?key= pose le cookie puis redirige vers l'URL propre (la clé
+    n'apparaît alors qu'UNE fois dans les logs). Sans auth -> page de connexion /admin."""
     expected = os.environ.get("ADMIN_STATS_KEY", "")
-    if not expected or key != expected:
-        raise HTTPException(status_code=404, detail="Not found")
+    # Ancien marque-page ?key= : on pose le cookie et on renvoie vers l'URL propre.
+    if expected and key == expected and request.cookies.get(_ADMIN_COOKIE, "") != expected:
+        resp = RedirectResponse(url="/admin/dashboard", status_code=303)
+        _poser_cookie_admin(resp)
+        return resp
+    if not _admin_authed(request, key):
+        return RedirectResponse(url="/admin", status_code=303)
     inscrits, abonnes = _compter_stats(db)
     places = max(0, PIONNIER_PLACES - abonnes)
     pct = min(100, int(abonnes * 100 / PIONNIER_PLACES)) if PIONNIER_PLACES else 0
