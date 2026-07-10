@@ -66,40 +66,46 @@ def send_email(to: str, subject: str, html: str, from_name: str = None, reply_to
 def send_reset_password_email(to: str, token: str) -> bool:
     link = f"{FRONTEND_URL}/?reset_token={token}"
     html = f"""
-    <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-      <h2 style="color:#0A2540;">Reinitialisation de votre mot de passe</h2>
-      <p>Vous avez demande la reinitialisation de votre mot de passe TOTOR.</p>
-      <p>
-        <a href="{link}" style="background:#378ADD; color:white; padding:12px 20px;
-           border-radius:8px; text-decoration:none; display:inline-block;">
+    <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; color:#0A2540;">
+      <h2 style="color:#0A2540;">🐾 On te remet en selle</h2>
+      <p>Salut, c'est Totor. Tu as demandé à changer ton mot de passe. Choisis-en un nouveau ci-dessous, et on repart.</p>
+      <p style="margin:24px 0;">
+        <a href="{link}" style="background:#5DCAA5; color:#04342C; padding:12px 20px;
+           border-radius:8px; text-decoration:none; display:inline-block; font-weight:bold;">
           Choisir un nouveau mot de passe
         </a>
       </p>
       <p style="color:#6B7A8D; font-size:13px;">
-        Ce lien expire dans 1 heure. Si vous n'etes pas a l'origine de cette demande,
-        vous pouvez ignorer cet email en toute securite.
+        Ce lien est valable 1 heure. Si ce n'est pas toi qui l'as demandé, ignore ce message
+        en toute tranquillité : ton compte reste protégé.
       </p>
+      <p style="color:#6B7A8D; font-size:13px;">Je veille,<br/>Totor 🐾</p>
     </div>
     """
-    return send_email(to, "Reinitialisation de votre mot de passe TOTOR", html)
+    return send_email(to, "🐾 Réinitialise ton mot de passe TOTOR", html)
 
 
 def send_verification_email(to: str, token: str) -> bool:
     link = f"{FRONTEND_URL}/?verify_token={token}"
     html = f"""
-    <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-      <h2 style="color:#0A2540;">Confirmez votre adresse email</h2>
-      <p>Bienvenue sur TOTOR ! Confirmez votre adresse email pour activer votre compte.</p>
-      <p>
-        <a href="{link}" style="background:#378ADD; color:white; padding:12px 20px;
-           border-radius:8px; text-decoration:none; display:inline-block;">
+    <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; color:#0A2540;">
+      <h2 style="color:#0A2540;">🐾 Bienvenue, c'est Totor</h2>
+      <p>Content de t'accueillir. Confirme ton adresse email, et je m'occupe du reste :
+      compter tes chiffres, provisionner ce qu'il faut, et t'expliquer chaque euro.</p>
+      <p style="margin:24px 0;">
+        <a href="{link}" style="background:#5DCAA5; color:#04342C; padding:12px 20px;
+           border-radius:8px; text-decoration:none; display:inline-block; font-weight:bold;">
           Confirmer mon email
         </a>
       </p>
-      <p style="color:#6B7A8D; font-size:13px;">Ce lien expire dans 24 heures.</p>
+      <p style="color:#6B7A8D; font-size:13px;">
+        Ce lien est valable 24 heures. Si ce n'est pas toi qui viens de t'inscrire,
+        ignore simplement ce message.
+      </p>
+      <p style="color:#6B7A8D; font-size:13px;">À tout de suite,<br/>Totor 🐾</p>
     </div>
     """
-    return send_email(to, "Confirmez votre email TOTOR", html)
+    return send_email(to, "🐾 Confirme ton email TOTOR", html)
 
 
 def send_invoice_email(to: str, subject: str, html: str, from_name: str = None, reply_to: str = None) -> bool:
