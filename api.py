@@ -1598,7 +1598,7 @@ def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest", fis
     """
     afficher_bloc_emetteur : le bloc grisé d'identification (nom, adresse, SIRET).
     Utile sur l'envoi de facture ; sur une RELANCE, le message signe déjà en toutes
-    lettres (« Bien à vous, Prénom Nom — ENTREPRISE ») → le bloc doublonnerait.
+    lettres (« Bien à vous, Prénom Nom, ENTREPRISE ») → le bloc doublonnerait.
     """
     # Tout ce qui vient de l'utilisateur est échappé avant d'entrer dans le HTML
     # de l'email envoyé au client (anti-injection / anti-phishing).
@@ -1744,7 +1744,7 @@ RELANCES_AUTO_MODE = os.environ.get("RELANCES_AUTO_MODE", "dry")
 def _signature_relance(profile: Profile) -> Optional[str]:
     """
     Signature de l'utilisateur pour les mails envoyés à SES clients :
-    « Prénom Nom — ENTREPRISE » (l'entreprise seule en repli). None si le profil
+    « Prénom Nom, ENTREPRISE » (l'entreprise seule en repli). None si le profil
     ne permet aucune signature → la relance de ce profil ne doit PAS partir.
     """
     if not profile:
@@ -1752,7 +1752,7 @@ def _signature_relance(profile: Profile) -> Optional[str]:
     nom_personne = f"{profile.prenom or ''} {profile.nom or ''}".strip()
     entreprise = (profile.entreprise or "").strip()
     if nom_personne and entreprise:
-        return f"{nom_personne} — {entreprise}"
+        return f"{nom_personne}, {entreprise}"
     return nom_personne or entreprise or None
 
 

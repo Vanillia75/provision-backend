@@ -42,9 +42,9 @@ def get_franchise_vat_mention(invoice_date: Optional[date] = None) -> str:
     `invoice_date` est accepté dès maintenant (signature stable) car une
     éventuelle bascule de référence légale dépendra de la date d'émission.
     """
-    # TODO (avant 2026-09-01) : vérifier à la source officielle (BOFiP /
-    # Service Public) si l'art. 293 B du CGI bascule vers l'art. L.223-3 du
-    # CIBS. Ne rien changer sans source.
+    # Vérifié le 2026-07-10 : la mention « TVA non applicable, art. 293 B du CGI »
+    # reste la référence obligatoire en 2026 (aucune bascule vers le CIBS pour
+    # la mention). À re-vérifier lors du rituel de janvier avec les autres taux.
     return "TVA non applicable, art. 293 B du CGI"
 
 
