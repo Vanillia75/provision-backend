@@ -512,8 +512,11 @@ class ForgotPasswordRequest(BaseModel):
 def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
     # On repond toujours {"ok": True}, meme si l'email n'existe pas en base,
     # pour ne jamais reveler quels emails ont un compte (securite).
+    # Les comptes inscrits via Google (password_hash=None) recoivent AUSSI le lien :
+    # il leur sert a CREER un mot de passe (indispensable pour l'app iPhone, qui n'a
+    # pas de bouton Google). La connexion Google du web continue de marcher a cote.
     user = db.query(User).filter(User.email == req.email).first()
-    if user and user.password_hash:
+    if user:
         token = create_purpose_token(user.id, "reset_password", expire_minutes=60)
         send_reset_password_email(user.email, token)
     return {"ok": True}
@@ -531,6 +534,9 @@ def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
 
+    # Meme exigence que le changement de mot de passe connecte (8 caracteres mini).
+    if len(req.new_password or "") < 8:
+        raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 8 caractères.")
     user.password_hash = hash_password(req.new_password)
     db.commit()
     return {"ok": True}
