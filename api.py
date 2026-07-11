@@ -4098,14 +4098,37 @@ def complete_onboarding(
 
 
 # ─── Trouver des cachets & des heures : offres France Travail ───────────────────
-# Public (pas de données perso). Cache mémoire ~20 min par combo de filtres pour
-# ménager le quota FT (10 appels/s). En cas d'échec FT → 502 propre, JAMAIS de mocks.
+# Public (pas de données perso) : la licence France Travail impose un accès libre,
+# sans compte ni paiement — la landing publique appelle donc cette route directement.
+# Cache mémoire ~20 min par combo de filtres pour ménager le quota FT (10 appels/s).
+# En cas d'échec FT → 502 propre, JAMAIS de mocks.
 _OFFRES_CACHE = {}          # (role_type, contract_type, lieu, rayon) -> (timestamp, offres)
 _OFFRES_TTL = 20 * 60       # 20 minutes
+# Anti-abus : fenêtre glissante par IP. Le cache absorbe déjà le trafic normal ;
+# cette limite ne vise que les rafales anormales (scraping, boucle).
+_OFFRES_RL = {}             # ip -> liste de timestamps récents
+_OFFRES_RL_MAX = 30         # requêtes max par IP
+_OFFRES_RL_FEN = 60         # sur 60 secondes
+
+
+def _offres_ratelimit(request: Request, now: float):
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+        or (request.client.host if request.client else "?")
+    horodatages = [t for t in _OFFRES_RL.get(ip, []) if now - t < _OFFRES_RL_FEN]
+    if len(horodatages) >= _OFFRES_RL_MAX:
+        _OFFRES_RL[ip] = horodatages
+        raise HTTPException(status_code=429, detail="Trop de requêtes, réessaie dans une minute.")
+    horodatages.append(now)
+    _OFFRES_RL[ip] = horodatages
+    # Ménage : on ne garde jamais plus de quelques milliers d'IP en mémoire.
+    if len(_OFFRES_RL) > 5000:
+        for vieille_ip in [k for k, v in _OFFRES_RL.items() if not v or now - v[-1] > _OFFRES_RL_FEN]:
+            _OFFRES_RL.pop(vieille_ip, None)
 
 
 @app.get("/intermittent/offres")
 def get_intermittent_offres(
+    request: Request,
     role_type: str = "",
     contract_type: str = "",
     lieu: str = "",
@@ -4117,6 +4140,7 @@ def get_intermittent_offres(
 
     key = (role_type or "", contract_type or "", (lieu or "").lower().strip(), int(rayon or 20))
     now = _time.time()
+    _offres_ratelimit(request, now)
     cached = _OFFRES_CACHE.get(key)
     if cached and now - cached[0] < _OFFRES_TTL:
         return {"offres": cached[1], "source": "France Travail"}
@@ -4128,6 +4152,11 @@ def get_intermittent_offres(
     except Exception as e:
         # On ne loggue jamais d'éventuels secrets — juste le type d'erreur.
         _logging.getLogger("francetravail").warning("Echec offres FT: %s", type(e).__name__)
+        # Cache de secours : si FT échoue (429, panne) et qu'on a des offres même
+        # périmées pour ce filtre, on les sert plutôt qu'une erreur. Ce sont de
+        # vraies offres FT, juste moins fraîches — jamais de mocks.
+        if cached:
+            return {"offres": cached[1], "source": "France Travail"}
         raise HTTPException(status_code=502, detail="Impossible de récupérer les offres pour le moment.")
 
     _OFFRES_CACHE[key] = (now, offres)
