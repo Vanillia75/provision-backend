@@ -130,6 +130,8 @@ ALLOWED_ORIGINS = [
     "https://montotor.fr",         # nouveau domaine TOTOR (rebranding 07/2026)
     "https://www.montotor.fr",
     "http://localhost:5173",  # developpement local (Vite)
+    "capacitor://localhost",  # app iOS native (Capacitor, App Store)
+    "https://localhost",      # app Android native (Capacitor, valeur par defaut)
 ]
 
 app.add_middleware(
