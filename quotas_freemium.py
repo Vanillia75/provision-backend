@@ -148,6 +148,29 @@ def verifier_creation_document(db: Session, user: User, quel: str):
 
 
 # ────────────────────────────────────────────────────────────────────────
+#  FONCTIONS D'INTELLIGENCE (Option A du 12/07) : « on fait payer
+#  l'intelligence et la responsabilité retirée, jamais la donnée ».
+#  Les jours COMPTÉS par employeur restent visibles pour tous (la donnée) ;
+#  la surveillance (quota + alerte plafond) est TOTOR Veille.
+# ────────────────────────────────────────────────────────────────────────
+def verifier_surveillance_quotas_employeur(db: Session, user: User):
+    """À appeler avant d'enregistrer un quota d'employeur (la surveillance)."""
+    if billing.is_premium(db, user):
+        return
+    raise _erreur_premium(
+        "quotas_employeur",
+        "La surveillance de tes jours par employeur est une fonction TOTOR Veille. "
+        "Je compte, je compare au plafond de chaque boîte, et je te préviens avant que ça coince. 🔓",
+    )
+
+
+def projection_verrouillee(db: Session, user: User) -> bool:
+    """« Je regarde ton mois prochain » : True si le compte gratuit doit voir
+    le teaser au lieu de la projection (drapeau doux, jamais une erreur)."""
+    return not billing.is_premium(db, user)
+
+
+# ────────────────────────────────────────────────────────────────────────
 #  MODE ACHAT : 5 simulations par mois en gratuit
 # ────────────────────────────────────────────────────────────────────────
 def consommer_simulation_achat(db: Session, user: User) -> dict:

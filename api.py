@@ -879,10 +879,13 @@ def save_quota_employeur(
     db: Session = Depends(get_db),
 ):
     """Ajoute, met à jour ou retire (quota None/0) le quota de jours d'un employeur.
-    Les valeurs sont saisies par l'utilisateur (internes aux boîtes), jamais codées."""
+    Les valeurs sont saisies par l'utilisateur (internes aux boîtes), jamais codées.
+    La SURVEILLANCE des quotas est une fonction Premium (les jours comptés restent
+    visibles pour tous : c'est la donnée de l'utilisateur, jamais verrouillée)."""
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Profil introuvable")
+    quotas_freemium.verifier_surveillance_quotas_employeur(db, user)
     nom = (req.nom or "").strip()
     if not nom:
         raise HTTPException(status_code=400, detail="Nom d'employeur requis.")
@@ -3088,6 +3091,11 @@ def get_projection(user: User = Depends(get_current_user), db: Session = Depends
     # La projection est propre à l'auto-entrepreneur (l'intermittent a son cockpit 507h).
     if profile.statut != "auto_entrepreneur":
         return {"disponible": False, "message": "Ce statut utilise un autre tableau de bord."}
+
+    # « Je regarde ton mois prochain » = fonction TOTOR Veille (intelligence, pas donnée) :
+    # en gratuit on renvoie un drapeau doux, jamais une erreur (même logique que la paie).
+    if quotas_freemium.projection_verrouillee(db, user):
+        return {"disponible": False, "verrouille": True}
 
     # Sans solde renseigné, rien à projeter : l'appli affichera « renseigne ton solde ».
     if profile.solde_bancaire is None:

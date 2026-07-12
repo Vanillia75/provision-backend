@@ -139,3 +139,23 @@ def test_mode_achat_illimite_en_premium(db, monkeypatch):
     monkeypatch.setattr(qf.billing, "is_premium", lambda *_: True)
     for _ in range(20):
         assert qf.consommer_simulation_achat(db, u) == {"illimite": True}
+
+
+# ─── Fonctions d'intelligence (Option A du 12/07) ────────────────────────
+
+def test_surveillance_quotas_employeur_est_premium(db):
+    u = _user(db)
+    _attendre_402(lambda: qf.verifier_surveillance_quotas_employeur(db, u), "quotas_employeur")
+
+
+def test_surveillance_quotas_employeur_passe_en_premium(db, monkeypatch):
+    u = _user(db)
+    monkeypatch.setattr(qf.billing, "is_premium", lambda *_: True)
+    qf.verifier_surveillance_quotas_employeur(db, u)   # ne lève pas
+
+
+def test_projection_verrouillee_en_gratuit_ouverte_en_premium(db, monkeypatch):
+    u = _user(db)
+    assert qf.projection_verrouillee(db, u) is True
+    monkeypatch.setattr(qf.billing, "is_premium", lambda *_: True)
+    assert qf.projection_verrouillee(db, u) is False
