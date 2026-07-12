@@ -28,8 +28,13 @@ from models import Subscription, PromoCode, StripeEvent, User, AIUsage
 # retour à la ligne invisible en fin de valeur. Sur une clé, ce caractère rend
 # l'en-tête HTTP invalide (« Invalid header value ... \n ») et Stripe refuse tout.
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
-STRIPE_PRICE_PREMIUM = os.environ.get("STRIPE_PRICE_PREMIUM", "").strip()          # mensuel
-STRIPE_PRICE_PREMIUM_ANNUAL = os.environ.get("STRIPE_PRICE_PREMIUM_ANNUAL", "").strip()  # annuel (optionnel)
+STRIPE_PRICE_PREMIUM = os.environ.get("STRIPE_PRICE_PREMIUM", "").strip()          # mensuel 9,99 €
+STRIPE_PRICE_PREMIUM_ANNUAL = os.environ.get("STRIPE_PRICE_PREMIUM_ANNUAL", "").strip()  # annuel 79 €
+# Pionnier : 44,99 €/an VERROUILLÉ À VIE, réservé aux 100 premiers payants réels.
+# ⚠️ RÈGLE ABSOLUE : un abonné Pionnier garde ce prix indéfiniment tant qu'il reste
+# abonné. Ne JAMAIS migrer son abonnement vers un autre prix, même lors d'une hausse.
+STRIPE_PRICE_PIONNIER = os.environ.get("STRIPE_PRICE_PIONNIER", "").strip()
+PIONNIER_LIMITE = 100
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://hector-app.fr")
 
@@ -220,6 +225,57 @@ def premium_source(db: Session, user: User):
 
 
 # ════════════════════════════════════════════════════════════════════════
+#  Pionnier : compteur RÉEL (Loi X pricing : jamais de fausse rareté)
+# ════════════════════════════════════════════════════════════════════════
+_PIONNIER_CACHE = {"t": 0.0, "n": 0}
+_PIONNIER_TTL = 60  # secondes : la page d'abonnement peut interroger souvent
+
+
+def compter_pionniers(db: Session) -> int:
+    """Nombre d'abonnements Pionnier PAYANTS RÉELS : lus chez Stripe (source de
+    vérité, prix Pionnier, statuts qui donnent le premium), moins les comptes de
+    test de la maison (User.is_test via le customer). Cache mémoire 60 s."""
+    import time as _time
+    now = _time.time()
+    if now - _PIONNIER_CACHE["t"] < _PIONNIER_TTL:
+        return _PIONNIER_CACHE["n"]
+    if not STRIPE_PRICE_PIONNIER or not stripe.api_key:
+        return 0
+    n = 0
+    try:
+        subs = stripe.Subscription.list(price=STRIPE_PRICE_PIONNIER, status="all", limit=100)
+        for s in subs.auto_paging_iter():
+            if _g(s, "status") not in GRANTING_STATUSES:
+                continue
+            cust = _g(s, "customer")
+            row = db.query(Subscription).filter(Subscription.stripe_customer_id == cust).first()
+            if row:
+                u = db.query(User).filter(User.id == row.user_id).first()
+                if u is not None and bool(getattr(u, "is_test", False)):
+                    continue  # compte de test maison : ne compte pas une place
+            n += 1
+    except Exception:
+        # Stripe injoignable : on sert la dernière valeur connue plutôt que 0
+        return _PIONNIER_CACHE["n"]
+    _PIONNIER_CACHE["t"] = now
+    _PIONNIER_CACHE["n"] = n
+    return n
+
+
+def offre_pionnier(db: Session) -> dict:
+    """État de l'offre Pionnier pour la page d'abonnement : places restantes
+    (compteur réel) et ouverture. À 100 payants réels, l'offre se ferme seule."""
+    pris = compter_pionniers(db)
+    restantes = max(0, PIONNIER_LIMITE - pris)
+    return {
+        "pionnier_configure": bool(STRIPE_PRICE_PIONNIER),
+        "pionnier_ouvert": bool(STRIPE_PRICE_PIONNIER) and restantes > 0,
+        "pionnier_restantes": restantes,
+        "pionnier_limite": PIONNIER_LIMITE,
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════
 #  Checkout & Portal
 # ════════════════════════════════════════════════════════════════════════
 def create_checkout_session(db: Session, user: User, promo_code: str | None = None,
@@ -229,11 +285,20 @@ def create_checkout_session(db: Session, user: User, promo_code: str | None = No
     NB : l'activation du premium se fera au WEBHOOK, pas au retour de cette URL.
     `app_mode` (auto_entrepreneur/intermittent) et `origin` permettent de revenir sur le
     bon domaine ET dans le bon mode après le paiement.
-    `plan` = "annuel" pour le tarif à l'année (si configuré) ; sinon mensuel par défaut."""
+    `plan` = "mensuel" (défaut) | "annuel" | "pionnier" (44,99 €/an à vie, 100 premiers)."""
     sub = get_or_create_subscription(db, user)
 
-    # Tarif : annuel si demandé ET configuré, sinon mensuel.
-    price_id = STRIPE_PRICE_PREMIUM_ANNUAL if (plan == "annuel" and STRIPE_PRICE_PREMIUM_ANNUAL) else STRIPE_PRICE_PREMIUM
+    # Tarif selon le plan demandé.
+    if plan == "pionnier" and STRIPE_PRICE_PIONNIER:
+        # Garde-fou serveur : l'offre se ferme au 100e payant réel, même si la page
+        # affichée était en retard. (Compteur réel : Loi X, pas de fausse rareté.)
+        if offre_pionnier(db)["pionnier_restantes"] <= 0:
+            raise ValueError("pionnier_complet")
+        price_id = STRIPE_PRICE_PIONNIER
+    elif plan == "annuel" and STRIPE_PRICE_PREMIUM_ANNUAL:
+        price_id = STRIPE_PRICE_PREMIUM_ANNUAL
+    else:
+        price_id = STRIPE_PRICE_PREMIUM
 
     base = _safe_return_base(origin)
     mode_q = f"&mode={app_mode}" if app_mode else ""
@@ -244,10 +309,9 @@ def create_checkout_session(db: Session, user: User, promo_code: str | None = No
         "success_url": f"{base}/?billing=success{mode_q}",
         "cancel_url": f"{base}/?billing=cancel",
         "metadata": {"user_id": user.id},
-        # Essai 14 jours : carte enregistrée au checkout, aucun prélèvement pendant l'essai,
-        # puis prélèvement auto (sauf annulation). Stripe envoie un rappel avant la fin
-        # (à activer dans Réglages Stripe > e-mails clients > « fin d'essai »).
-        "subscription_data": {"metadata": {"user_id": user.id}, "trial_period_days": 14},
+        # PAS d'essai avec carte (décision PRICING.md 10/07) : le gratuit à vie tient
+        # lieu d'essai. L'abonnement démarre et prélève tout de suite.
+        "subscription_data": {"metadata": {"user_id": user.id, "plan_demande": plan or "mensuel"}},
     }
     if sub.stripe_customer_id:
         params["customer"] = sub.stripe_customer_id

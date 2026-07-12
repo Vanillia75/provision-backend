@@ -320,7 +320,7 @@ def admin_stats(request: Request, key: str = "", db: Session = Depends(get_db)):
     return {
         "inscrits": inscrits,
         "abonnes_payants": abonnes,
-        "places_pionnier_restantes": max(0, PIONNIER_PLACES - abonnes),
+        "places_pionnier_restantes": billing.offre_pionnier(db)["pionnier_restantes"],  # compteur REEL (prix Pionnier, hors is_test)
     }
 
 
@@ -352,7 +352,7 @@ def admin_mark_test(req: MarkTestRequest, db: Session = Depends(get_db)):
         "is_test": u.is_test,
         "inscrits": inscrits,
         "abonnes_payants": abonnes,
-        "places_pionnier_restantes": max(0, PIONNIER_PLACES - abonnes),
+        "places_pionnier_restantes": billing.offre_pionnier(db)["pionnier_restantes"],  # compteur REEL (prix Pionnier, hors is_test)
     }
 
 
@@ -4278,12 +4278,23 @@ def billing_create_checkout(
     """Crée une Checkout Session Stripe (abonnement récurrent). Renvoie l'URL à ouvrir."""
     try:
         url = billing.create_checkout_session(db, user, req.promo_code, app_mode=req.mode, origin=req.origin, plan=req.plan)
+    except ValueError as e:
+        if str(e) == "pionnier_complet":
+            raise HTTPException(status_code=409, detail="Les 100 places Pionnier sont prises. Les autres formules restent disponibles.")
+        raise HTTPException(status_code=400, detail="Le paiement n'a pas pu démarrer. Réessaie dans un instant.")
     except Exception as e:
         # On LOGGE l'erreur réelle (masquée) côté serveur, mais on ne renvoie JAMAIS
         # l'exception brute au client : elle peut contenir une clé secrète.
         print(f"[CHECKOUT ERROR] {type(e).__name__}: {billing.redact_secrets(e)}", flush=True)
         raise HTTPException(status_code=400, detail="Le paiement n'a pas pu démarrer. Réessaie dans un instant.")
     return {"url": url}
+
+
+@app.get("/billing/offres")
+def billing_offres(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """État des offres pour la page d'abonnement : places Pionnier RÉELLES restantes.
+    À 100 payants réels, pionnier_ouvert passe à false et la page ferme l'offre."""
+    return billing.offre_pionnier(db)
 
 
 @app.post("/billing/create-portal-session")
