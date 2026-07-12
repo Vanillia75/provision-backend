@@ -49,6 +49,7 @@ import allocation_engine as ae
 import conges_spectacles as cs
 from insee_lookup import lookup_siret, SiretLookupError
 import billing
+import revenuecat_webhook
 import sentry_sdk
 
 # ── Observabilité backend (Sentry) — INERTE tant qu'aucun SENTRY_DSN n'est fourni ──
@@ -4329,6 +4330,24 @@ async def billing_webhook(request: Request, db: Session = Depends(get_db)):
         # Signature invalide / payload illisible / erreur de traitement → 400.
         # Stripe réémettra l'event (le traitement est idempotent).
         raise HTTPException(status_code=400, detail=f"Webhook rejeté: {type(e).__name__}: {e}")
+
+
+@app.post("/billing/revenuecat-webhook")
+async def billing_revenuecat_webhook(request: Request, db: Session = Depends(get_db)):
+    """Webhook RevenueCat — le premium des caisses Apple (StoreKit) et Google
+    (Play Billing). Auth par header Authorization (secret partagé), traitement
+    idempotent dans revenuecat_webhook.traiter_evenement. Le compteur Pionnier
+    n'est PAS affecté (il ne lit que les abonnements Stripe au prix Pionnier)."""
+    if not revenuecat_webhook.verifier_auth(request.headers.get("authorization", "")):
+        raise HTTPException(status_code=401, detail="Non autorisé")
+    try:
+        payload = await request.json()
+        return revenuecat_webhook.traiter_evenement(db, payload)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[REVENUECAT WEBHOOK ERROR] {type(e).__name__}: {e}", flush=True)
+        raise HTTPException(status_code=400, detail="Webhook rejeté")
 
 
 @app.post("/billing/apply-promo")
