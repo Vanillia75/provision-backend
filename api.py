@@ -49,6 +49,7 @@ import allocation_engine as ae
 import conges_spectacles as cs
 from insee_lookup import lookup_siret, SiretLookupError
 import billing
+import quotas_freemium
 import sentry_sdk
 
 # ── Observabilité backend (Sentry) — INERTE tant qu'aucun SENTRY_DSN n'est fourni ──
@@ -1214,21 +1215,26 @@ def _consommer_quota(db: Session, user: User, type_appel: str, limite_jour: int)
     - Premium (is_premium == True) : seul le garde-fou anti-abus JOURNALIER s'applique.
     - Gratuit : limite MENSUELLE d'abord (402 si atteinte → le front propose le Premium),
       puis le même garde-fou journalier.
-    Le compteur du jour est incrémenté dans tous les cas (alimente le total mensuel).
+    ⭐ CHAT : le quota gratuit se compte par CONVERSATION (fil ≈ 24h), jamais par
+    message — les questions de précision de Totor ne consomment rien (PRICING.md).
+    Le compteur de MESSAGES du jour reste incrémenté (suivi de coût + anti-abus).
     is_premium() reste la SEULE source de vérité.
     """
     if not billing.is_premium(db, user):
-        deja_ce_mois = billing.usage_this_month(db, user.id, type_appel)
-        if deja_ce_mois >= billing.free_quota_for(type_appel):
-            raise HTTPException(
-                status_code=402,
-                detail={
-                    "code": "quota_gratuit_atteint",
-                    "fonction": type_appel,
-                    "message": "Tu as atteint ton quota gratuit du mois pour cette fonction. "
-                               "Passe en Premium pour la débloquer.",
-                },
-            )
+        if type_appel == "chat":
+            quotas_freemium.consommer_fil_chat(db, user)
+        else:
+            deja_ce_mois = billing.usage_this_month(db, user.id, type_appel)
+            if deja_ce_mois >= billing.free_quota_for(type_appel):
+                raise HTTPException(
+                    status_code=402,
+                    detail={
+                        "code": "quota_gratuit_atteint",
+                        "fonction": type_appel,
+                        "message": "Tu as atteint ton quota gratuit du mois pour cette fonction. "
+                                   "Passe en Premium pour la débloquer.",
+                    },
+                )
     _verifier_et_incrementer_quota_ia(db, user.id, type_appel, limite_jour)
 
 
@@ -1325,6 +1331,9 @@ def create_invoice(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Freemium 1.0.1 : 5 créations par mois en gratuit. Jamais rétroactif :
+    # les factures existantes restent consultables, modifiables et envoyables.
+    quotas_freemium.verifier_creation_document(db, user, "facture")
     if req.statut not in STATUTS_FACTURE:
         raise HTTPException(status_code=400, detail="Statut de facture inconnu")
 
@@ -2295,6 +2304,8 @@ def create_quote(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Freemium 1.0.1 : 5 créations par mois en gratuit (jamais rétroactif).
+    quotas_freemium.verifier_creation_document(db, user, "devis")
     if req.statut not in STATUTS_DEVIS:
         raise HTTPException(status_code=400, detail="Statut de devis inconnu")
 
@@ -3038,6 +3049,14 @@ def get_paie(user: User = Depends(get_current_user), db: Session = Depends(get_d
         historique.append({"mois": f"{mois_fr[m - 1]} {a}", "encaisse": round(ca, 2), "net": net})
 
     paie = calculer_paie(nets)
+    # Freemium 1.0.1 (carte officielle) : le salaire reste GRATUIT (l'habitude, le
+    # rituel du 1er), mais le gratuit reçoit UN montant conseillé (le recommandé).
+    # Les 3 montants (prudent / recommandé / maximum) font partie de TOTOR Veille.
+    # On ne fait jamais payer la donnée : l'historique reste visible pour tous.
+    if not billing.is_premium(db, user):
+        paie["prudent"] = None
+        paie["maximum"] = None
+        paie["paie_verrouillee"] = True
     dernier = historique[-1]
     return {
         "disponible": True,
@@ -4295,6 +4314,14 @@ def billing_offres(user: User = Depends(get_current_user), db: Session = Depends
     """État des offres pour la page d'abonnement : places Pionnier RÉELLES restantes.
     À 100 payants réels, pionnier_ouvert passe à false et la page ferme l'offre."""
     return billing.offre_pionnier(db)
+
+
+@app.post("/quota/achat-simulation")
+def quota_achat_simulation(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Mode Achat (freemium 1.0.1) : compte une simulation. Gratuit = 5 par mois,
+    TOTOR Veille = illimité. Le front appelle AVANT d'afficher le verdict ;
+    402 premium_requis quand le quota gratuit est épuisé."""
+    return quotas_freemium.consommer_simulation_achat(db, user)
 
 
 @app.post("/billing/create-portal-session")
