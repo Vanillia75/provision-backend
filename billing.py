@@ -60,9 +60,9 @@ def redact_secrets(text) -> str:
     return re.sub(r"(sk|rk|whsec)_[A-Za-z0-9_]+", r"\1_***", s)     # clés Stripe (sk_live_/sk_test_/rk_/whsec_)
 
 # ── Quotas freemium MENSUELS (surchargeables par env) ──
-FREE_AEM_SCAN_PER_MONTH = int(os.environ.get("FREE_AEM_SCAN_PER_MONTH", "2"))
+FREE_AEM_SCAN_PER_MONTH = int(os.environ.get("FREE_AEM_SCAN_PER_MONTH", "5"))
 FREE_CHAT_PER_MONTH = int(os.environ.get("FREE_CHAT_PER_MONTH", "3"))
-FREE_DOC_SCAN_PER_MONTH = int(os.environ.get("FREE_DOC_SCAN_PER_MONTH", "3"))
+FREE_DOC_SCAN_PER_MONTH = int(os.environ.get("FREE_DOC_SCAN_PER_MONTH", "5"))
 
 # Statuts Stripe qui donnent droit au premium (+ "comp" = offert testeur).
 GRANTING_STATUSES = ("active", "trialing", "comp")
