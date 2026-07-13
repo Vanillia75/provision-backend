@@ -601,10 +601,16 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
     prem = billing.is_premium(db, user)
     # Quotas freemium : exposés UNIQUEMENT pour les comptes gratuits (un abonné n'a pas de limite).
     # used = consommation du mois, limit = vraie valeur d'env (le front masque la jauge si limit > 100).
-    quotas = None if prem else {
-        t: {"used": billing.usage_this_month(db, user.id, t), "limit": billing.free_quota_for(t)}
-        for t in ("chat", "doc_scan", "aem_scan")
-    }
+    # ⭐ Le chat se compte par CONVERSATION (fil 24h), jamais par message : la jauge lit etat_chat.
+    if prem:
+        quotas = None
+    else:
+        quotas = {
+            t: {"used": billing.usage_this_month(db, user.id, t), "limit": billing.free_quota_for(t)}
+            for t in ("doc_scan", "aem_scan")
+        }
+        etat_fils = quotas_freemium.etat_chat(db, user)
+        quotas["chat"] = {"used": etat_fils["utilises"], "limit": etat_fils["limite"]}
 
     return {
         "statut": profile.statut,
