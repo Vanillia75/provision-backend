@@ -15,9 +15,20 @@ Deux particularites d'Apple, importantes pour la suite :
     (xxx@privaterelay.appleid.com). Nos emails n'y arrivent QUE si le domaine
     expediteur est declare dans Apple Developer (Sign in with Apple >
     Email Sources). Sinon Apple les jette silencieusement.
+
+Le nonce (protection contre le rejeu) :
+
+    L'app tire un nonce au hasard, envoie sa SHA-256 a Apple, et nous envoie
+    le nonce BRUT. Apple recopie la SHA-256 dans le jeton. On rehashe le brut
+    et on compare : un jeton intercepte ne sert a rien sans le nonce d'origine.
+    Il est OBLIGATOIRE : sans lui on refuse, plutot que d'accepter un jeton
+    rejouable.
 """
 
+import hashlib
+import hmac
 import os
+
 import jwt
 
 APPLE_ISSUER = "https://appleid.apple.com"
@@ -41,13 +52,20 @@ class AppleTokenInvalide(Exception):
     """Le jeton n'est pas exploitable : signature, expiration, destinataire..."""
 
 
-def verifier_identity_token(identity_token: str) -> dict:
+def verifier_identity_token(identity_token: str, nonce: str) -> dict:
     """Verifie le jeton Apple et rend {apple_id, email, email_verified, email_prive}.
 
-    Leve AppleTokenInvalide si le jeton ne vient pas d'Apple, a expire, ou ne
-    nous est pas destine. `email` peut etre None : Apple ne le transmet pas
-    systematiquement aux connexions suivant la premiere.
+    `nonce` est le nonce BRUT tire par l'app (celui dont elle a envoye la
+    SHA-256 a Apple). On le rehashe pour le comparer a ce qu'Apple a recopie
+    dans le jeton.
+
+    Leve AppleTokenInvalide si le jeton ne vient pas d'Apple, a expire, ne nous
+    est pas destine, ou si le nonce ne correspond pas. `email` peut etre None :
+    Apple ne le transmet pas systematiquement aux connexions suivant la premiere.
     """
+    if not nonce:
+        raise AppleTokenInvalide("nonce manquant")
+
     try:
         signing_key = _jwk_client.get_signing_key_from_jwt(identity_token)
         payload = jwt.decode(
@@ -59,6 +77,14 @@ def verifier_identity_token(identity_token: str) -> dict:
         )
     except Exception as e:  # PyJWTError, reseau, JWK introuvable...
         raise AppleTokenInvalide(str(e))
+
+    # Rejeu : le jeton ne vaut que pour la demande qui l'a declenche.
+    nonce_recu = payload.get("nonce")
+    if not nonce_recu:
+        raise AppleTokenInvalide("jeton sans nonce")
+    nonce_attendu = hashlib.sha256(nonce.encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(str(nonce_recu), nonce_attendu):
+        raise AppleTokenInvalide("le nonce ne correspond pas au jeton")
 
     apple_id = payload.get("sub")
     if not apple_id:

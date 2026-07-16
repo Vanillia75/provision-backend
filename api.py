@@ -170,6 +170,9 @@ class GoogleAuthRequest(BaseModel):
 
 class AppleAuthRequest(BaseModel):
     identity_token: str
+    # Nonce BRUT tire par l'app (elle a envoye sa SHA-256 a Apple). Obligatoire :
+    # c'est lui qui empeche qu'un jeton intercepte soit rejoue.
+    nonce: str
 
 
 class AuthResponse(BaseModel):
@@ -522,9 +525,12 @@ def auth_apple(req: AppleAuthRequest, db: Session = Depends(get_db)):
     Si elle masque son email, l'etape 2 ne peut pas la reconnaitre (l'adresse de
     relais ne correspond a rien) : elle repart sur un compte vierge. L'ecran de
     connexion previent avant, c'est le seul garde-fou possible.
+
+    Le `nonce` brut envoye par l'app est obligatoire (anti-rejeu) : voir
+    apple_auth.verifier_identity_token.
     """
     try:
-        infos = verifier_apple_identity_token(req.identity_token)
+        infos = verifier_apple_identity_token(req.identity_token, req.nonce)
     except AppleTokenInvalide:
         raise HTTPException(status_code=401, detail="Jeton Apple invalide")
 

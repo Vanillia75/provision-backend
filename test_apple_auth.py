@@ -3,6 +3,8 @@
 #  Couvre : verification du jeton, creation de compte, rattachement a un
 #  compte existant (email partage), reconnexion par apple_id, email masque.
 # ════════════════════════════════════════════════════════════════════════
+import hashlib
+
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -30,23 +32,25 @@ def pas_d_alerte_fondateur(monkeypatch):
 
 def _apple_repond(monkeypatch, apple_id, email, email_verified=True, email_prive=False):
     """Simule la reponse d'Apple : on teste NOTRE logique de rattachement, pas la
-    crypto d'Apple (verifiee a part dans les deux premiers tests)."""
+    crypto d'Apple (verifiee a part dans les premiers tests)."""
     monkeypatch.setattr(
         api, "verifier_apple_identity_token",
-        lambda _t: {"apple_id": apple_id, "email": email,
-                    "email_verified": email_verified, "email_prive": email_prive},
+        lambda _t, _n: {"apple_id": apple_id, "email": email,
+                        "email_verified": email_verified, "email_prive": email_prive},
     )
 
 
 def _connexion(db):
-    return api.auth_apple(api.AppleAuthRequest(identity_token="peu-importe"), db)
+    return api.auth_apple(
+        api.AppleAuthRequest(identity_token="peu-importe", nonce="nonce-brut"), db
+    )
 
 
 # ── La verification du jeton lui-meme ────────────────────────────────────
 
 def test_jeton_bidon_refuse():
     with pytest.raises(apple_auth.AppleTokenInvalide):
-        apple_auth.verifier_identity_token("pas-un-jeton")
+        apple_auth.verifier_identity_token("pas-un-jeton", "nonce-brut")
 
 
 def test_jeton_signe_par_un_autre_refuse():
@@ -58,7 +62,61 @@ def test_jeton_signe_par_un_autre_refuse():
         "ma-cle-a-moi", algorithm="HS256",
     )
     with pytest.raises(apple_auth.AppleTokenInvalide):
-        apple_auth.verifier_identity_token(faux)
+        apple_auth.verifier_identity_token(faux, "nonce-brut")
+
+
+# ── Le nonce (anti-rejeu) ────────────────────────────────────────────────
+#
+# Apple recopie dans le jeton la SHA-256 du nonce que l'app lui a donnee.
+# On simule un vrai jeton Apple en detournant la verification cryptographique,
+# pour tester UNIQUEMENT notre comparaison de nonce.
+
+def _jeton_apple_simule(monkeypatch, nonce_dans_le_jeton):
+    """Fait comme si Apple avait signe un jeton portant ce nonce."""
+    class _FausseCle:
+        key = "peu-importe"
+
+    monkeypatch.setattr(
+        apple_auth._jwk_client, "get_signing_key_from_jwt",
+        lambda _t: _FausseCle(),
+    )
+    payload = {"sub": "000999.zzz", "email": "test@exemple-hector.fr",
+               "email_verified": "true", "is_private_email": "false"}
+    if nonce_dans_le_jeton is not None:
+        payload["nonce"] = nonce_dans_le_jeton
+    monkeypatch.setattr(apple_auth.jwt, "decode", lambda *a, **k: payload)
+
+
+def test_nonce_correct_accepte(monkeypatch):
+    """Le cas normal : l'app envoie le nonce brut, Apple a recopie sa SHA-256."""
+    brut = "nonce-tire-au-hasard-par-l-app"
+    _jeton_apple_simule(monkeypatch, hashlib.sha256(brut.encode()).hexdigest())
+
+    infos = apple_auth.verifier_identity_token("jeton", brut)
+
+    assert infos["apple_id"] == "000999.zzz"
+
+
+def test_nonce_qui_ne_correspond_pas_refuse(monkeypatch):
+    """LE test qui compte : un jeton intercepte, rejoue avec un autre nonce."""
+    _jeton_apple_simule(monkeypatch, hashlib.sha256(b"le-vrai-nonce").hexdigest())
+
+    with pytest.raises(apple_auth.AppleTokenInvalide):
+        apple_auth.verifier_identity_token("jeton-vole", "nonce-de-l-attaquant")
+
+
+def test_jeton_sans_nonce_refuse(monkeypatch):
+    """Un jeton Apple obtenu sans nonce ne doit pas passer chez nous."""
+    _jeton_apple_simule(monkeypatch, None)
+
+    with pytest.raises(apple_auth.AppleTokenInvalide):
+        apple_auth.verifier_identity_token("jeton", "nonce-brut")
+
+
+def test_nonce_vide_refuse():
+    """On refuse avant meme de regarder le jeton."""
+    with pytest.raises(apple_auth.AppleTokenInvalide):
+        apple_auth.verifier_identity_token("jeton", "")
 
 
 def test_route_refuse_jeton_invalide(db):
