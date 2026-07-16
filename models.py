@@ -17,6 +17,9 @@ class User(Base):
     email = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=True)
     google_id = Column(String, unique=True, nullable=True, index=True)
+    # Identifiant « Se connecter avec Apple » (le `sub` du jeton). Seule cle
+    # stable cote Apple : l'email peut etre un relais anonyme, jamais lui.
+    apple_id = Column(String, unique=True, nullable=True, index=True)
     email_verified = Column(Boolean, nullable=False, default=False)
     # Compte de test/fondateur : exclu des stats du dashboard honnête (marque
     # explicite, remplace l'ancienne devinette par motif d'email).

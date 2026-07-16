@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
+from apple_auth import verifier_identity_token as verifier_apple_identity_token, AppleTokenInvalide
 from database import Base, engine, get_db, SessionLocal
 from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt, FiscalSettings, Subscription
 from auth import (
@@ -165,6 +166,10 @@ class LoginRequest(BaseModel):
 
 class GoogleAuthRequest(BaseModel):
     credential: str
+
+
+class AppleAuthRequest(BaseModel):
+    identity_token: str
 
 
 class AuthResponse(BaseModel):
@@ -500,6 +505,69 @@ def auth_google(req: GoogleAuthRequest, db: Session = Depends(get_db)):
     elif not user.google_id:
         user.google_id = google_id
         db.commit()
+
+    return AuthResponse(token=create_token(user.id), email=user.email)
+
+
+@app.post("/auth/apple", response_model=AuthResponse)
+def auth_apple(req: AppleAuthRequest, db: Session = Depends(get_db)):
+    """« Se connecter avec Apple » — l'app iPhone (Google refuse l'auth en WebView).
+
+    Rattachement, dans cet ordre :
+      1. par `apple_id` : la personne s'est deja connectee avec Apple ;
+      2. par email : elle a deja un compte (web, Google, mot de passe) et
+         a choisi « Partager mon email » -> on lie Apple a CE compte, pas de doublon ;
+      3. sinon, nouveau compte.
+
+    Si elle masque son email, l'etape 2 ne peut pas la reconnaitre (l'adresse de
+    relais ne correspond a rien) : elle repart sur un compte vierge. L'ecran de
+    connexion previent avant, c'est le seul garde-fou possible.
+    """
+    try:
+        infos = verifier_apple_identity_token(req.identity_token)
+    except AppleTokenInvalide:
+        raise HTTPException(status_code=401, detail="Jeton Apple invalide")
+
+    apple_id = infos["apple_id"]
+    email = infos["email"]
+
+    user = db.query(User).filter(User.apple_id == apple_id).first()
+    if user:
+        return AuthResponse(token=create_token(user.id), email=user.email)
+
+    if not email:
+        # Premiere connexion sans email : Apple ne le transmet qu'a la toute
+        # premiere autorisation. La personne a deja autorise TOTOR puis supprime
+        # son compte -> elle doit retirer l'app dans Reglages > Compte Apple.
+        raise HTTPException(
+            status_code=401,
+            detail="Apple ne nous a pas transmis ton email. Dans Reglages iPhone > "
+                   "ton nom > Connexion avec Apple > TOTOR, choisis « Ne plus utiliser », "
+                   "puis reessaie.",
+        )
+
+    user = db.query(User).filter(User.email == email).first()
+    if user:
+        user.apple_id = apple_id
+        db.commit()
+        return AuthResponse(token=create_token(user.id), email=user.email)
+
+    user = User(
+        email=email,
+        apple_id=apple_id,
+        password_hash=None,
+        # Apple a deja verifie l'adresse : pas de bannière « verifie ton email ».
+        email_verified=bool(infos["email_verified"]),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    # Alerte fondateur : nouvel inscrit (best-effort, ne bloque jamais l'inscription).
+    try:
+        send_founder_signup_alert(db.query(User).count(), user.email)
+    except Exception:
+        pass
 
     return AuthResponse(token=create_token(user.id), email=user.email)
 
