@@ -695,6 +695,7 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         "versement_liberatoire": profile.versement_liberatoire,
         "date_creation_activite": profile.date_creation_activite,
         "onboarding_complete": profile.onboarding_complete,
+        "walkthrough_vu": profile.walkthrough_vu,
         "siret": profile.siret,
         "raison_sociale": profile.raison_sociale,
         "adresse": profile.adresse,
@@ -755,6 +756,23 @@ def set_profile(
     profile.date_creation_activite = req.date_creation_activite
     profile.onboarding_complete = True
 
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/profile/walkthrough-vu")
+def marquer_walkthrough_vu(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """La visite guidee a ete vue : on le retient EN BASE, pas dans le navigateur.
+
+    Sinon elle repartait a zero a chaque reinstallation de l'app ou changement
+    de telephone, et la personne se la retapait comme une debutante.
+    """
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        # Pas encore de profil : rien a retenir, la visite ne s'affiche qu'apres
+        # l'onboarding. On ne cree pas de profil vide pour autant.
+        return {"ok": True}
+    profile.walkthrough_vu = True
     db.commit()
     return {"ok": True}
 

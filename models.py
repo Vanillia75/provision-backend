@@ -77,6 +77,10 @@ class Profile(Base):
     heures_reference = Column(Float, nullable=True)     # NHT : heures retenues sur la période
     annexe_allocation = Column(String, nullable=True)   # "annexe8" (technicien) | "annexe10" (artiste)
     onboarding_complete = Column(Boolean, default=False)
+    # Visite guidee deja vue. En base et pas en local : le navigateur oublie a
+    # chaque reinstallation de l'app ou changement de telephone, et la personne
+    # se retapait la visite comme une debutante. On la connait, on s'en souvient.
+    walkthrough_vu = Column(Boolean, default=False, nullable=False, server_default="false")
 
     siret = Column(String, nullable=True, index=True)
     raison_sociale = Column(String, nullable=True)
