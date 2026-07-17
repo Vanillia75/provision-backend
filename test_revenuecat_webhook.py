@@ -32,12 +32,13 @@ def _user(db):
     return u
 
 
-def _evt(user_id, type_evt, store="APP_STORE", exp_dans_jours=30):
+def _evt(user_id, type_evt, store="APP_STORE", exp_dans_jours=30, environment="PRODUCTION"):
     exp = datetime.utcnow() + timedelta(days=exp_dans_jours)
     return {"event": {
         "type": type_evt,
         "app_user_id": user_id,
         "store": store,
+        "environment": environment,
         "entitlement_ids": ["veille"],
         "expiration_at_ms": int(exp.timestamp() * 1000),
     }}
@@ -103,6 +104,37 @@ def test_un_stripe_actif_n_est_jamais_ecrase(db):
 def test_anonyme_et_inconnu_ignores_proprement(db):
     assert rc.traiter_evenement(db, _evt("$RCAnonymousID:abc", "INITIAL_PURCHASE"))["ignore"] == "utilisateur_anonyme"
     assert rc.traiter_evenement(db, _evt("id-fantome", "INITIAL_PURCHASE"))["ignore"] == "utilisateur_inconnu"
+
+
+def test_achat_sandbox_donne_le_premium_mais_ne_compte_pas(db):
+    # Le reviewer Apple (ou un testeur TestFlight) achète en SANDBOX : l'app doit
+    # se débloquer pour lui, mais il ne grignote AUCUNE place Pionnier ni stat.
+    u = _user(db)
+    r = rc.traiter_evenement(db, _evt(u.id, "INITIAL_PURCHASE", environment="SANDBOX"))
+    assert r["plan"] == "premium"
+    assert billing.is_premium(db, u) is True
+    row = db.query(Subscription).filter_by(user_id=u.id).first()
+    assert row.is_sandbox is True
+    assert billing.compter_abonnes_payants(db) == 0
+
+
+def test_achat_production_compte_dans_les_abonnes_payants(db):
+    u = _user(db)
+    rc.traiter_evenement(db, _evt(u.id, "INITIAL_PURCHASE", environment="PRODUCTION"))
+    row = db.query(Subscription).filter_by(user_id=u.id).first()
+    assert row.is_sandbox is False
+    assert billing.compter_abonnes_payants(db) == 1
+
+
+def test_compte_de_test_maison_ne_compte_pas(db):
+    # Même un achat PRODUCTION ne compte pas si le compte est marqué is_test
+    # (comptes démo/fondateur, cf. POST /admin/mark-test).
+    u = _user(db)
+    u.is_test = True
+    db.commit()
+    rc.traiter_evenement(db, _evt(u.id, "INITIAL_PURCHASE", environment="PRODUCTION"))
+    assert billing.is_premium(db, u) is True
+    assert billing.compter_abonnes_payants(db) == 0
 
 
 def test_auth_du_webhook(monkeypatch):

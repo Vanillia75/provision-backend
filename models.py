@@ -426,7 +426,11 @@ class Subscription(Base):
     status = Column(String, nullable=True)                       # statut Stripe, ou "comp"
     current_period_end = Column(DateTime, nullable=True)         # fin de période payée / offerte
     cancel_at_period_end = Column(Boolean, nullable=False, default=False)
-    source = Column(String, nullable=False, default="stripe")    # "stripe" | "comp"
+    source = Column(String, nullable=False, default="stripe")    # "stripe" | "apple" | "google" | "comp"
+    # Achat SANDBOX d'un store (reviewer Apple, TestFlight, tests internes) :
+    # le premium est accordé (le testeur doit voir l'app débloquée), mais cet
+    # abonnement ne compte JAMAIS dans les stats ni les places Pionnier.
+    is_sandbox = Column(Boolean, nullable=False, default=False, server_default="false")
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

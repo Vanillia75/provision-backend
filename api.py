@@ -230,16 +230,9 @@ def _compter_stats(db: Session):
     supprimée, les comptes de test existent toujours, ils ne sont juste pas comptés.
     Pour marquer un compte plus tard : POST /admin/mark-test."""
     inscrits = db.query(User).filter(User.is_test.is_(False)).count()
-    abonnes = (
-        db.query(Subscription)
-        .join(User, User.id == Subscription.user_id)
-        .filter(
-            User.is_test.is_(False),
-            Subscription.source == "stripe",
-            Subscription.plan == "premium",
-        )
-        .count()
-    )
+    # Abonnés payants RÉELS toutes caisses (Stripe, Apple, Google), hors comptes
+    # de test et hors achats sandbox : même compteur que les alertes fondateur.
+    abonnes = billing.compter_abonnes_payants(db)
     return inscrits, abonnes
 
 
@@ -421,7 +414,7 @@ def admin_dashboard(request: Request, key: str = "", db: Session = Depends(get_d
     <div class="card">
       <div class="label">Abonnés payants</div>
       <div class="num green">{abonnes}</div>
-      <div class="hint">abonnements Stripe actifs</div>
+      <div class="hint">paiements réels (Stripe, Apple, Google), hors tests</div>
     </div>
     <div class="card">
       <div class="label">Places Pionnier</div>

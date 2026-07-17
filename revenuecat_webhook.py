@@ -66,6 +66,12 @@ def traiter_evenement(db: Session, payload: dict) -> dict:
         # webhook Stripe direct fait déjà foi, on ne double pas.
         return {"ok": True, "ignore": f"store_non_gere:{event.get('store')}"}
 
+    # SANDBOX = achat de test des stores (reviewer Apple, TestFlight, tests
+    # internes). Le premium est accordé quand même (le testeur doit voir l'app
+    # débloquée), mais l'abonnement est marqué : il ne comptera jamais dans les
+    # stats ni les places Pionnier, et ne déclenche pas d'alerte fondateur.
+    sandbox = (event.get("environment") or "").upper() == "SANDBOX"
+
     exp_ms = event.get("expiration_at_ms")
     expiration = datetime.utcfromtimestamp(exp_ms / 1000.0) if exp_ms else None
 
@@ -89,6 +95,7 @@ def traiter_evenement(db: Session, payload: dict) -> dict:
         row.plan = "premium"
         row.status = "active"
         row.source = source
+        row.is_sandbox = sandbox
         row.current_period_end = expiration
         row.cancel_at_period_end = False
     elif type_evt == "CANCELLATION":
@@ -119,15 +126,13 @@ def traiter_evenement(db: Session, payload: dict) -> dict:
     db.commit()
 
     # Nouvel abonné payant via un store : même alerte fondateur que Stripe.
-    if ancien_plan != "premium" and row.plan == "premium":
+    # JAMAIS pour un achat sandbox ni un compte de test maison : seuls les vrais
+    # paiements en production comptent (et grignotent les places Pionnier).
+    if ancien_plan != "premium" and row.plan == "premium" and not sandbox and not bool(getattr(user, "is_test", False)):
         try:
+            from billing import compter_abonnes_payants
             from emailing import send_founder_subscriber_alert
-            nb = (
-                db.query(Subscription)
-                .filter(Subscription.plan == "premium", Subscription.source.in_(("stripe", "apple", "google")))
-                .count()
-            )
-            send_founder_subscriber_alert(nb, user.email)
+            send_founder_subscriber_alert(compter_abonnes_payants(db), user.email)
         except Exception:
             pass
 

@@ -172,17 +172,14 @@ def _apply_stripe_subscription(db: Session, stripe_sub: dict):
     db.commit()
 
     # Nouvel abonné payant : alerte fondateur UNE seule fois (à la bascule vers premium,
-    # pas aux renouvellements). Best-effort : ne doit jamais casser le traitement du webhook.
+    # pas aux renouvellements), et JAMAIS pour un compte de test maison : seuls les
+    # vrais paiements comptent. Best-effort : ne doit jamais casser le webhook.
     if old_plan != "premium" and row.plan == "premium":
         try:
-            from emailing import send_founder_subscriber_alert
-            nb = (
-                db.query(Subscription)
-                .filter(Subscription.source == "stripe", Subscription.plan == "premium")
-                .count()
-            )
             u = db.query(User).filter(User.id == row.user_id).first()
-            send_founder_subscriber_alert(nb, u.email if u else "?")
+            if u is not None and not bool(getattr(u, "is_test", False)):
+                from emailing import send_founder_subscriber_alert
+                send_founder_subscriber_alert(compter_abonnes_payants(db), u.email)
         except Exception:
             pass
 
@@ -222,6 +219,25 @@ def premium_source(db: Session, user: User):
         return None
     sub = db.query(Subscription).filter(Subscription.user_id == user.id).first()
     return sub.source if sub else None
+
+
+def compter_abonnes_payants(db: Session) -> int:
+    """Nombre d'abonnés PAYANTS RÉELS, toutes caisses confondues (Stripe, Apple,
+    Google) : premium, hors comptes de test maison (User.is_test) et hors achats
+    sandbox des stores (reviewer Apple, TestFlight — Subscription.is_sandbox).
+    C'est LE chiffre des alertes fondateur et du dashboard : seuls les vrais
+    paiements en production comptent, jamais un test ne gonfle le compteur."""
+    return (
+        db.query(Subscription)
+        .join(User, User.id == Subscription.user_id)
+        .filter(
+            User.is_test.is_(False),
+            Subscription.is_sandbox.is_(False),
+            Subscription.plan == "premium",
+            Subscription.source.in_(("stripe", "apple", "google")),
+        )
+        .count()
+    )
 
 
 # ════════════════════════════════════════════════════════════════════════
