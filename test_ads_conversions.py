@@ -6,6 +6,7 @@
 from datetime import datetime
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -84,3 +85,21 @@ def test_format_google(db):
     out = _csv(db)
     assert out.startswith("Parameters:TimeZone=+0000")
     assert "Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency" in out
+
+
+# ── La clé dédiée lecture seule (pour l'import programmé Google) ──────────
+
+def test_cle_dediee_lecture_seule_donne_acces(db, monkeypatch):
+    monkeypatch.setattr(api, "_admin_authed", lambda *a, **k: False)  # PAS admin
+    monkeypatch.setenv("ADS_EXPORT_KEY", "ma-cle-ro")
+    _user(db, "f@ex.fr", gclid="GCL_F")
+    out = api.admin_ads_conversions(request=None, key="ma-cle-ro", days=90, db=db).body.decode()
+    assert "GCL_F,Inscription gratuite," in out
+
+
+def test_mauvaise_cle_donne_404(db, monkeypatch):
+    monkeypatch.setattr(api, "_admin_authed", lambda *a, **k: False)
+    monkeypatch.setenv("ADS_EXPORT_KEY", "ma-cle-ro")
+    with pytest.raises(HTTPException) as e:
+        api.admin_ads_conversions(request=None, key="mauvaise-cle", days=90, db=db)
+    assert e.value.status_code == 404

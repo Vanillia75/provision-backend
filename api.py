@@ -344,7 +344,11 @@ def admin_ads_conversions(request: Request, key: str = "", days: int = 90, db: S
     (même gclid + même action + même heure). Sans auth → 404.
     """
     import csv, io
-    if not _admin_authed(request, key):
+    # Accès : soit la clé admin (fondateur), soit la clé DÉDIÉE LECTURE SEULE
+    # ADS_EXPORT_KEY (stockée chez Google pour l'import programmé). Cette clé
+    # n'ouvre QUE ce CSV — jamais les stats, le dashboard ou le mark-test.
+    _ads_key = os.environ.get("ADS_EXPORT_KEY", "")
+    if not (_admin_authed(request, key) or (_ads_key and key == _ads_key)):
         raise HTTPException(status_code=404, detail="Not found")
 
     depuis = datetime.utcnow() - timedelta(days=max(1, min(days, 90)))  # fenêtre Google ≤ 90 j
