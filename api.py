@@ -330,6 +330,50 @@ def admin_stats(request: Request, key: str = "", db: Session = Depends(get_db)):
     }
 
 
+@app.get("/admin/ads-conversions.csv")
+def admin_ads_conversions(request: Request, key: str = "", days: int = 90, db: Session = Depends(get_db)):
+    """Export des conversions Google Ads — import HORS LIGNE (Chemin B, sans cookie).
+
+    Deux conversions, UNIQUEMENT pour les comptes NON test qui portent un gclid :
+      - « Inscription gratuite » : à la date de création du compte.
+      - « Abonnement web »       : à la date d'un abonnement Stripe (web) actif.
+    Les abonnements in-app (Apple/Android) n'ont pas de gclid → absents (limite assumée).
+
+    À déposer dans Google Ads (Outils → Conversions → Importer). Ré-uploader la même
+    période est sans risque : Google dédoublonne les conversions identiques
+    (même gclid + même action + même heure). Sans auth → 404.
+    """
+    import csv, io
+    if not _admin_authed(request, key):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    depuis = datetime.utcnow() - timedelta(days=max(1, min(days, 90)))  # fenêtre Google ≤ 90 j
+    lignes = []  # (gclid, nom_action, horodatage_utc)
+
+    for u in (db.query(User)
+              .filter(User.gclid.isnot(None), User.is_test.is_(False), User.created_at >= depuis)
+              .all()):
+        lignes.append((u.gclid, "Inscription gratuite", u.created_at))
+
+    for s, u in (db.query(Subscription, User)
+                 .join(User, User.id == Subscription.user_id)
+                 .filter(User.gclid.isnot(None), User.is_test.is_(False),
+                         Subscription.source == "stripe", Subscription.status == "active",
+                         Subscription.is_sandbox.isnot(True), Subscription.created_at >= depuis)
+                 .all()):
+        lignes.append((u.gclid, "Abonnement web", s.created_at))
+
+    buf = io.StringIO()
+    buf.write("Parameters:TimeZone=+0000\n")  # created_at est en UTC
+    w = csv.writer(buf)
+    w.writerow(["Google Click ID", "Conversion Name", "Conversion Time", "Conversion Value", "Conversion Currency"])
+    for gclid, nom, quand in lignes:
+        w.writerow([gclid, nom, quand.strftime("%Y-%m-%d %H:%M:%S"), "", "EUR"])
+
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=totor-ads-conversions.csv"})
+
+
 class MarkTestRequest(BaseModel):
     key: str
     email: str
