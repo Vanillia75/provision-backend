@@ -20,6 +20,10 @@ class User(Base):
     # Identifiant « Se connecter avec Apple » (le `sub` du jeton). Seule cle
     # stable cote Apple : l'email peut etre un relais anonyme, jamais lui.
     apple_id = Column(String, unique=True, nullable=True, index=True)
+    # gclid Google Ads : identifiant du clic pub, capturé À L'INSCRIPTION pour la
+    # mesure de conversion cote SERVEUR (sans cookie, sans traceur). Vide si
+    # l'inscrit ne vient pas d'une pub Google.
+    gclid = Column(String, nullable=True)
     email_verified = Column(Boolean, nullable=False, default=False)
     # Compte de test/fondateur : exclu des stats du dashboard honnête (marque
     # explicite, remplace l'ancienne devinette par motif d'email).

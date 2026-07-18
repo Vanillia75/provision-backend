@@ -157,6 +157,7 @@ app.include_router(bank_router)
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
+    gclid: Optional[str] = None  # clic Google Ads, capturé pour la mesure serveur
 
 
 class LoginRequest(BaseModel):
@@ -166,6 +167,7 @@ class LoginRequest(BaseModel):
 
 class GoogleAuthRequest(BaseModel):
     credential: str
+    gclid: Optional[str] = None  # clic Google Ads, capturé si nouveau compte
 
 
 class AppleAuthRequest(BaseModel):
@@ -173,6 +175,7 @@ class AppleAuthRequest(BaseModel):
     # Nonce BRUT tire par l'app (elle a envoye sa SHA-256 a Apple). Obligatoire :
     # c'est lui qui empeche qu'un jeton intercepte soit rejoue.
     nonce: str
+    gclid: Optional[str] = None  # clic Google Ads (surtout web), capturé si nouveau compte
 
 
 class AuthResponse(BaseModel):
@@ -205,7 +208,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=409, detail="Un compte existe deja avec cet email")
 
-    user = User(email=req.email, password_hash=hash_password(req.password))
+    user = User(email=req.email, password_hash=hash_password(req.password), gclid=(req.gclid or None))
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -494,7 +497,7 @@ def auth_google(req: GoogleAuthRequest, db: Session = Depends(get_db)):
 
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        user = User(email=email, google_id=google_id, password_hash=None)
+        user = User(email=email, google_id=google_id, password_hash=None, gclid=(req.gclid or None))
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -557,6 +560,7 @@ def auth_apple(req: AppleAuthRequest, db: Session = Depends(get_db)):
         password_hash=None,
         # Apple a deja verifie l'adresse : pas de bannière « verifie ton email ».
         email_verified=bool(infos["email_verified"]),
+        gclid=(req.gclid or None),
     )
     db.add(user)
     db.commit()
