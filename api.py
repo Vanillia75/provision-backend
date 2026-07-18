@@ -4109,8 +4109,11 @@ def update_intermittent_activite(
     row.employeur = req.employeur or None
     if req.salaire_brut is not None:
         row.salaire_brut = req.salaire_brut
-    # PAS : on prend la valeur du formulaire telle quelle (permet aussi de l'effacer).
-    row.pas_montant = req.pas_montant
+    # PAS : mis à jour SEULEMENT s'il est fourni. Le formulaire d'édition rapide
+    # ne touche pas aux montants → on ne doit pas écraser le PAS déjà saisi.
+    # (Cohérent avec salaire_brut ci-dessus.)
+    if req.pas_montant is not None:
+        row.pas_montant = req.pas_montant
     # On met à jour le statut "estimé" (passe à False quand l'utilisateur confirme l'AEM réelle).
     row.estime = bool(req.estime)
     row.metier = _metier_valide(req.metier)

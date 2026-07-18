@@ -66,7 +66,7 @@ def test_liste_renvoie_le_pas(db):
     assert liste[0]["pas_montant"] == 90.0
 
 
-def test_edition_met_a_jour_et_permet_d_effacer(db):
+def test_edition_met_a_jour_le_pas_quand_fourni(db):
     u = _user(db)
     api.add_intermittent_activite(_req(date(ANNEE, 6, 1), pas=100.0), u, db)
     aid = db.query(IntermittentActivity).filter_by(user_id=u.id).one().id
@@ -74,9 +74,16 @@ def test_edition_met_a_jour_et_permet_d_effacer(db):
     api.update_intermittent_activite(aid, _req(date(ANNEE, 6, 1), pas=125.0), u, db)
     assert db.query(IntermittentActivity).get(aid).pas_montant == 125.0
 
-    # champ vidé par l'utilisateur → on efface bien
+
+def test_edition_sans_pas_ne_l_ecrase_pas(db):
+    """Le formulaire d'édition rapide ne renvoie pas le PAS (None). Il ne doit
+    surtout PAS effacer un PAS déjà saisi. C'est la protection contre le wipe."""
+    u = _user(db)
+    api.add_intermittent_activite(_req(date(ANNEE, 6, 1), pas=100.0), u, db)
+    aid = db.query(IntermittentActivity).filter_by(user_id=u.id).one().id
+
     api.update_intermittent_activite(aid, _req(date(ANNEE, 6, 1), pas=None), u, db)
-    assert db.query(IntermittentActivity).get(aid).pas_montant is None
+    assert db.query(IntermittentActivity).get(aid).pas_montant == 100.0  # préservé
 
 
 # ── Cockpit : SOMME de vraies données, année civile, rien si vide ────────
