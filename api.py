@@ -3713,6 +3713,8 @@ class IntermittentActiviteRequest(BaseModel):
     nombre: float
     employeur: Optional[str] = None
     salaire_brut: Optional[float] = None
+    # PAS prélevé sur ce contrat, recopié du bulletin de paie (donnée réelle).
+    pas_montant: Optional[float] = None
     aem_recue: Optional[bool] = False
     estime: Optional[bool] = False
     aem_filename: Optional[str] = None
@@ -3840,6 +3842,7 @@ def list_intermittent_activites(
             "type_activite": r.type_activite,
             "nombre": r.nombre,
             "salaire_brut": r.salaire_brut,
+            "pas_montant": r.pas_montant,
             "aem_recue": r.aem_recue,
             "estime": r.estime,
             "aem_filename": r.aem_filename,
@@ -3869,6 +3872,7 @@ def add_intermittent_activite(
         type_activite=req.type_activite,
         nombre=req.nombre,
         salaire_brut=req.salaire_brut,
+        pas_montant=req.pas_montant,
         aem_recue=bool(req.aem_recue),
         estime=bool(req.estime),
         aem_filename=(req.aem_filename or None),
@@ -4105,6 +4109,8 @@ def update_intermittent_activite(
     row.employeur = req.employeur or None
     if req.salaire_brut is not None:
         row.salaire_brut = req.salaire_brut
+    # PAS : on prend la valeur du formulaire telle quelle (permet aussi de l'effacer).
+    row.pas_montant = req.pas_montant
     # On met à jour le statut "estimé" (passe à False quand l'utilisateur confirme l'AEM réelle).
     row.estime = bool(req.estime)
     row.metier = _metier_valide(req.metier)
@@ -4318,6 +4324,18 @@ def get_intermittent_cockpit(
     cs_data["exercice_debut"] = _cs_deb.isoformat()
     cs_data["exercice_fin"] = _cs_fin.isoformat()
     out["conges_spectacles"] = cs_data
+    # PAS prélevé : SOMME des montants RÉELS recopiés du bulletin (jamais brut × taux).
+    # Année civile (l'impôt sur le revenu est annuel). None si aucun montant saisi
+    # cette année → le cockpit n'affiche alors rien.
+    _annee_pas = date.today().year
+    _pas_total, _pas_saisi = 0.0, False
+    for _r in rows:
+        if _r.pas_montant is not None and _r.date and _r.date.year == _annee_pas:
+            _pas_total += float(_r.pas_montant)
+            _pas_saisi = True
+    out["pas_preleve"] = (
+        {"annee": _annee_pas, "montant": round(_pas_total, 2)} if _pas_saisi else None
+    )
     return out
 
 
