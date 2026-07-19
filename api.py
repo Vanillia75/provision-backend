@@ -410,6 +410,27 @@ def admin_mark_test(req: MarkTestRequest, db: Session = Depends(get_db)):
     }
 
 
+_APPSTORE_CACHE = {"t": 0.0, "note": None, "nb": None}
+_APPSTORE_TTL = 600  # 10 min : la note bouge lentement, inutile d'appeler Apple souvent
+
+
+def _note_appstore():
+    """Note App Store (moyenne, nb d'avis) via l'API iTunes publique. Cache 10 min,
+    tolérant à la panne (renvoie la dernière valeur connue, jamais d'erreur)."""
+    import time as _t
+    now = _t.time()
+    if now - _APPSTORE_CACHE["t"] < _APPSTORE_TTL and _APPSTORE_CACHE["note"] is not None:
+        return _APPSTORE_CACHE["note"], _APPSTORE_CACHE["nb"]
+    try:
+        import requests as _rq
+        d = _rq.get("https://itunes.apple.com/lookup?id=6789915732&country=fr", timeout=4).json()
+        res = (d.get("results") or [{}])[0]
+        _APPSTORE_CACHE.update({"t": now, "note": res.get("averageUserRating"), "nb": res.get("userRatingCount")})
+    except Exception:
+        pass  # Apple injoignable : on garde la dernière valeur connue
+    return _APPSTORE_CACHE["note"], _APPSTORE_CACHE["nb"]
+
+
 @app.get("/admin/dashboard", response_class=HTMLResponse)
 def admin_dashboard(request: Request, key: str = "", db: Session = Depends(get_db)):
     """Tableau de bord fondateur (page HTML), charte TOTOR, rafraîchissement auto 60 s.
@@ -425,8 +446,20 @@ def admin_dashboard(request: Request, key: str = "", db: Session = Depends(get_d
     if not _admin_authed(request, key):
         return RedirectResponse(url="/admin", status_code=303)
     inscrits, abonnes = _compter_stats(db)
-    places = max(0, PIONNIER_PLACES - abonnes)
-    pct = min(100, int(abonnes * 100 / PIONNIER_PLACES)) if PIONNIER_PLACES else 0
+    # Places Pionnier : le VRAI compteur (Pionniers vendus chez Stripe), cohérent
+    # avec /admin/stats. Avant : `PIONNIER_PLACES - abonnes` comptait à tort CHAQUE
+    # abonné (même non-Pionnier, ex. l'annuel Apple) comme une place prise → fausse
+    # rareté, contre la Loi X pricing.
+    places = billing.offre_pionnier(db)["pionnier_restantes"]
+    pionniers_pris = max(0, PIONNIER_PLACES - places)
+    pct = min(100, int(pionniers_pris * 100 / PIONNIER_PLACES)) if PIONNIER_PLACES else 0
+    # Note App Store (moyenne + nb d'avis), tolérante à la panne.
+    _note_as, _nb_as = _note_appstore()
+    if _note_as:
+        note_txt = (f"{float(_note_as):.1f}".replace(".", ",")) + " ★"
+        nb_txt = (f"sur {_nb_as} avis" if _nb_as else "sur l'App Store")
+    else:
+        note_txt, nb_txt = "—", "pas encore de note"
     maj = datetime.utcnow().strftime("%d/%m/%Y a %H:%M UTC")
     html_page = f"""<!doctype html>
 <html lang="fr"><head>
@@ -472,6 +505,11 @@ def admin_dashboard(request: Request, key: str = "", db: Session = Depends(get_d
       <div class="num">{places}</div>
       <div class="hint">restantes sur {PIONNIER_PLACES}</div>
       <div class="barwrap"><div class="bar"></div></div>
+    </div>
+    <div class="card">
+      <div class="label">Note App Store</div>
+      <div class="num green">{note_txt}</div>
+      <div class="hint">{nb_txt}</div>
     </div>
   </div>
   <div class="foot">Mis à jour le {maj} · rafraîchissement automatique toutes les 60 s</div>
