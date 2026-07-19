@@ -222,22 +222,33 @@ def premium_source(db: Session, user: User):
 
 
 def compter_abonnes_payants(db: Session) -> int:
-    """Nombre d'abonnés PAYANTS RÉELS, toutes caisses confondues (Stripe, Apple,
-    Google) : premium, hors comptes de test maison (User.is_test) et hors achats
-    sandbox des stores (reviewer Apple, TestFlight — Subscription.is_sandbox).
-    C'est LE chiffre des alertes fondateur et du dashboard : seuls les vrais
-    paiements en production comptent, jamais un test ne gonfle le compteur."""
-    return (
+    """Nombre d'abonnés PAYANTS RÉELS (ARGENT RÉEL), toutes caisses confondues
+    (Stripe, Apple, Google) : premium, statut actif. On EXCLUT uniquement les
+    transactions SANDBOX/test des stores (reviewer Apple, TestFlight — fausses).
+    On COMPTE en revanche les proches/VIP qui ont RÉELLEMENT payé : de l'argent
+    réel = un client légitime, même si le compte est marqué `is_test`. C'est LE
+    chiffre des alertes fondateur et du dashboard."""
+    total, _ = compter_abonnes_detail(db)
+    return total
+
+
+def compter_abonnes_detail(db: Session):
+    """(total, proches) : total des vrais payeurs, dont `proches` = comptes marqués
+    `is_test` qui ont NÉANMOINS réellement payé (famille/VIP). Sert à l'affichage
+    transparent « dont X proches » sur le dashboard."""
+    q = (
         db.query(Subscription)
         .join(User, User.id == Subscription.user_id)
         .filter(
-            User.is_test.is_(False),
-            Subscription.is_sandbox.is_(False),
+            Subscription.is_sandbox.is_(False),           # jamais les achats sandbox/test
             Subscription.plan == "premium",
-            Subscription.source.in_(("stripe", "apple", "google")),
+            Subscription.status.in_(("active", "trialing")),  # abonnement réellement en cours
+            Subscription.source.in_(("stripe", "apple", "google")),  # exclut les comp (grâcieux)
         )
-        .count()
     )
+    total = q.count()
+    proches = q.filter(User.is_test.is_(True)).count()
+    return total, proches
 
 
 # ════════════════════════════════════════════════════════════════════════

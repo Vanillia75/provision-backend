@@ -446,6 +446,10 @@ def admin_dashboard(request: Request, key: str = "", db: Session = Depends(get_d
     if not _admin_authed(request, key):
         return RedirectResponse(url="/admin", status_code=303)
     inscrits, abonnes = _compter_stats(db)
+    # Transparence : combien de ces vrais payeurs sont des proches/VIP (comptes
+    # marqués is_test qui ont néanmoins réellement payé). Le total les inclut.
+    _, proches = billing.compter_abonnes_detail(db)
+    proches_txt = (f" · dont {proches} proche" + ("s" if proches > 1 else "")) if proches else ""
     # Places Pionnier : le VRAI compteur (Pionniers vendus chez Stripe), cohérent
     # avec /admin/stats. Avant : `PIONNIER_PLACES - abonnes` comptait à tort CHAQUE
     # abonné (même non-Pionnier, ex. l'annuel Apple) comme une place prise → fausse
@@ -498,7 +502,7 @@ def admin_dashboard(request: Request, key: str = "", db: Session = Depends(get_d
     <div class="card">
       <div class="label">Abonnés payants</div>
       <div class="num green">{abonnes}</div>
-      <div class="hint">paiements réels (Stripe, Apple, Google), hors tests</div>
+      <div class="hint">argent réel (Stripe, Apple, Google), hors sandbox{proches_txt}</div>
     </div>
     <div class="card">
       <div class="label">Places Pionnier</div>
