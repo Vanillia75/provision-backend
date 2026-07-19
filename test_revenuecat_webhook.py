@@ -126,15 +126,16 @@ def test_achat_production_compte_dans_les_abonnes_payants(db):
     assert billing.compter_abonnes_payants(db) == 1
 
 
-def test_compte_de_test_maison_ne_compte_pas(db):
-    # Même un achat PRODUCTION ne compte pas si le compte est marqué is_test
-    # (comptes démo/fondateur, cf. POST /admin/mark-test).
+def test_proche_marque_test_mais_paiement_reel_compte(db):
+    # NOUVELLE règle : un compte marqué is_test (proche/VIP) qui fait un VRAI
+    # achat PRODUCTION (argent réel, non sandbox) COMPTE désormais — argent réel
+    # = client légitime. Seul le sandbox reste exclu (cf. test dédié plus bas).
     u = _user(db)
     u.is_test = True
     db.commit()
     rc.traiter_evenement(db, _evt(u.id, "INITIAL_PURCHASE", environment="PRODUCTION"))
     assert billing.is_premium(db, u) is True
-    assert billing.compter_abonnes_payants(db) == 0
+    assert billing.compter_abonnes_payants(db) == 1
 
 
 def test_auth_du_webhook(monkeypatch):
