@@ -48,6 +48,7 @@ import sauvegarde
 import intermittent_engine as ie
 import allocation_engine as ae
 import conges_spectacles as cs
+import voice_agent
 from insee_lookup import lookup_siret, SiretLookupError
 import billing
 import revenuecat_webhook
@@ -3399,6 +3400,51 @@ class AssistantRequest(BaseModel):
     # Le canal décide du régime de quota, pas une classification IA.
     mode: Optional[str] = None
     ecran: Optional[str] = None  # écran courant (pour les stats UX, jamais de données du compte)
+
+
+@app.post("/vapi/tools")
+async def vapi_tools(request: Request):
+    """Webhook des OUTILS de l'assistant vocal (Vapi), Phase 1. Auth par en-tête
+    secret partagé (X-Vapi-Secret). Reçoit des tool-calls, exécute chercher_guide
+    / escalader_humain / programmer_rappel, renvoie les résultats au format Vapi."""
+    import json as _json
+    secret = os.environ.get("VAPI_SECRET", "")
+    if secret and request.headers.get("x-vapi-secret", "") != secret:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON invalide")
+
+    msg = payload.get("message") or {}
+    calls = msg.get("toolCallList") or msg.get("toolCalls") or []
+    results = []
+    for tc in calls:
+        tcid = tc.get("id") or tc.get("toolCallId")
+        fn = tc.get("function") or {}
+        name = fn.get("name")
+        args = fn.get("arguments")
+        if args is None:
+            args = tc.get("arguments") or {}
+        if isinstance(args, str):
+            try:
+                args = _json.loads(args)
+            except Exception:
+                args = {}
+        try:
+            if name == "chercher_guide":
+                res = voice_agent.chercher_guide(args.get("question", ""))
+            elif name == "escalader_humain":
+                res = voice_agent.escalader_humain(args.get("prenom"), args.get("telephone"), args.get("question"))
+            elif name == "programmer_rappel":
+                res = voice_agent.programmer_rappel(args.get("prenom"), args.get("telephone"), args.get("creneau"))
+            else:
+                res = "Outil inconnu."
+        except Exception as e:
+            print(f"[VAPI TOOL ERROR] {type(e).__name__}", flush=True)
+            res = "Désolée, un souci technique. Je te propose de te faire rappeler par un humain."
+        results.append({"toolCallId": tcid, "result": res})
+    return {"results": results}
 
 
 @app.post("/assistant/chat")
