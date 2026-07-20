@@ -592,6 +592,13 @@ def auth_google(req: GoogleAuthRequest, db: Session = Depends(get_db)):
         db.add(user)
         db.commit()
         db.refresh(user)
+        # Alerte fondateur : nouvel inscrit (seulement à la CRÉATION, best-effort,
+        # ne doit JAMAIS bloquer l'inscription).
+        try:
+            total_inscrits = db.query(User).count()
+            send_founder_signup_alert(total_inscrits, user.email)
+        except Exception:
+            pass
     elif not user.google_id:
         user.google_id = google_id
         db.commit()
