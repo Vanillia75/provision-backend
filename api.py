@@ -3461,7 +3461,7 @@ async def vapi_tools(request: Request, db: Session = Depends(get_db)):
             else:
                 res = "Outil inconnu."
         except Exception as e:
-            print(f"[VAPI TOOL ERROR] {type(e).__name__}", flush=True)
+            print(f"[VAPI TOOL ERROR] {name}: {type(e).__name__}: {e}", flush=True)
             res = "Désolée, un souci technique. Je te propose de te faire rappeler par un humain."
         results.append({"toolCallId": tcid, "result": res})
     return {"results": results}
