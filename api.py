@@ -49,6 +49,7 @@ import intermittent_engine as ie
 import allocation_engine as ae
 import conges_spectacles as cs
 import voice_agent
+import voice_access
 from insee_lookup import lookup_siret, SiretLookupError
 import billing
 import revenuecat_webhook
@@ -3410,10 +3411,11 @@ class AssistantRequest(BaseModel):
 
 
 @app.post("/vapi/tools")
-async def vapi_tools(request: Request):
-    """Webhook des OUTILS de l'assistant vocal (Vapi), Phase 1. Auth par en-tête
-    secret partagé (X-Vapi-Secret). Reçoit des tool-calls, exécute chercher_guide
-    / escalader_humain / programmer_rappel, renvoie les résultats au format Vapi."""
+async def vapi_tools(request: Request, db: Session = Depends(get_db)):
+    """Webhook des OUTILS de l'assistant vocal (Vapi). Auth par en-tête secret
+    partagé (X-Vapi-Secret). Reçoit des tool-calls, exécute chercher_guide /
+    escalader_humain / programmer_rappel (Phase 1) + verifier_abonnement /
+    verifier_code (contrôle d'accès abonnés), renvoie les résultats au format Vapi."""
     import json as _json
     secret = os.environ.get("VAPI_SECRET", "")
     if secret and request.headers.get("x-vapi-secret", "") != secret:
@@ -3424,6 +3426,12 @@ async def vapi_tools(request: Request):
         raise HTTPException(status_code=400, detail="JSON invalide")
 
     msg = payload.get("message") or {}
+    # Contexte de l'appel (lu côté serveur, plus fiable que via le modèle) :
+    # numéro de l'appelant (caller ID) + id d'appel (pour le verrou anti-force-brute).
+    call = msg.get("call") or {}
+    caller = (call.get("customer") or {}).get("number") or ""
+    call_id = call.get("id")
+
     calls = msg.get("toolCallList") or msg.get("toolCalls") or []
     results = []
     for tc in calls:
@@ -3445,6 +3453,11 @@ async def vapi_tools(request: Request):
                 res = voice_agent.escalader_humain(args.get("prenom"), args.get("telephone"), args.get("question"))
             elif name == "programmer_rappel":
                 res = voice_agent.programmer_rappel(args.get("prenom"), args.get("telephone"), args.get("creneau"))
+            elif name == "verifier_abonnement":
+                # priorité au caller ID du payload ; repli sur l'argument du modèle.
+                res = voice_access.verifier_abonnement(db, caller or args.get("telephone", ""))
+            elif name == "verifier_code":
+                res = voice_access.verifier_code(db, args.get("code", ""), call_id)
             else:
                 res = "Outil inconnu."
         except Exception as e:
@@ -3452,6 +3465,16 @@ async def vapi_tools(request: Request):
             res = "Désolée, un souci technique. Je te propose de te faire rappeler par un humain."
         results.append({"toolCallId": tcid, "result": res})
     return {"results": results}
+
+
+@app.get("/voice/code")
+def voice_code(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Code du jour à afficher dans l'app (Plan B de l'accès à la secrétaire vocale).
+    Réservé aux abonnés actifs : un non-abonné ne reçoit aucun code."""
+    if not billing.is_premium(db, user):
+        return {"abonne": False, "code": None, "chiffres": voice_access.CODE_DIGITS}
+    return {"abonne": True, "code": voice_access.code_du_jour(user.id),
+            "chiffres": voice_access.CODE_DIGITS}
 
 
 @app.post("/assistant/chat")
