@@ -3478,15 +3478,16 @@ def voice_code(user: User = Depends(get_current_user), db: Session = Depends(get
 
 
 # Jingle « TOTOR veille » joué au début de chaque appel vocal (Vapi lit cette URL
-# comme firstMessage audio). Public, sans auth : Vapi doit pouvoir le récupérer.
-_JINGLE_PATH = os.path.join(os.path.dirname(__file__), "static", "totor-veille.wav")
+# comme firstMessage audio). MP3 léger (~150 Ko) pour un chargement rapide.
+# Public, sans auth : Vapi doit pouvoir le récupérer.
+_JINGLE_PATH = os.path.join(os.path.dirname(__file__), "static", "totor-veille.mp3")
 
 
-@app.get("/voice/jingle.wav")
+@app.get("/voice/jingle.mp3")
 def voice_jingle():
     if not os.path.exists(_JINGLE_PATH):
         raise HTTPException(status_code=404, detail="Jingle indisponible")
-    return FileResponse(_JINGLE_PATH, media_type="audio/wav",
+    return FileResponse(_JINGLE_PATH, media_type="audio/mpeg",
                         headers={"Cache-Control": "public, max-age=86400"})
 
 
