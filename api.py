@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request, Body, Form
-from fastapi.responses import Response, HTMLResponse, RedirectResponse
+from fastapi.responses import Response, HTMLResponse, RedirectResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
@@ -3475,6 +3475,19 @@ def voice_code(user: User = Depends(get_current_user), db: Session = Depends(get
         return {"abonne": False, "code": None, "chiffres": voice_access.CODE_DIGITS}
     return {"abonne": True, "code": voice_access.code_du_jour(user.id),
             "chiffres": voice_access.CODE_DIGITS}
+
+
+# Jingle « TOTOR veille » joué au début de chaque appel vocal (Vapi lit cette URL
+# comme firstMessage audio). Public, sans auth : Vapi doit pouvoir le récupérer.
+_JINGLE_PATH = os.path.join(os.path.dirname(__file__), "static", "totor-veille.wav")
+
+
+@app.get("/voice/jingle.wav")
+def voice_jingle():
+    if not os.path.exists(_JINGLE_PATH):
+        raise HTTPException(status_code=404, detail="Jingle indisponible")
+    return FileResponse(_JINGLE_PATH, media_type="audio/wav",
+                        headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.post("/assistant/chat")
