@@ -29,7 +29,7 @@ from auth import (
     hash_password, verify_password, create_token, get_current_user,
     create_purpose_token, verify_purpose_token,
 )
-from emailing import send_reset_password_email, send_verification_email, send_invoice_email, send_email, send_founder_signup_alert, PIONNIER_PLACES
+from emailing import send_reset_password_email, send_verification_email, send_invoice_email, send_email, send_founder_signup_alert, send_founder_trial_ending_alert, PIONNIER_PLACES
 from invoice_pdf import generate_invoice_pdf
 from legal_mentions import (
     get_franchise_vat_mention, append_ei_mention, resolve_fiscal_settings,
@@ -330,6 +330,57 @@ def admin_stats(request: Request, key: str = "", db: Session = Depends(get_db)):
         "abonnes_payants": abonnes,
         "places_pionnier_restantes": billing.offre_pionnier(db)["pionnier_restantes"],  # compteur REEL (prix Pionnier, hors is_test)
     }
+
+
+@app.get("/admin/trials", response_class=HTMLResponse)
+def admin_trials(request: Request, key: str = "", db: Session = Depends(get_db)):
+    """Suivi des essais gratuits (fondateur) : qui est en essai, date de fin, qui
+    a annulé. Auth par cookie ou ?key=. Sans auth -> 404."""
+    if not _admin_authed(request, key):
+        raise HTTPException(status_code=404, detail="Not found")
+    essais = billing.lister_essais(db)
+    maintenant = datetime.utcnow()
+    if essais:
+        rows = ""
+        for e in essais:
+            fin = e["fin"]
+            if fin:
+                jours = (fin - maintenant).days
+                fin_txt = f"{fin:%d/%m/%Y}"
+                reste = "dernier jour" if jours <= 0 else (f"dans {jours} j" if jours > 1 else "demain")
+            else:
+                fin_txt, reste = "(inconnue)", ""
+            if e["annulera"]:
+                etat = "<span style='color:#F0A24B;font-weight:600;'>a annulé — à relancer</span>"
+            else:
+                etat = "<span style='color:#5DCAA5;'>se convertira en payant</span>"
+            proche = " <span style='color:#6B7A8D;font-size:11px;'>(proche)</span>" if e["est_proche"] else ""
+            rows += (f"<tr><td>{e['email']}{proche}</td><td>{e['source']}</td>"
+                     f"<td>{fin_txt}<br><span style='color:#6B7A8D;font-size:11px;'>{reste}</span></td>"
+                     f"<td>{etat}</td></tr>")
+        corps = (f"<p class='sub'>{len(essais)} essai(s) en cours</p>"
+                 "<table><thead><tr><th>Personne</th><th>Store</th><th>Fin de l'essai</th>"
+                 "<th>État</th></tr></thead><tbody>" + rows + "</tbody></table>")
+    else:
+        corps = "<p class='sub'>Aucun essai gratuit en cours pour l'instant.</p>"
+    html = f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Essais en cours — TOTOR</title>
+    <style>
+      body{{font-family:sans-serif;background:#07192E;color:#F8FAFC;margin:0;padding:28px 18px;}}
+      .wrap{{max-width:720px;margin:0 auto;}}
+      h1{{color:#5DCAA5;font-size:20px;margin:0 0 4px;}}
+      .sub{{color:#9BB0C4;font-size:13px;margin:0 0 18px;}}
+      table{{width:100%;border-collapse:collapse;font-size:13px;}}
+      th{{text-align:left;color:#6B7A8D;font-weight:600;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.12);}}
+      td{{padding:10px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:top;}}
+      a{{color:#378ADD;}}
+    </style></head><body><div class="wrap">
+      <h1>Essais gratuits en cours</h1>
+      {corps}
+      <p style="margin-top:22px;"><a href="/admin/dashboard">← Retour au tableau de bord</a></p>
+    </div></body></html>"""
+    return HTMLResponse(html)
 
 
 @app.get("/admin/ads-conversions.csv")
@@ -2385,6 +2436,40 @@ def _executer_rappels_urssaf():
         db.close()
 
 
+_ESSAIS_ALERTES = set()  # dédup en mémoire : "email|AAAA-MM-JJ" déjà signalés au fondateur
+
+
+def _executer_alerte_essais_fin():
+    """Prévient le fondateur quand un essai gratuit arrive à ~2 jours de sa fin,
+    pour qu'il puisse relancer avant la bascule payante. Dédup en mémoire (une
+    seule alerte par essai ; au pire un doublon après un redéploiement)."""
+    from datetime import datetime as _dt, timedelta as _td
+    db = SessionLocal()
+    try:
+        maintenant = _dt.utcnow()
+        limite = maintenant + _td(days=2)
+        bientot = []
+        for e in billing.lister_essais(db):
+            fin = e.get("fin")
+            if fin is None or not (maintenant < fin <= limite):
+                continue
+            cle = f"{e['email']}|{fin.date().isoformat()}"
+            if cle in _ESSAIS_ALERTES:
+                continue
+            bientot.append((cle, e))
+        if bientot:
+            if send_founder_trial_ending_alert([e for _, e in bientot]):
+                for cle, _ in bientot:
+                    _ESSAIS_ALERTES.add(cle)
+                print(f"[essais-fin] alerte envoyée pour {len(bientot)} essai(s)", flush=True)
+            else:
+                print("[essais-fin] échec d'envoi (on retentera au prochain passage)", flush=True)
+    except Exception as e:
+        print(f"[essais-fin] erreur globale: {e}", flush=True)
+    finally:
+        db.close()
+
+
 @app.on_event("startup")
 async def _demarrer_relances_auto():
     async def boucle():
@@ -2393,6 +2478,8 @@ async def _demarrer_relances_auto():
             await asyncio.to_thread(_executer_relances_auto)
             await asyncio.to_thread(_executer_rappels_actualisation)
             await asyncio.to_thread(_executer_rappels_urssaf)
+            # Alerte fondateur : essais gratuits (stores) bientôt à échéance.
+            await asyncio.to_thread(_executer_alerte_essais_fin)
             # Sauvegarde quotidienne de la base vers R2 (dédupliquée par jour).
             await asyncio.to_thread(sauvegarde.executer_sauvegarde_quotidienne)
             await asyncio.sleep(6 * 3600)  # 4 passages par jour, dédupliqués en base

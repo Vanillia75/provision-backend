@@ -235,20 +235,55 @@ def compter_abonnes_payants(db: Session) -> int:
 def compter_abonnes_detail(db: Session):
     """(total, proches) : total des vrais payeurs, dont `proches` = comptes marqués
     `is_test` qui ont NÉANMOINS réellement payé (famille/VIP). Sert à l'affichage
-    transparent « dont X proches » sur le dashboard."""
+    transparent « dont X proches » sur le dashboard.
+
+    ⚠️ On compte UNIQUEMENT `status == "active"` (argent réellement encaissé). Un
+    ESSAI GRATUIT des stores arrive avec `status == "trialing"` : il donne l'accès
+    (is_premium) mais NE COMPTE PAS comme payant tant qu'il ne s'est pas transformé
+    en vrai paiement (le webhook RevenueCat le passe alors à "active")."""
     q = (
         db.query(Subscription)
         .join(User, User.id == Subscription.user_id)
         .filter(
             Subscription.is_sandbox.is_(False),           # jamais les achats sandbox/test
             Subscription.plan == "premium",
-            Subscription.status.in_(("active", "trialing")),  # abonnement réellement en cours
+            Subscription.status == "active",              # paiement réel encaissé (PAS les essais 'trialing')
             Subscription.source.in_(("stripe", "apple", "google")),  # exclut les comp (grâcieux)
         )
     )
     total = q.count()
     proches = q.filter(User.is_test.is_(True)).count()
     return total, proches
+
+
+def lister_essais(db: Session):
+    """Essais gratuits des stores EN COURS (status 'trialing'), pour le suivi
+    fondateur. Renvoie une liste triée par date de fin la plus proche :
+    email, source (apple/google), fin de l'essai, et si le renouvellement est
+    déjà coupé (la personne a annulé pendant l'essai)."""
+    from datetime import datetime
+    rows = (
+        db.query(Subscription)
+        .join(User, User.id == Subscription.user_id)
+        .filter(
+            Subscription.is_sandbox.is_(False),
+            Subscription.plan == "premium",
+            Subscription.status == "trialing",
+        )
+        .all()
+    )
+    essais = []
+    for s in rows:
+        u = db.query(User).filter(User.id == s.user_id).first()
+        essais.append({
+            "email": u.email if u else "(inconnu)",
+            "source": s.source,
+            "fin": s.current_period_end,
+            "annulera": bool(s.cancel_at_period_end),  # True = a coupé le renouvellement
+            "est_proche": bool(u and getattr(u, "is_test", False)),
+        })
+    essais.sort(key=lambda e: (e["fin"] is None, e["fin"] or datetime.max))
+    return essais
 
 
 # ════════════════════════════════════════════════════════════════════════

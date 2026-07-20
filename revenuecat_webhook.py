@@ -75,6 +75,13 @@ def traiter_evenement(db: Session, payload: dict) -> dict:
     exp_ms = event.get("expiration_at_ms")
     expiration = datetime.utcfromtimestamp(exp_ms / 1000.0) if exp_ms else None
 
+    # ESSAI GRATUIT : les stores envoient period_type = "TRIAL" pendant les 7 jours
+    # offerts. On donne l'accès (comme un abonné), mais on marque le statut
+    # "trialing" : ça NE compte PAS comme un paiement réel (ni stats, ni place
+    # Pionnier, ni alerte fondateur) tant que ça ne s'est pas transformé en paiement
+    # (RENEWAL/NORMAL -> "active"). Un intro payant (INTRO/PROMOTIONAL) = déjà payant.
+    est_essai = (event.get("period_type") or "").upper() == "TRIAL"
+
     row = db.query(Subscription).filter(Subscription.user_id == user.id).first()
     if not row:
         row = Subscription(user_id=user.id, plan="free", source=source)
@@ -90,10 +97,11 @@ def traiter_evenement(db: Session, payload: dict) -> dict:
         return {"ok": True, "ignore": "abonnement_stripe_actif"}
 
     ancien_plan = row.plan
+    ancien_status = row.status
 
     if type_evt in EVENEMENTS_ACCORDANTS:
         row.plan = "premium"
-        row.status = "active"
+        row.status = "trialing" if est_essai else "active"
         row.source = source
         row.is_sandbox = sandbox
         row.current_period_end = expiration
@@ -125,10 +133,14 @@ def traiter_evenement(db: Session, payload: dict) -> dict:
     row.updated_at = datetime.utcnow()
     db.commit()
 
-    # Nouvel abonné payant via un store : même alerte fondateur que Stripe.
-    # JAMAIS pour un achat sandbox ni un compte de test maison : seuls les vrais
-    # paiements en production comptent (et grignotent les places Pionnier).
-    if ancien_plan != "premium" and row.plan == "premium" and not sandbox and not bool(getattr(user, "is_test", False)):
+    # Nouvel abonné PAYANT RÉEL : alerte fondateur UNIQUEMENT quand le compte
+    # DEVIENT payant (status "active"). Donc PAS au démarrage d'un essai gratuit
+    # (status "trialing"), et PAS à un renouvellement d'un compte déjà payant.
+    # Couvre bien la CONVERSION essai -> paiement (trialing -> active). Jamais en
+    # sandbox ni pour un compte de test maison.
+    etait_payant = (ancien_plan == "premium" and ancien_status == "active")
+    devient_payant = (row.plan == "premium" and row.status == "active")
+    if devient_payant and not etait_payant and not sandbox and not bool(getattr(user, "is_test", False)):
         try:
             from billing import compter_abonnes_payants
             from emailing import send_founder_subscriber_alert

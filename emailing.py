@@ -153,3 +153,34 @@ def send_founder_subscriber_alert(count: int, user_email: str) -> bool:
         f"Abonne : {user_email}",
     )
     return send_email(FOUNDER_ALERT_EMAIL, f"Nouvel abonne payant TOTOR (n{count})", html)
+
+
+def send_founder_trial_ending_alert(essais: list) -> bool:
+    """Alerte : un ou plusieurs essais gratuits arrivent bientôt à échéance.
+    `essais` = liste de dicts {email, source, fin (datetime|None), annulera (bool)}.
+    But : que Camille puisse relancer la personne avant la bascule payante."""
+    if not FOUNDER_ALERT_EMAIL or not essais:
+        return False
+    lignes = ""
+    for e in essais:
+        fin = e.get("fin")
+        fin_txt = fin.strftime("%d/%m/%Y") if fin else "bientôt"
+        etat = ("a coupé le renouvellement (à relancer en priorité)"
+                if e.get("annulera") else "se transformera en abonnement payant")
+        lignes += (
+            f"<li style='margin-bottom:10px;'><strong>{e.get('email','?')}</strong>"
+            f"<br><span style='color:#9BB0C4;font-size:12px;'>"
+            f"essai {e.get('source','')} - fin le {fin_txt} - {etat}</span></li>"
+        )
+    n = len(essais)
+    titre = "1 essai se termine bientôt" if n == 1 else f"{n} essais se terminent bientôt"
+    html = f"""
+    <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto;
+                background:#07192E; color:#F8FAFC; padding:28px 24px; border-radius:16px;">
+      <p style="color:#5DCAA5; font-weight:bold; letter-spacing:1px; margin:0 0 12px;">ESSAI(S) BIENTOT FINI(S)</p>
+      <p style="color:#F8FAFC; font-size:15px; margin:0 0 16px;">{titre}. C'est le bon moment pour un petit mot.</p>
+      <ul style="text-align:left; padding-left:18px; font-size:14px; line-height:1.5; color:#F8FAFC;">{lignes}</ul>
+      <p style="color:#9BB0C4; font-size:12px; margin:14px 0 0;">TOTOR veille sur tes essais.</p>
+    </div>
+    """
+    return send_email(FOUNDER_ALERT_EMAIL, f"TOTOR - {titre}", html)
