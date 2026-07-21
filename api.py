@@ -51,6 +51,7 @@ import allocation_engine as ae
 import conges_spectacles as cs
 import voice_agent
 import voice_access
+import encaissement
 from insee_lookup import lookup_siret, SiretLookupError
 import billing
 import revenuecat_webhook
@@ -1544,6 +1545,9 @@ def _invoice_to_dict(inv: ClientInvoice) -> dict:
         "vat_rate": inv.vat_rate,
         "vat_number": inv.vat_number,
         "client_localisation": _localisation_de(inv),
+        # Paiement en ligne : jeton du lien public + prélèvement SEPA en attente.
+        "payment_token": inv.payment_token,
+        "paiement_en_cours": bool(inv.paiement_en_cours),
         "solde_integre": bool(inv.solde_integre),
     }
 
@@ -2055,6 +2059,15 @@ def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest", fis
       {mention_html}
       {f'<p style="color:#8BA5C0; font-size:11px; margin-top:8px;">{e(get_b2b_late_fee_mention(inv.client_type))}</p>' if get_b2b_late_fee_mention(inv.client_type) else ""}
       {f'<p style="color:#6B7A8D; font-size:12px;">{e(inv.notes)}</p>' if inv.notes else ""}
+      {(
+        f'<div style="text-align:center; margin:26px 0 8px;">'
+        f'<a href="{SIGNATURE_BASE_URL}/paiement/{inv.payment_token}" '
+        f'style="display:inline-block; background:#378ADD; color:#ffffff; text-decoration:none; '
+        f'font-weight:700; font-size:15px; padding:13px 26px; border-radius:10px;">'
+        f'Payer en ligne</a>'
+        f'<p style="color:#8BA5C0; font-size:11px; margin-top:10px;">Carte ou prélèvement SEPA. '
+        f'Paiement sécurisé par Stripe. TOTOR ne détient jamais les fonds.</p></div>'
+      ) if (inv.payment_token and inv.statut != "payee") else ""}
     </div>
     """
 
@@ -2085,6 +2098,11 @@ def send_invoice(
     # de construire l'email. Une facture déjà émise garde son snapshot (immuable).
     if inv.statut == "brouillon":
         _snapshot_fiscal(inv, db, user.id)
+    # Paiement en ligne : si l'utilisateur a un compte d'encaissement Stripe, la
+    # facture reçoit son jeton public (bouton « Payer en ligne » dans l'email).
+    # La page publique re-vérifie l'état réel du compte au moment du clic.
+    if not inv.payment_token and inv.statut != "payee" and _compte_encaissement_de(db, user.id):
+        inv.payment_token = secrets.token_urlsafe(24)
     fiscal = resolve_fiscal_settings(inv)
     html = _build_invoice_email_html(inv, req, fiscal)
     # Expéditeur = le nom de l'utilisateur (signature du profil, repli sur le nom émetteur) ;
@@ -2987,6 +3005,196 @@ def accepter_devis_public(token: str, request: Request, db: Session = Depends(ge
         <p style="margin-top:12px;"><a class="pdf" href="{SIGNATURE_BASE_URL}/devis/{html.escape(token)}/pdf" target="_blank">Télécharger le devis (PDF)</a></p>
       </div>"""
     return HTMLResponse(_page_devis_html("Devis accepté", corps))
+
+
+# ════════════════════════════════════════════════════════════════════════
+#  PAIEMENT EN LIGNE DES FACTURES (Stripe Connect, charges directes).
+#  L'utilisateur active son compte d'encaissement (KYC hébergé par Stripe) ;
+#  ses clients paient sur une page publique à jeton (carte ou SEPA) ; la
+#  facture ne passe « payée » que sur confirmation réelle par webhook.
+#  L'argent ne transite JAMAIS par TOTOR. Aucune commission TOTOR.
+# ════════════════════════════════════════════════════════════════════════
+@app.post("/billing/connect/onboarding")
+def connect_onboarding(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Active l'encaissement en ligne : crée (au premier appel) le compte Stripe
+    connecté de l'utilisateur, puis renvoie le lien du formulaire hébergé Stripe
+    (KYC fait par Stripe, jamais par nous)."""
+    fs = db.query(FiscalSettings).filter(FiscalSettings.user_id == user.id).first()
+    if fs is None:
+        fs = FiscalSettings(user_id=user.id)
+        db.add(fs)
+        db.commit()
+        db.refresh(fs)
+    try:
+        if not fs.stripe_account_id:
+            fs.stripe_account_id = encaissement.creer_compte_connecte(user)
+            db.commit()
+        return {"url": encaissement.lien_onboarding(fs.stripe_account_id)}
+    except Exception as e:
+        print(f"[connect-onboarding] {type(e).__name__}: {e}", flush=True)
+        raise HTTPException(status_code=502, detail="Stripe est injoignable pour le moment, réessaie dans un instant")
+
+
+@app.get("/billing/connect/status")
+def connect_status(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """État de l'encaissement en ligne pour les Réglages : non configuré /
+    dossier en cours chez Stripe / actif."""
+    fs = db.query(FiscalSettings).filter(FiscalSettings.user_id == user.id).first()
+    if not fs or not fs.stripe_account_id:
+        return {"configure": False, "actif": False, "dossier_complet": False}
+    try:
+        st = encaissement.statut_compte(fs.stripe_account_id)
+        return {"configure": True, **st}
+    except Exception:
+        return {"configure": True, "actif": False, "dossier_complet": False, "erreur": True}
+
+
+def _facture_par_token(db: Session, token: str):
+    if not token or len(token) < 16:
+        return None
+    return db.query(ClientInvoice).filter(ClientInvoice.payment_token == token).first()
+
+
+def _compte_encaissement_de(db: Session, user_id: str):
+    fs = db.query(FiscalSettings).filter(FiscalSettings.user_id == user_id).first()
+    return fs.stripe_account_id if fs and fs.stripe_account_id else None
+
+
+@app.get("/paiement/{token}", response_class=HTMLResponse)
+def page_paiement_public(token: str, db: Session = Depends(get_db)):
+    """Page publique « Payer en ligne » d'une facture (lien envoyé au client)."""
+    inv = _facture_par_token(db, token)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    e = lambda v: html.escape(str(v)) if v is not None else ""
+    profile = db.query(Profile).filter(Profile.user_id == inv.user_id).first()
+    emitter = _build_emitter_info(profile)
+    totals = compute_invoice_totals(inv.montant, resolve_fiscal_settings(inv), inv.date_emission)
+
+    lignes = "".join(
+        f"<div class='ligne'><span>{e((l.get('description') if isinstance(l, dict) else l.description) or 'Prestation')}</span>"
+        f"<span>{((l.get('quantite', 0) if isinstance(l, dict) else l.quantite) or 0) * ((l.get('prix_unitaire', 0) if isinstance(l, dict) else l.prix_unitaire) or 0):.2f} €</span></div>"
+        for l in (inv.lignes or [])
+    )
+    mention = f"<p class='petit'>{e(totals['mention'])}</p>" if totals.get("mention") else ""
+    echeance = f" · échéance le {inv.date_echeance.strftime('%d/%m/%Y')}" if inv.date_echeance else ""
+
+    if inv.statut == "payee":
+        action = "<p class='ok'>✓ Cette facture est déjà réglée. Merci !</p>"
+    elif inv.paiement_en_cours:
+        action = ("<p class='ok'>⏳ Un prélèvement SEPA est en cours pour cette facture.</p>"
+                  "<p class='petit'>La confirmation bancaire prend quelques jours ouvrés. Rien d'autre à faire.</p>")
+    else:
+        compte = _compte_encaissement_de(db, inv.user_id)
+        if not compte:
+            action = "<p class='petit'>Le paiement en ligne n'est pas disponible pour cette facture. Réglez-la directement auprès de l'émetteur.</p>"
+        else:
+            action = f"""
+        <form method="post" action="{SIGNATURE_BASE_URL}/paiement/{e(token)}/session" style="margin-top:16px;">
+          <button class="btn" type="submit" name="mode" value="card">💳 Payer par carte</button>
+          <button class="btn" type="submit" name="mode" value="sepa"
+                  style="background:transparent;color:#F8FAFC;border:1px solid rgba(255,255,255,0.25);">
+            🏦 Prélèvement SEPA</button>
+          <p class="petit" style="margin-top:10px;">Paiement traité par Stripe. TOTOR ne détient jamais les fonds.
+          Le règlement va directement à l'émetteur de la facture.</p>
+        </form>"""
+
+    corps = f"""
+      <div class="encart">
+        <p style="margin:0 0 2px;font-size:12px;color:#8BA5C0;">Facture {e(inv.numero)}{echeance}</p>
+        <p style="margin:0 0 2px;font-size:16px;font-weight:600;">{e(emitter.get('nom') or 'Votre prestataire')}</p>
+        <p style="margin:0 0 14px;font-size:12.5px;color:#8BA5C0;">destinée à {e(inv.client_nom)}</p>
+        {lignes}
+        <div class="ligne total"><span>Total à payer</span><span>{totals['ttc']:.2f} €</span></div>
+        {mention}
+        <p style="margin-top:14px;"><a class="pdf" href="{SIGNATURE_BASE_URL}/paiement/{e(token)}/pdf" target="_blank">Voir la facture complète (PDF)</a></p>
+      </div>
+      {action}"""
+    return HTMLResponse(_page_devis_html(f"Facture {inv.numero}", corps))
+
+
+@app.get("/paiement/{token}/pdf")
+def pdf_facture_public(token: str, db: Session = Depends(get_db)):
+    """PDF de la facture, accessible par le jeton de paiement."""
+    inv = _facture_par_token(db, token)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    profile = db.query(Profile).filter(Profile.user_id == inv.user_id).first()
+    pdf = generate_invoice_pdf(_invoice_to_dict(inv), _build_emitter_info(profile),
+                               resolve_fiscal_settings(inv))
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f"inline; filename=facture-{inv.numero}.pdf"})
+
+
+@app.post("/paiement/{token}/session")
+def creer_session_paiement_public(token: str, mode: str = Form("card"), db: Session = Depends(get_db)):
+    """Le clic « Payer » : crée la session Stripe Checkout sur le compte connecté
+    de l'émetteur (charge directe) et redirige le client vers la page Stripe."""
+    inv = _facture_par_token(db, token)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    if inv.statut == "payee":
+        return RedirectResponse(url=f"{SIGNATURE_BASE_URL}/paiement/{token}", status_code=303)
+    compte = _compte_encaissement_de(db, inv.user_id)
+    if not compte:
+        raise HTTPException(status_code=400, detail="Paiement en ligne indisponible")
+    totals = compute_invoice_totals(inv.montant, resolve_fiscal_settings(inv), inv.date_emission)
+    try:
+        url = encaissement.creer_session_paiement(inv, totals["ttc"], compte, "sepa" if mode == "sepa" else "card")
+    except Exception as e:
+        print(f"[paiement-session] {type(e).__name__}: {e}", flush=True)
+        raise HTTPException(status_code=502, detail="Le paiement est momentanément indisponible, réessayez dans un instant")
+    return RedirectResponse(url=url, status_code=303)
+
+
+@app.get("/paiement/{token}/merci", response_class=HTMLResponse)
+def page_paiement_merci(token: str, db: Session = Depends(get_db)):
+    """Retour de Stripe après le paiement. La confirmation RÉELLE arrive par
+    webhook : on remercie sans jamais affirmer plus que ce qu'on sait."""
+    inv = _facture_par_token(db, token)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    if inv.statut == "payee":
+        message = "<p class='ok'>✓ Paiement reçu, merci !</p><p class='petit'>La facture est réglée. Vous pouvez fermer cette page.</p>"
+    else:
+        message = ("<p class='ok'>Merci, votre paiement a bien été transmis.</p>"
+                   "<p class='petit'>Par carte, la confirmation est immédiate ; par prélèvement SEPA, la banque "
+                   "met quelques jours ouvrés à confirmer. L'émetteur est prévenu automatiquement.</p>")
+    corps = f"<div class='encart' style='text-align:center;'><div style='font-size:34px;margin-bottom:10px;'>💶</div>{message}</div>"
+    return HTMLResponse(_page_devis_html("Merci", corps))
+
+
+@app.post("/stripe/webhook-connect")
+async def stripe_webhook_connect(request: Request, db: Session = Depends(get_db)):
+    """Webhook des ÉVÉNEMENTS DES COMPTES CONNECTÉS (checkout des factures).
+    C'est LA source de vérité du « payé » : signature vérifiée, idempotent."""
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature", "")
+    try:
+        event = encaissement.construire_evenement(payload, signature)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Signature invalide")
+    res = encaissement.traiter_evenement_connect(db, event)
+
+    # La bonne nouvelle au propriétaire (best-effort, jamais bloquant).
+    if res.get("resultat") == "payee":
+        try:
+            inv = db.query(ClientInvoice).filter(ClientInvoice.id == res["invoice_id"]).first()
+            u = db.query(User).filter(User.id == inv.user_id).first() if inv else None
+            if inv and u and u.email:
+                corps_mail = f"""
+                <div style="font-family:sans-serif;max-width:480px;margin:0 auto;text-align:center;
+                            background:#07192E;color:#F8FAFC;padding:32px 24px;border-radius:16px;">
+                  <p style="color:#5DCAA5;font-weight:bold;letter-spacing:1px;margin:0 0 8px;">FACTURE PAYÉE 💶</p>
+                  <div style="font-size:26px;font-weight:800;margin:8px 0;">{html.escape(inv.numero)}</div>
+                  <p style="color:#5DCAA5;font-size:15px;margin:4px 0 16px;">{html.escape(inv.client_nom or 'Ton client')} vient de payer en ligne.</p>
+                  <p style="color:#9BB0C4;font-size:13px;margin:0;">L'argent arrive directement sur ton compte Stripe,
+                  puis sur ton compte bancaire. La facture est passée « payée » dans TOTOR.</p>
+                </div>"""
+                send_email(u.email, f"💶 Facture {inv.numero} payée par {inv.client_nom or 'ton client'}", corps_mail)
+        except Exception:
+            pass
+    return {"ok": True}
 
 
 @app.post("/quotes/{quote_id}/send")

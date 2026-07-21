@@ -174,6 +174,11 @@ class FiscalSettings(Base):
     # Sert de PLANCHER au générateur ; on ne descend jamais en dessous, jamais d'édition libre.
     facture_numero_depart = Column(String, nullable=True)
 
+    # Compte Stripe Connect de l'UTILISATEUR : encaissement en ligne de SES factures
+    # par SES clients (charges directes, l'argent ne transite JAMAIS par TOTOR).
+    # ⚠️ Nouvelle colonne : ALTER TABLE fiscal_settings ADD COLUMN stripe_account_id VARCHAR;
+    stripe_account_id = Column(String, nullable=True)
+
     user = relationship("User", back_populates="fiscal_settings")
 
 
@@ -295,6 +300,16 @@ class ClientInvoice(Base):
     # Date d'envoi de la relance automatique (NULL = jamais relancée).
     # Garde-fou : une facture n'est JAMAIS relancée deux fois automatiquement.
     relance_envoyee_le = Column(DateTime, nullable=True)
+
+    # ── Paiement en ligne (Stripe Connect du propriétaire) ──
+    # payment_token : jeton public de la page « Payer en ligne » (comme le devis).
+    # paiement_en_cours : un prélèvement SEPA est parti mais pas encore confirmé
+    # (l'encaissement SEPA prend ~7 jours ; la facture ne passe « payée » qu'à la
+    # confirmation par webhook, jamais avant).
+    # ⚠️ Nouvelles colonnes : ALTER TABLE client_invoices ADD COLUMN payment_token VARCHAR;
+    #    + ALTER TABLE client_invoices ADD COLUMN paiement_en_cours BOOLEAN;
+    payment_token = Column(String, nullable=True, index=True)
+    paiement_en_cours = Column(Boolean, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
