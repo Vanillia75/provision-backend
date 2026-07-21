@@ -75,6 +75,19 @@ def upload_aem(file_path: str, user_id: str, original_filename: str) -> str:
     return key
 
 
+def upload_devis_signe(pdf_bytes: bytes, user_id: str, quote_id: str) -> str:
+    """
+    PDF scellé d'un devis accepté en ligne (pièce du fichier de preuve de la
+    signature électronique). Clé stable par devis : une seule copie, celle du
+    moment exact de l'acceptation (son SHA-256 est stocké en base).
+    """
+    key = f"devis-signes/{user_id}/{quote_id}.pdf"
+    client = _get_client()
+    client.put_object(Bucket=R2_BUCKET, Key=key, Body=pdf_bytes, ContentType="application/pdf")
+    logger.info("Devis signé scellé sur R2 : %s", key)
+    return key
+
+
 def get_signed_url(key: str, expires_seconds: int = 3600) -> str:
     """
     Génère une URL signée temporaire (1h par défaut) pour consulter un fichier.

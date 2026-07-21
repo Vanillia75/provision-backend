@@ -371,6 +371,21 @@ class Quote(Base):
     # Renseigne l'id de la facture creee si ce devis a ete converti
     converted_invoice_id = Column(String, nullable=True)
 
+    # ── Signature électronique en ligne (acceptation par le client) ──
+    # Preuve « signature simple » (eIDAS art. 25 / C. civ. 1367) : jeton envoyé à
+    # l'email du client, horodatage, IP, user-agent, empreinte SHA-256 du PDF au
+    # moment du clic, copie scellée sur R2. C'est la TRACE qui a valeur juridique.
+    # ⚠️ Nouvelles colonnes : ALTER TABLE quotes ADD COLUMN signature_token VARCHAR;
+    #   + signe_le TIMESTAMP; signe_ip VARCHAR; signe_user_agent VARCHAR;
+    #   + signe_hash VARCHAR; signe_email VARCHAR; signe_pdf_key VARCHAR;
+    signature_token = Column(String, nullable=True, index=True)
+    signe_le = Column(DateTime, nullable=True)
+    signe_ip = Column(String, nullable=True)
+    signe_user_agent = Column(String, nullable=True)
+    signe_hash = Column(String, nullable=True)
+    signe_email = Column(String, nullable=True)
+    signe_pdf_key = Column(String, nullable=True)
+
     # Régime TVA figé (même logique que ClientInvoice). NULL → franchise (fallback).
     vat_mode = Column(String, nullable=True)
     vat_rate = Column(Float, nullable=True)

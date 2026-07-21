@@ -6,6 +6,7 @@ Lancer avec : uvicorn api:app --reload
 import os
 import html
 import hashlib
+import secrets
 import json
 import asyncio
 import shutil
@@ -2553,6 +2554,11 @@ def _quote_to_dict(q: Quote) -> dict:
         "vat_rate": q.vat_rate,
         "vat_number": q.vat_number,
         "client_localisation": _localisation_de(q),
+        # Signature en ligne : le jeton sert au lien d'acceptation (app + email),
+        # signe_le/signe_email prouvent l'acceptation dans la vue détail.
+        "signature_token": q.signature_token,
+        "signe_le": q.signe_le,
+        "signe_email": q.signe_email,
     }
 
 
@@ -2779,8 +2785,208 @@ def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest", fiscal: dict = 
       {totaux_html}
       {mention_html}
       {f'<p style="color:#6B7A8D; font-size:12px;">{e(q.notes)}</p>' if q.notes else ""}
+      {(
+        f'<div style="text-align:center; margin:26px 0 8px;">'
+        f'<a href="{SIGNATURE_BASE_URL}/devis/{q.signature_token}" '
+        f'style="display:inline-block; background:#5DCAA5; color:#04342C; text-decoration:none; '
+        f'font-weight:700; font-size:15px; padding:13px 26px; border-radius:10px;">'
+        f'Lire et accepter le devis en ligne</a>'
+        f'<p style="color:#8BA5C0; font-size:11px; margin-top:10px;">Acceptation en 1 clic, '
+        f'horodatée et sécurisée. Aucune création de compte.</p></div>'
+      ) if q.signature_token else ""}
     </div>
     """
+
+
+# ════════════════════════════════════════════════════════════════════════
+#  SIGNATURE ÉLECTRONIQUE DES DEVIS — pages PUBLIQUES (jeton, sans compte).
+#  Le client reçoit un lien /devis/{token} : il lit le devis (PDF) et clique
+#  « Bon pour accord ». Preuve « signature simple » (eIDAS art. 25, C. civ.
+#  1367) : email destinataire + horodatage + IP + user-agent + SHA-256 du PDF
+#  au moment du clic + copie scellée sur R2. Servi via montotor.fr/devis/*
+#  (rewrite Vercel) ou directement sur le backend.
+# ════════════════════════════════════════════════════════════════════════
+SIGNATURE_BASE_URL = os.environ.get("SIGNATURE_BASE_URL", "https://www.montotor.fr")
+
+_PAGE_DEVIS_CSS = """
+  body{background:#07192E;color:#F8FAFC;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;
+       margin:0;padding:28px 16px;display:flex;justify-content:center;}
+  .carte{max-width:520px;width:100%;}
+  .logo{font-family:Georgia,serif;font-weight:700;font-size:22px;letter-spacing:1px;}
+  .logo .o{color:#5DCAA5;}
+  .encart{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);
+          border-radius:14px;padding:20px 22px;margin-top:18px;}
+  .ligne{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;color:#B5D4F4;}
+  .total{font-size:18px;font-weight:700;color:#F8FAFC;border-top:1px solid rgba(255,255,255,0.14);
+         margin-top:10px;padding-top:12px;}
+  .btn{display:block;width:100%;background:#5DCAA5;color:#04342C;border:none;border-radius:12px;
+       padding:14px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:14px;}
+  .btn:disabled{opacity:.45;cursor:default;}
+  .pdf{color:#378ADD;font-size:13.5px;}
+  .petit{color:#8BA5C0;font-size:11.5px;line-height:1.5;}
+  .ok{color:#5DCAA5;font-weight:700;}
+  a{color:#378ADD;}
+"""
+
+
+def _devis_par_token(db: Session, token: str):
+    """Devis correspondant à un jeton public (None si jeton absent/inconnu)."""
+    if not token or len(token) < 16:
+        return None
+    return db.query(Quote).filter(Quote.signature_token == token).first()
+
+
+def _accepter_devis(db: Session, q: Quote, ip: str, user_agent: str) -> bool:
+    """Enregistre l'acceptation en ligne d'un devis : fichier de preuve complet
+    (horodatage, IP, user-agent, email destinataire, SHA-256 du PDF au moment
+    exact du clic, copie scellée sur R2) + statut « accepté ».
+    Renvoie False si le devis était déjà signé (idempotent, on ne réécrit RIEN :
+    la première preuve fait foi)."""
+    if q.signe_le is not None:
+        return False
+    profile = db.query(Profile).filter(Profile.user_id == q.user_id).first()
+    emitter = _build_emitter_info(profile)
+    fiscal = resolve_fiscal_settings(q)
+    pdf = generate_invoice_pdf(_quote_to_dict(q), emitter, fiscal, kind="devis")
+    q.signe_hash = hashlib.sha256(pdf).hexdigest()
+    q.signe_le = datetime.utcnow()
+    q.signe_ip = (ip or "")[:100]
+    q.signe_user_agent = (user_agent or "")[:300]
+    q.signe_email = q.client_email
+    try:
+        if r2_storage.R2_ENABLED:
+            q.signe_pdf_key = r2_storage.upload_devis_signe(pdf, q.user_id, q.id)
+    except Exception:
+        pass  # la preuve principale (hash + horodatage + IP) est en base
+    q.statut = "accepte"
+    db.commit()
+    return True
+
+
+def _page_devis_html(titre: str, corps: str) -> str:
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{titre}</title><style>{_PAGE_DEVIS_CSS}</style></head>
+    <body><div class="carte">
+      <div class="logo">T<span class="o">O</span>T<span class="o">O</span>R
+        <span style="font-size:12px;color:#8BA5C0;font-family:sans-serif;font-weight:400;"> · devis en ligne</span></div>
+      {corps}
+      <p class="petit" style="margin-top:22px;">Document présenté par TOTOR (montotor.fr) pour le compte de l'émetteur.</p>
+    </div></body></html>"""
+
+
+@app.get("/devis/{token}", response_class=HTMLResponse)
+def page_devis_public(token: str, db: Session = Depends(get_db)):
+    """Page publique de lecture + acceptation d'un devis (lien envoyé au client)."""
+    q = _devis_par_token(db, token)
+    if not q:
+        raise HTTPException(status_code=404, detail="Devis introuvable")
+    e = lambda v: html.escape(str(v)) if v is not None else ""
+    profile = db.query(Profile).filter(Profile.user_id == q.user_id).first()
+    emitter = _build_emitter_info(profile)
+    fiscal = resolve_fiscal_settings(q)
+    totals = compute_invoice_totals(q.montant, fiscal, q.date_emission)
+
+    lignes = "".join(
+        f"<div class='ligne'><span>{e((l.get('description') if isinstance(l, dict) else l.description) or 'Prestation')}</span>"
+        f"<span>{((l.get('quantite', 0) if isinstance(l, dict) else l.quantite) or 0) * ((l.get('prix_unitaire', 0) if isinstance(l, dict) else l.prix_unitaire) or 0):.2f} €</span></div>"
+        for l in (q.lignes or [])
+    )
+    mention = f"<p class='petit'>{e(totals['mention'])}</p>" if totals.get("mention") else ""
+    validite = f" · valable jusqu'au {q.date_validite.strftime('%d/%m/%Y')}" if q.date_validite else ""
+
+    if q.signe_le is not None:
+        action = (f"<p class='ok'>✓ Devis accepté le {q.signe_le.strftime('%d/%m/%Y à %H:%M')} (UTC).</p>"
+                  "<p class='petit'>L'acceptation a été enregistrée et transmise à l'émetteur.</p>")
+    elif q.statut in ("refuse", "expire"):
+        action = "<p class='petit'>Ce devis n'est plus proposé à l'acceptation. Contactez directement l'émetteur.</p>"
+    else:
+        action = f"""
+        <form method="post" action="{SIGNATURE_BASE_URL}/devis/{e(token)}/accepter" style="margin-top:16px;">
+          <label style="display:flex;gap:10px;align-items:flex-start;font-size:13.5px;color:#E6EDF5;cursor:pointer;">
+            <input type="checkbox" required style="margin-top:3px;width:16px;height:16px;">
+            <span>Bon pour accord : j'ai lu le devis {e(q.numero)} et j'accepte la prestation
+            pour un total de {totals['ttc']:.2f} €.</span>
+          </label>
+          <button class="btn" type="submit">Accepter le devis</button>
+          <p class="petit" style="margin-top:10px;">En cliquant, votre acceptation est enregistrée avec
+          la date, l'heure et l'empreinte du document (signature électronique simple). Une copie est
+          conservée par l'émetteur.</p>
+        </form>"""
+
+    corps = f"""
+      <div class="encart">
+        <p style="margin:0 0 2px;font-size:12px;color:#8BA5C0;">Devis {e(q.numero)}{validite}</p>
+        <p style="margin:0 0 2px;font-size:16px;font-weight:600;">{e(emitter.get('nom') or 'Votre prestataire')}</p>
+        <p style="margin:0 0 14px;font-size:12.5px;color:#8BA5C0;">pour {e(q.client_nom)}</p>
+        {lignes}
+        <div class="ligne total"><span>Total</span><span>{totals['ttc']:.2f} €</span></div>
+        {mention}
+        <p style="margin-top:14px;"><a class="pdf" href="{SIGNATURE_BASE_URL}/devis/{e(token)}/pdf" target="_blank">Voir le devis complet (PDF)</a></p>
+      </div>
+      {action}"""
+    return HTMLResponse(_page_devis_html(f"Devis {q.numero}", corps))
+
+
+@app.get("/devis/{token}/pdf")
+def pdf_devis_public(token: str, db: Session = Depends(get_db)):
+    """PDF du devis, accessible par le jeton (le client n'a pas de compte)."""
+    q = _devis_par_token(db, token)
+    if not q:
+        raise HTTPException(status_code=404, detail="Devis introuvable")
+    profile = db.query(Profile).filter(Profile.user_id == q.user_id).first()
+    pdf = generate_invoice_pdf(_quote_to_dict(q), _build_emitter_info(profile),
+                               resolve_fiscal_settings(q), kind="devis")
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f"inline; filename=devis-{q.numero}.pdf"})
+
+
+@app.post("/devis/{token}/accepter", response_class=HTMLResponse)
+def accepter_devis_public(token: str, request: Request, db: Session = Depends(get_db)):
+    """Acceptation en ligne (clic « Bon pour accord ») : enregistre la preuve,
+    passe le devis en « accepté », prévient l'émetteur. Idempotent."""
+    q = _devis_par_token(db, token)
+    if not q:
+        raise HTTPException(status_code=404, detail="Devis introuvable")
+    if q.signe_le is None and q.statut in ("refuse", "expire"):
+        return HTMLResponse(_page_devis_html(
+            "Devis indisponible",
+            "<div class='encart'><p class='petit'>Ce devis n'est plus proposé à l'acceptation.</p></div>"))
+
+    # IP réelle : derrière le proxy Vercel/Railway, elle est dans X-Forwarded-For.
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if not ip and request.client:
+        ip = request.client.host or ""
+    nouveau = _accepter_devis(db, q, ip, request.headers.get("user-agent", ""))
+
+    if nouveau:
+        # Prévenir l'émetteur : c'est la bonne nouvelle du jour (best-effort).
+        try:
+            u = db.query(User).filter(User.id == q.user_id).first()
+            if u and u.email:
+                corps_mail = f"""
+                <div style="font-family:sans-serif;max-width:480px;margin:0 auto;text-align:center;
+                            background:#07192E;color:#F8FAFC;padding:32px 24px;border-radius:16px;">
+                  <p style="color:#5DCAA5;font-weight:bold;letter-spacing:1px;margin:0 0 8px;">DEVIS ACCEPTÉ 🎉</p>
+                  <div style="font-size:26px;font-weight:800;margin:8px 0;">{html.escape(q.numero)}</div>
+                  <p style="color:#5DCAA5;font-size:15px;margin:4px 0 16px;">{html.escape(q.client_nom or '')} vient d'accepter ton devis en ligne.</p>
+                  <p style="color:#9BB0C4;font-size:13px;margin:0;">Acceptation horodatée et enregistrée.
+                  Dans TOTOR, tu peux le convertir en facture en un clic.</p>
+                </div>"""
+                send_email(u.email, f"🎉 Devis {q.numero} accepté par {q.client_nom or 'ton client'}", corps_mail)
+        except Exception:
+            pass
+
+    quand = q.signe_le.strftime('%d/%m/%Y à %H:%M') if q.signe_le else ""
+    corps = f"""
+      <div class="encart" style="text-align:center;">
+        <div style="font-size:34px;margin-bottom:10px;">✓</div>
+        <p class="ok" style="font-size:16px;margin:0 0 8px;">{'Devis accepté, merci !' if nouveau else 'Ce devis était déjà accepté.'}</p>
+        <p class="petit">Acceptation enregistrée le {quand} (UTC). L'émetteur a été prévenu
+        et conserve la preuve horodatée. Vous pouvez fermer cette page.</p>
+        <p style="margin-top:12px;"><a class="pdf" href="{SIGNATURE_BASE_URL}/devis/{html.escape(token)}/pdf" target="_blank">Télécharger le devis (PDF)</a></p>
+      </div>"""
+    return HTMLResponse(_page_devis_html("Devis accepté", corps))
 
 
 @app.post("/quotes/{quote_id}/send")
@@ -2808,6 +3014,10 @@ def send_quote(
     # Envoi = émission : si brouillon, on fige le régime TVA AVANT de construire l'email.
     if q.statut == "brouillon":
         _snapshot_fiscal(q, db, user.id)
+    # Lien d'acceptation en ligne : jeton créé au premier envoi, stable ensuite
+    # (le client peut recliquer le même lien depuis n'importe quel email).
+    if not q.signature_token:
+        q.signature_token = secrets.token_urlsafe(24)
     fiscal = resolve_fiscal_settings(q)
     html = _build_quote_email_html(q, req, fiscal)
     # Expéditeur = le nom de l'utilisateur (signature du profil, repli sur le nom
