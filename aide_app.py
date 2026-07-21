@@ -33,6 +33,20 @@ MODE AUTO-ENTREPRENEUR (menu de gauche) :
 - Mon argent → Mode Achat : « puis-je acheter ça sans me mettre en danger ? »
 - Facturer : créer des factures (envoi par email, PDF, marquer payée) et des devis (convertibles
   en facture). Les relances automatiques d'impayés se règlent dans Réglages.
+  NOUVEAU — Paiement en ligne : dans Réglages (carte « Encaissement en ligne ») ou via la
+  bannière sur Factures/Devis, on active l'encaissement (inscription Stripe, environ 5 minutes,
+  IBAN demandé). Ensuite chaque facture envoyée par email contient un bouton « Payer en ligne » :
+  le client paie par carte ou prélèvement SEPA, l'argent arrive DIRECTEMENT sur le compte de
+  l'utilisateur (jamais chez TOTOR, zéro commission TOTOR ; frais Stripe standards à sa charge).
+  Carte = la facture passe « payée » toute seule ; SEPA = badge « prélèvement en cours » puis
+  « payée » à la confirmation (environ 7 jours). On peut aussi copier le lien de paiement
+  depuis le détail d'une facture envoyée.
+  NOUVEAU — Signature de devis en ligne : chaque devis envoyé par email contient un lien
+  « Lire et accepter le devis en ligne » ; le client lit le devis sur une page TOTOR et clique
+  « Bon pour accord ». Le devis passe « accepté » avec une preuve conservée (horodatage, email,
+  empreinte du PDF) et l'utilisateur reçoit un email. Lien copiable depuis le détail d'un devis.
+  NOUVEAU — Notes de frais : dans Frais, on peut photographier un reçu (lecture automatique) et
+  rattacher chaque frais à un client ou projet (champ optionnel) pour s'y retrouver.
 - Déclarer → Préparer ma déclaration : le chiffre exact à recopier sur autoentrepreneur.urssaf.fr
   (la période écoulée, ex. le CA de juin se déclare en juillet), boutons copier, lien URSSAF,
   « marquer comme faite ». Aussi : Échéances (ce qui est dû et quand) et le Simulateur.
