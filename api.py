@@ -33,7 +33,7 @@ from emailing import send_reset_password_email, send_verification_email, send_in
 from invoice_pdf import generate_invoice_pdf
 from legal_mentions import (
     get_franchise_vat_mention, append_ei_mention, resolve_fiscal_settings,
-    compute_invoice_totals, format_vat_rate,
+    compute_invoice_totals, format_vat_rate, get_b2b_late_fee_mention,
     ASSUJETTI, ASSUJETTI_UE, ASSUJETTI_EXPORT,
 )
 from numerotation import compute_next_numero, normalize_numero_depart
@@ -2052,6 +2052,7 @@ def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest", fis
       </table>
       {totaux_html}
       {mention_html}
+      {f'<p style="color:#8BA5C0; font-size:11px; margin-top:8px;">{e(get_b2b_late_fee_mention(inv.client_type))}</p>' if get_b2b_late_fee_mention(inv.client_type) else ""}
       {f'<p style="color:#6B7A8D; font-size:12px;">{e(inv.notes)}</p>' if inv.notes else ""}
     </div>
     """

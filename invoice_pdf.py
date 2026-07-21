@@ -12,7 +12,7 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-from legal_mentions import compute_invoice_totals, format_vat_rate
+from legal_mentions import compute_invoice_totals, format_vat_rate, get_b2b_late_fee_mention
 
 INK = colors.HexColor("#0A2540")
 GREY = colors.HexColor("#6B7A8D")
@@ -160,6 +160,13 @@ def generate_invoice_pdf(invoice: dict, emitter: dict, fiscal: dict = None, kind
         ]
     totals_table.setStyle(TableStyle(totals_style))
     story.append(totals_table)
+
+    # Facture à un client PROFESSIONNEL : mentions pénalités de retard + indemnité
+    # forfaitaire 40 € (obligation B2B). Jamais sur un devis ni pour un particulier.
+    b2b_mention = get_b2b_late_fee_mention(invoice.get("client_type"), kind)
+    if b2b_mention:
+        story.append(Spacer(1, 5 * mm))
+        story.append(Paragraph(e(b2b_mention), small_style))
 
     if invoice.get("notes"):
         story.append(Spacer(1, 8 * mm))

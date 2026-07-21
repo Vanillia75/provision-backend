@@ -33,6 +33,28 @@ ASSUJETTI_EXPORT = "assujetti_export"  # client pro hors UE : prestation hors ch
 MENTION_HORS_FRANCE = "TVA non applicable, art. 259-1 du CGI"
 MENTION_AUTOLIQUIDATION = "Autoliquidation"
 
+# Pénalités de retard entre PROFESSIONNELS (B2B) : mentions obligatoires sur les
+# FACTURES adressées à un client professionnel (jamais sur les devis, jamais pour
+# un particulier). Taux affiché = trois fois le taux d'intérêt légal (le minimum
+# légal, valeur sûre en l'absence de CGV personnalisées) + indemnité forfaitaire
+# de recouvrement de 40 € (art. L441-10 et D441-5 du Code de commerce).
+MENTION_PENALITES_B2B = (
+    "En cas de retard de paiement : pénalités au taux de trois fois le taux d'intérêt légal "
+    "et indemnité forfaitaire de recouvrement de 40 € (art. L441-10 et D441-5 du Code de commerce). "
+    "Pas d'escompte pour paiement anticipé."
+)
+
+
+def get_b2b_late_fee_mention(client_type: Optional[str], kind: str = "facture") -> Optional[str]:
+    """
+    Mention pénalités de retard + indemnité 40 € : UNIQUEMENT pour une FACTURE
+    adressée à un client PROFESSIONNEL. Un particulier ou un devis n'en portent
+    pas. `client_type` NULL/absent = particulier (comportement historique).
+    """
+    if kind != "facture" or (client_type or "particulier") != "professionnel":
+        return None
+    return MENTION_PENALITES_B2B
+
 
 def get_franchise_vat_mention(invoice_date: Optional[date] = None) -> str:
     """
