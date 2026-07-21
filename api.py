@@ -2878,6 +2878,7 @@ class ExpenseCreateRequest(BaseModel):
     montant: float
     categorie: str = "autre"
     description: Optional[str] = None
+    client_nom: Optional[str] = None
 
 
 class ExpenseUpdateRequest(BaseModel):
@@ -2885,6 +2886,7 @@ class ExpenseUpdateRequest(BaseModel):
     montant: Optional[float] = None
     categorie: Optional[str] = None
     description: Optional[str] = None
+    client_nom: Optional[str] = None
 
 
 def _expense_to_dict(e: Expense) -> dict:
@@ -2896,6 +2898,7 @@ def _expense_to_dict(e: Expense) -> dict:
         "description": e.description,
         "source": e.source,
         "filename": e.filename,
+        "client_nom": e.client_nom,
     }
 
 
@@ -2952,6 +2955,7 @@ def create_expense(
         categorie=req.categorie,
         description=req.description,
         source="manuel",
+        client_nom=(req.client_nom or None),
     )
     db.add(expense)
     db.commit()
@@ -2981,6 +2985,9 @@ def update_expense(
         expense.categorie = req.categorie
     if req.description is not None:
         expense.description = req.description
+    if req.client_nom is not None:
+        # chaîne vide = détacher le client ; sinon rattacher
+        expense.client_nom = req.client_nom.strip() or None
 
     db.commit()
     db.refresh(expense)

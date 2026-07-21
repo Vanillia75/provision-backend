@@ -315,6 +315,10 @@ class Expense(Base):
     description = Column(String, nullable=True)
     source = Column(String, default="manuel")  # "manuel" ou "import"
     filename = Column(String, nullable=True)
+    # Rattachement libre à un client/projet (optionnel) : nom en clair, comme sur
+    # les factures (pas de FK : le contact peut être supprimé, la dépense reste).
+    # ⚠️ Nouvelle colonne : ALTER TABLE expenses ADD COLUMN client_nom VARCHAR;
+    client_nom = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
