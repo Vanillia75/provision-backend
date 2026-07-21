@@ -483,6 +483,13 @@ def apply_promo(db: Session, user: User, code: str) -> dict:
             activate_comp_premium(db, user, months=months)
         pc.times_used += 1   # usage unique : avec max_uses=1, le code devient invalide ensuite
         db.commit()
+        # Alerte fondateur : un code cadeau vient d'être utilisé (best-effort,
+        # ne bloque jamais l'activation du premium).
+        try:
+            from emailing import send_founder_promo_alert
+            send_founder_promo_alert(pc.code, pc.times_used, pc.max_uses, user.email)
+        except Exception:
+            pass
         return {"ok": True, "kind": "tester", "premium": True, "months": months, "lifetime": pc.type == "lifetime"}
 
     # influenceur : on ne touche pas au premium ici, on l'appliquera au Checkout.

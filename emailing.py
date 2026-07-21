@@ -155,6 +155,21 @@ def send_founder_subscriber_alert(count: int, user_email: str) -> bool:
     return send_email(FOUNDER_ALERT_EMAIL, f"Nouvel abonne payant TOTOR (n{count})", html)
 
 
+def send_founder_promo_alert(code: str, count: int, max_uses, user_email: str) -> bool:
+    """Alerte : quelqu'un vient d'utiliser un code cadeau (kind 'tester').
+    Affiche le compteur d'utilisations (ex. 1/15) pour suivre la campagne."""
+    if not FOUNDER_ALERT_EMAIL:
+        return False
+    quota = f"{count}/{max_uses}" if max_uses else str(count)
+    html = _founder_html(
+        "CODE CADEAU UTILISE",
+        quota,
+        f"Le code {code} vient d'etre utilise.",
+        f"Par : {user_email}",
+    )
+    return send_email(FOUNDER_ALERT_EMAIL, f"Code {code} utilise ({quota})", html)
+
+
 def send_founder_trial_ending_alert(essais: list) -> bool:
     """Alerte : un ou plusieurs essais gratuits arrivent bientôt à échéance.
     `essais` = liste de dicts {email, source, fin (datetime|None), annulera (bool)}.
