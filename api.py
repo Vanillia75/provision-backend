@@ -2881,13 +2881,13 @@ def _accepter_devis(db: Session, q: Quote, ip: str, user_agent: str) -> bool:
     return True
 
 
-def _page_devis_html(titre: str, corps: str) -> str:
+def _page_devis_html(titre: str, corps: str, sous_titre: str = "devis en ligne") -> str:
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{titre}</title><style>{_PAGE_DEVIS_CSS}</style></head>
     <body><div class="carte">
       <div class="logo">T<span class="o">O</span>T<span class="o">O</span>R
-        <span style="font-size:12px;color:#8BA5C0;font-family:sans-serif;font-weight:400;"> · devis en ligne</span></div>
+        <span style="font-size:12px;color:#8BA5C0;font-family:sans-serif;font-weight:400;"> · {sous_titre}</span></div>
       {corps}
       <p class="petit" style="margin-top:22px;">Document présenté par TOTOR (montotor.fr) pour le compte de l'émetteur.</p>
     </div></body></html>"""
@@ -3113,7 +3113,7 @@ def page_paiement_public(token: str, db: Session = Depends(get_db)):
         <p style="margin-top:14px;"><a class="pdf" href="{SIGNATURE_BASE_URL}/paiement/{e(token)}/pdf" target="_blank">Voir la facture complète (PDF)</a></p>
       </div>
       {action}"""
-    return HTMLResponse(_page_devis_html(f"Facture {inv.numero}", corps))
+    return HTMLResponse(_page_devis_html(f"Facture {inv.numero}", corps, sous_titre="paiement en ligne"))
 
 
 @app.get("/paiement/{token}/pdf")
@@ -3164,7 +3164,7 @@ def page_paiement_merci(token: str, db: Session = Depends(get_db)):
                    "<p class='petit'>Par carte, la confirmation est immédiate ; par prélèvement SEPA, la banque "
                    "met quelques jours ouvrés à confirmer. L'émetteur est prévenu automatiquement.</p>")
     corps = f"<div class='encart' style='text-align:center;'><div style='font-size:34px;margin-bottom:10px;'>💶</div>{message}</div>"
-    return HTMLResponse(_page_devis_html("Merci", corps))
+    return HTMLResponse(_page_devis_html("Merci", corps, sous_titre="paiement en ligne"))
 
 
 @app.post("/stripe/webhook-connect")
