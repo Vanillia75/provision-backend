@@ -127,18 +127,20 @@ def delete_all_for_user(user_id: str) -> int:
         return 0
     try:
         client = _get_client()
-        prefix = f"aem/{user_id}/"
         paginator = client.get_paginator("list_objects_v2")
         count = 0
-        for page in paginator.paginate(Bucket=R2_BUCKET, Prefix=prefix):
-            objs = page.get("Contents", [])
-            if not objs:
-                continue
-            client.delete_objects(
-                Bucket=R2_BUCKET,
-                Delete={"Objects": [{"Key": o["Key"]} for o in objs]},
-            )
-            count += len(objs)
+        # TOUS les espaces de l'utilisateur : AEM originales (+ signalements,
+        # même préfixe) et devis signés. Ajouter ici tout nouveau préfixe.
+        for prefix in (f"aem/{user_id}/", f"devis-signes/{user_id}/"):
+            for page in paginator.paginate(Bucket=R2_BUCKET, Prefix=prefix):
+                objs = page.get("Contents", [])
+                if not objs:
+                    continue
+                client.delete_objects(
+                    Bucket=R2_BUCKET,
+                    Delete={"Objects": [{"Key": o["Key"]} for o in objs]},
+                )
+                count += len(objs)
         logger.info("Suppression RGPD : %d fichiers retirés pour user %s", count, user_id)
         return count
     except Exception as e:

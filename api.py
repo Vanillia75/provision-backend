@@ -2860,7 +2860,11 @@ def _accepter_devis(db: Session, q: Quote, ip: str, user_agent: str) -> bool:
     exact du clic, copie scellée sur R2) + statut « accepté ».
     Renvoie False si le devis était déjà signé (idempotent, on ne réécrit RIEN :
     la première preuve fait foi)."""
-    if q.signe_le is not None:
+    # Verrou de ligne anti-course : deux clics « Accepter » simultanés ne
+    # doivent produire QU'UNE preuve (la première fait foi, jamais réécrite).
+    # Sous SQLite (tests) le FOR UPDATE est ignoré, sans effet.
+    q = db.query(Quote).filter(Quote.id == q.id).with_for_update().first()
+    if q is None or q.signe_le is not None:
         return False
     profile = db.query(Profile).filter(Profile.user_id == q.user_id).first()
     emitter = _build_emitter_info(profile)
@@ -2884,7 +2888,7 @@ def _accepter_devis(db: Session, q: Quote, ip: str, user_agent: str) -> bool:
 def _page_devis_html(titre: str, corps: str, sous_titre: str = "devis en ligne") -> str:
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{titre}</title><style>{_PAGE_DEVIS_CSS}</style></head>
+    <title>{html.escape(titre)}</title><style>{_PAGE_DEVIS_CSS}</style></head>
     <body><div class="carte">
       <div class="logo">T<span class="o">O</span>T<span class="o">O</span>R
         <span style="font-size:12px;color:#8BA5C0;font-family:sans-serif;font-weight:400;"> · {sous_titre}</span></div>

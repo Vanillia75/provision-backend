@@ -99,3 +99,26 @@ def test_evenements_non_geres_ignores(db):
     res = encaissement.traiter_evenement_connect(db, {"type": "payment_intent.created", "data": {"object": {}}})
     assert "ignore" in res
     assert inv.statut == "envoyee"
+
+
+def test_proprietaire_sans_compte_connecte_jamais_payee(db):
+    # Contrôle OBLIGATOIRE (échec fermé) : le propriétaire n'a pas de compte
+    # connecté enregistré -> aucun événement, même signé, ne paie sa facture.
+    inv = _facture(db, acct=None)
+    res = encaissement.traiter_evenement_connect(db, _evt(inv, "checkout.session.completed", "paid"))
+    assert res["ignore"] == "compte_inattendu"
+    assert inv.statut == "envoyee"
+
+
+def test_replay_evenement_deja_traite_ignore(db):
+    # Stripe relivre parfois un événement déjà traité : il ne doit JAMAIS
+    # rejouer. Cas concret : un vieux « completed » (SEPA lancé) relivré APRÈS
+    # l'échec du prélèvement ne doit pas réafficher « prélèvement en cours ».
+    inv = _facture(db)
+    lance = _evt(inv, "checkout.session.completed", "unpaid"); lance["id"] = "evt_lance_1"
+    echec = _evt(inv, "checkout.session.async_payment_failed", "unpaid"); echec["id"] = "evt_echec_1"
+    encaissement.traiter_evenement_connect(db, lance)
+    encaissement.traiter_evenement_connect(db, echec)
+    res = encaissement.traiter_evenement_connect(db, lance)   # re-livraison
+    assert res["ignore"] == "deja_traite"
+    assert inv.paiement_en_cours is False    # l'échec reste l'état affiché

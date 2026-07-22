@@ -21,7 +21,7 @@ from datetime import date, datetime
 import stripe
 from sqlalchemy.orm import Session
 
-from models import ClientInvoice, FiscalSettings, User
+from models import ClientInvoice, FiscalSettings, StripeEvent, User
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
 
@@ -116,6 +116,13 @@ def traiter_evenement_connect(db: Session, event) -> dict:
                        "checkout.session.async_payment_failed"):
         return {"ok": True, "ignore": type_evt}
 
+    # Déduplication : Stripe peut relivrer un même événement (retries). Un
+    # événement déjà traité ne doit jamais rejouer (ex. un vieux « completed »
+    # SEPA relivré APRÈS un échec remettrait « prélèvement en cours » à tort).
+    evt_id = _g(event, "id")
+    if evt_id and db.query(StripeEvent).filter(StripeEvent.event_id == evt_id).first():
+        return {"ok": True, "ignore": "deja_traite"}
+
     session = event["data"]["object"]
     meta = _g(session, "metadata") or {}
     invoice_id = _g(meta, "invoice_id") or _g(session, "client_reference_id")
@@ -129,13 +136,18 @@ def traiter_evenement_connect(db: Session, event) -> dict:
         return {"ok": True, "ignore": "deja_payee"}
 
     # Sécurité : l'événement doit venir DU compte connecté du propriétaire.
+    # Contrôle OBLIGATOIRE (échec fermé) : si le propriétaire n'a pas de compte
+    # connecté enregistré, aucun événement ne peut payer sa facture — sinon un
+    # tiers pourrait la faire passer « payée » depuis SON propre compte Standard
+    # (le webhook Connect partage un seul secret pour tous les comptes).
     acct = _g(event, "account")
     fs = db.query(FiscalSettings).filter(FiscalSettings.user_id == inv.user_id).first()
-    if acct and fs and fs.stripe_account_id and acct != fs.stripe_account_id:
+    if not (acct and fs and fs.stripe_account_id and acct == fs.stripe_account_id):
         return {"ok": True, "ignore": "compte_inattendu"}
 
     if type_evt == "checkout.session.async_payment_failed":
         inv.paiement_en_cours = False
+        _marquer_traite(db, evt_id, type_evt)
         db.commit()
         return {"ok": True, "resultat": "echec_sepa", "invoice_id": inv.id}
 
@@ -144,11 +156,20 @@ def traiter_evenement_connect(db: Session, event) -> dict:
         inv.statut = "payee"
         inv.date_paiement = inv.date_paiement or date.today()
         inv.paiement_en_cours = False
+        _marquer_traite(db, evt_id, type_evt)
         db.commit()
         return {"ok": True, "resultat": "payee", "invoice_id": inv.id}
 
     # completed mais payment_status == "unpaid" : prélèvement SEPA lancé,
     # confirmation dans ~7 jours. On l'affiche, on n'encaisse rien.
     inv.paiement_en_cours = True
+    _marquer_traite(db, evt_id, type_evt)
     db.commit()
     return {"ok": True, "resultat": "sepa_en_cours", "invoice_id": inv.id}
+
+
+def _marquer_traite(db: Session, evt_id, type_evt) -> None:
+    """Enregistre l'événement comme traité (commit fait par l'appelant, dans la
+    MÊME transaction que l'effet sur la facture)."""
+    if evt_id:
+        db.add(StripeEvent(event_id=evt_id, type=type_evt))
