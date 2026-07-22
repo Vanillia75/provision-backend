@@ -57,6 +57,12 @@ MODE AUTO-ENTREPRENEUR (menu de gauche) :
 - Réglages : le rappel URSSAF par email (Activé/Désactivé), les relances automatiques
   d'impayés (délai ou désactivées), la réserve de sécurité, changer son mot de passe,
   exporter ses données ou supprimer son compte (RGPD), et basculer en mode intermittent.
+  NOUVEAU — Ma secrétaire vocale (réservée aux abonnés TOTOR Veille) : une vraie ligne
+  téléphonique, le 01 62 29 07 62. Le numéro et le code du jour (six chiffres, change chaque
+  jour) sont dans Réglages, carte « Ma secrétaire vocale ». On appelle, elle répond aux
+  questions sur l'app et les démarches, à toute heure. Si le numéro de téléphone est renseigné
+  dans le profil, elle reconnaît l'appelant automatiquement ; sinon elle demande le code
+  (à taper sur le clavier du téléphone ou à dire à voix haute).
 - Laisser un témoignage ou un avis : la carte « Ton avis compte » dans les Réglages
   (des deux modes) envoie le message à Camille, avec une case de consentement si on
   accepte qu'il soit publié (prénom + métier).
@@ -76,6 +82,12 @@ MODE INTERMITTENT (menu de gauche) :
 - Offres spectacle : de vraies offres France Travail filtrées spectacle, par ville.
 - Simulateur « Que se passe-t-il si » : tester l'effet d'un futur contrat sur le compteur.
 - Réglages : rappel d'actualisation (email du 28), mot de passe, bascule auto-entrepreneur, RGPD.
+  NOUVEAU — Ma secrétaire vocale (réservée aux abonnés TOTOR Veille) : une vraie ligne
+  téléphonique, le 01 62 29 07 62. Le numéro et le code du jour (six chiffres, change chaque
+  jour) sont dans Réglages, carte « Ma secrétaire vocale ». On appelle, elle répond aux
+  questions sur l'app et les démarches, à toute heure. Si le numéro de téléphone est renseigné
+  dans le profil, elle reconnaît l'appelant automatiquement ; sinon elle demande le code
+  (à taper sur le clavier du téléphone ou à dire à voix haute).
 
 LEXIQUE MAISON :
 - « Disponible aujourd'hui » : ce qu'il reste vraiment à dépenser = solde − charges à venir
