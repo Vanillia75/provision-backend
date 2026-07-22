@@ -3045,7 +3045,10 @@ def connect_status(user: User = Depends(get_current_user), db: Session = Depends
     try:
         st = encaissement.statut_compte(fs.stripe_account_id)
         return {"configure": True, **st}
-    except Exception:
+    except Exception as e:
+        # Jamais d'erreur silencieuse ici : c'est ce qui a masqué le bug .get()
+        # du 22/07 (statut « pas complet » renvoyé à tort à tous les configurés).
+        print(f"[encaissement] statut Stripe illisible : {billing.redact_secrets(f'{type(e).__name__}: {e}')}", flush=True)
         return {"configure": True, "actif": False, "dossier_complet": False, "erreur": True}
 
 

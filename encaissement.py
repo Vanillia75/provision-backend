@@ -32,6 +32,17 @@ STRIPE_CONNECT_WEBHOOK_SECRET = os.environ.get("STRIPE_CONNECT_WEBHOOK_SECRET", 
 BASE_URL = os.environ.get("SIGNATURE_BASE_URL", "https://www.montotor.fr")
 
 
+def _g(obj, key, default=None):
+    """Lecture robuste d'un champ Stripe : marche que `obj` soit un dict OU un objet
+    Stripe (StripeObject de stripe-python v15 n'expose plus .get(), seulement
+    l'attribut). Même recette que billing._g (piège déjà rencontré en juin)."""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
 # ── Compte connecté de l'utilisateur ────────────────────────────────────────
 def creer_compte_connecte(user: User) -> str:
     """Crée le compte Stripe STANDARD (FR) de l'utilisateur. Renvoie acct_..."""
@@ -56,8 +67,8 @@ def statut_compte(account_id: str) -> dict:
     vérification (charges_enabled) fait foi."""
     acct = stripe.Account.retrieve(account_id)
     return {
-        "actif": bool(acct.get("charges_enabled")),
-        "dossier_complet": bool(acct.get("details_submitted")),
+        "actif": bool(_g(acct, "charges_enabled")),
+        "dossier_complet": bool(_g(acct, "details_submitted")),
     }
 
 
@@ -106,7 +117,8 @@ def traiter_evenement_connect(db: Session, event) -> dict:
         return {"ok": True, "ignore": type_evt}
 
     session = event["data"]["object"]
-    invoice_id = (session.get("metadata") or {}).get("invoice_id") or session.get("client_reference_id")
+    meta = _g(session, "metadata") or {}
+    invoice_id = _g(meta, "invoice_id") or _g(session, "client_reference_id")
     if not invoice_id:
         return {"ok": True, "ignore": "sans_invoice_id"}
 
@@ -117,7 +129,7 @@ def traiter_evenement_connect(db: Session, event) -> dict:
         return {"ok": True, "ignore": "deja_payee"}
 
     # Sécurité : l'événement doit venir DU compte connecté du propriétaire.
-    acct = event.get("account")
+    acct = _g(event, "account")
     fs = db.query(FiscalSettings).filter(FiscalSettings.user_id == inv.user_id).first()
     if acct and fs and fs.stripe_account_id and acct != fs.stripe_account_id:
         return {"ok": True, "ignore": "compte_inattendu"}
@@ -127,7 +139,7 @@ def traiter_evenement_connect(db: Session, event) -> dict:
         db.commit()
         return {"ok": True, "resultat": "echec_sepa", "invoice_id": inv.id}
 
-    if session.get("payment_status") == "paid":
+    if _g(session, "payment_status") == "paid":
         # Argent réellement encaissé (carte tout de suite, ou SEPA confirmé).
         inv.statut = "payee"
         inv.date_paiement = inv.date_paiement or date.today()
