@@ -19,16 +19,29 @@ def _cachet(d, nombre=1, brut=100.0):
 
 
 def test_mois_type_artiste():
-    # Juillet 2026 (31 j), 3 cachets (36 h) : jt = 36/10 = 3,6 → 4 ;
-    # décalage = 3,6 × 1,3 = 4,68 → 5 ; indemnisables = 31 − 5 = 26.
+    # Juillet 2026 (31 j), 3 cachets (36 h) : jt = 36/10 = 3,6 → TRONQUÉ à 3 ;
+    # décalage = 3,6 × 1,3 = 4,68 → TRONQUÉ à 4 ; indemnisables = 31 − 4 = 27.
+    # (Troncature = règle observée sur relevé réel, cas n°2 : 6,04 → 6 ; 10,5 → 10.)
     acts = [_cachet(date(2026, 7, 10), nombre=3, brut=300.0)]
     r = estimer_mois_civil("annexe10", RES_AJ, acts, 2026, 7)
     assert r["jours_calendaires"] == 31
     assert r["heures_mois"] == 36.0
-    assert r["jours_indemnisables"] == 26
-    assert r["net_estime"] == round(26 * RES_AJ["aj_nette"], 2)
-    # 3,6 jours : arrondi fractionnaire non sourcé → on l'assume comme estimation.
+    assert r["jours_travailles"] == 3
+    assert r["jours_non_indemnisables"] == 4
+    assert r["jours_indemnisables"] == 27
+    assert r["net_estime"] == round(27 * RES_AJ["aj_nette"], 2)
+    # Fractionnaire : la troncature n'est pas encore observée sur un relevé
+    # annexe 10 → on l'assume comme estimation.
     assert r["approximatif"] is True
+
+
+def test_troncature_conforme_au_releve_reel():
+    # Le cas VALIDÉ du relevé du 14/04/2026 (annexe 8) : 34,5 h → (34,5/8) × 1,4
+    # = 6,04 → 6 jours retenus par France Travail (tronqué, pas arrondi).
+    r = estimer_mois_civil("annexe8", RES_AJ, [
+        {"date": date(2026, 7, 8), "type_activite": "heures", "nombre": 34.5, "salaire_brut": 500.0},
+    ], 2026, 7)
+    assert r["jours_non_indemnisables"] == 6
 
 
 def test_mois_vide_tout_indemnise():
@@ -68,6 +81,9 @@ def test_autre_salaire_zero_heure_mais_compte_au_plafond():
     assert r["plafond_cumul_applique"] is True
     assert r["are_versee"] == 0.0
     assert r["net_estime"] == 0.0
+    # Et le décalage non converti (SMIC absent du référentiel) est SIGNALÉ.
+    assert r["autre_salaire_non_decale"] is True
+    assert r["approximatif"] is True
 
 
 def test_brut_manquant_leve_le_drapeau():

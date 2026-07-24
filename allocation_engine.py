@@ -299,13 +299,15 @@ def calculer_mois(
         pmss_mensuel = _PMSS["montant"]
     plafond_cumul = round(pmss_mensuel * _PMSS["coefPlafondCumul"], 2)
 
-    # Jours travaillés du mois (le résultat officiel est "arrondi au nombre entier
-    # obtenu" ; l'arrondi exact des cas fractionnaires n'est pas confirmé par un
-    # cas réel → drapeau d'approximation dès qu'un chiffre ne tombe pas juste).
+    # Jours travaillés et jours non indemnisables : France Travail TRONQUE au
+    # nombre entier (« arrondi au nombre entier obtenu ») — confirmé sur relevé
+    # RÉEL (cas n°2, annexe 8, 14/04/2026 : 6,04 → 6 j ; 10,5 → 10 j). On garde
+    # malgré tout le drapeau d'approximation sur les cas fractionnaires : la
+    # troncature n'a pas encore été observée sur un relevé annexe 10.
     jt_brut = heures_mois / p["diviseurSJM"]
-    jours_travailles = int(math.floor(jt_brut + 0.5))
+    jours_travailles = int(jt_brut + 1e-9)
     jni_brut = jt_brut * p["coefDecalage"]
-    jours_non_indemnisables = int(math.floor(jni_brut + 0.5))
+    jours_non_indemnisables = int(jni_brut + 1e-9)
     arrondi_approximatif = (jt_brut != int(jt_brut)) or (jni_brut != int(jni_brut))
 
     seuil_atteint = jours_travailles >= p["seuilJoursMois"]
@@ -399,6 +401,7 @@ def estimer_mois_civil(annexe: str, res_aj: dict, activites: list, annee: int, m
     heures = 0.0
     bruts = 0.0
     bruts_manquants = False
+    autre_salaire_mois = False
     nb_travail = 0
     for a in activites:
         d = a.get("date")
@@ -414,7 +417,13 @@ def estimer_mois_civil(annexe: str, res_aj: dict, activites: list, annee: int, m
             else:
                 bruts += float(a["salaire_brut"])
         elif t == "autre_salaire" and a.get("salaire_brut") is not None:
+            # Compté pour le plafond de cumul. En revanche, France Travail
+            # convertit AUSSI ces salaires en heures (÷ SMIC) pour le décalage :
+            # le SMIC horaire n'est pas dans le référentiel sourcé, donc on ne
+            # convertit PAS (pas de constante inventée) — on SIGNALE à la place
+            # que le versement réel sera un peu plus bas (sens honnête).
             bruts += float(a["salaire_brut"])
+            autre_salaire_mois = True
 
     m = calculer_mois(
         annexe,
@@ -436,7 +445,7 @@ def estimer_mois_civil(annexe: str, res_aj: dict, activites: list, annee: int, m
         prorata_plafond = True
         net = round(m["are_versee"] * (res_aj["aj_nette"] / res_aj["aj_brute"]), 2) if res_aj["aj_brute"] > 0 else 0.0
 
-    approximatif = bool(m["arrondi_approximatif"] or bruts_manquants or prorata_plafond)
+    approximatif = bool(m["arrondi_approximatif"] or bruts_manquants or prorata_plafond or autre_salaire_mois)
 
     return {
         **m,
@@ -446,6 +455,7 @@ def estimer_mois_civil(annexe: str, res_aj: dict, activites: list, annee: int, m
         "heures_mois": round(heures, 1),
         "remunerations_brutes": round(bruts, 2),
         "bruts_manquants": bruts_manquants,
+        "autre_salaire_non_decale": autre_salaire_mois,
         "activites_travail_mois": nb_travail,
         "net_estime": net,
         "prorata_plafond": prorata_plafond,
