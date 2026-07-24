@@ -4639,6 +4639,16 @@ async def extract_aem(
         except HTTPException:
             raise
         except Exception as e:
+            # Vigie fondateur (23/07/2026, « plus jamais ce bug ») : chaque échec
+            # DÉFINITIF de scan (après les 3 tentatives) remonte à Sentry — motif et
+            # extension seulement, JAMAIS le contenu du document ni le nom du fichier.
+            try:
+                sentry_sdk.capture_message(
+                    f"Scan AEM en échec ({os.path.splitext(file.filename)[1].lower()}) : {billing.redact_secrets(str(e))}",
+                    level="warning",
+                )
+            except Exception:
+                pass  # la vigie ne doit jamais casser le scan lui-même
             raise HTTPException(status_code=422, detail=billing.redact_secrets(str(e)) or "Impossible de lire cette AEM.")
 
         # Conserve le document original sur R2 (si configuré). Le même document peut contenir
