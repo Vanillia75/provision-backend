@@ -4841,6 +4841,15 @@ def update_intermittent_activite(
     # On met à jour le statut "estimé" (passe à False quand l'utilisateur confirme l'AEM réelle).
     row.estime = bool(req.estime)
     row.metier = _metier_valide(req.metier)
+    # Réconciliation estimé → AEM (24/07/2026) : quand un scan REMPLACE une ligne
+    # estimée, il apporte ses marqueurs de document. Additifs : jamais effacés
+    # quand ils sont absents (le formulaire d'édition n'y touche pas).
+    if req.aem_recue:
+        row.aem_recue = True
+    if req.aem_filename:
+        row.aem_filename = req.aem_filename
+    if req.aem_r2_key:
+        row.aem_r2_key = req.aem_r2_key
     db.commit()
     return {"ok": True}
 
