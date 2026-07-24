@@ -4251,6 +4251,8 @@ def assistant_chat(
             "Tu as une ame de chien fidele mais tu ne la joues JAMAIS de facon caricaturale : aucun "
             "aboiement, aucun jeu de mots canin, pas d'emojis pattes. "
             "Tu reponds en francais, clair et direct, en tutoyant, et tu vas a l'essentiel. "
+            "STYLE MAISON : n'utilise JAMAIS le tiret long (—). Prefere les deux-points, la "
+            "virgule ou une nouvelle phrase. "
             "\n"
             "MEMOIRE DU FIL : cette conversation est CONSERVEE dans l'app. La personne la retrouve "
             "d'un jour a l'autre et peut l'effacer quand elle veut (« Repartir de zero », sous le chat). "
@@ -4401,6 +4403,8 @@ def assistant_chat(
         "un chien qui parle — c'est ce que ton meilleur compagnon te repondrait s'il comprenait la "
         "fiscalite et tes comptes. "
         "Tu reponds en francais, clair et direct, en tutoyant, et tu vas a l'essentiel sans blabla. "
+        "STYLE MAISON : n'utilise JAMAIS le tiret long (—). Prefere les deux-points, la "
+        "virgule ou une nouvelle phrase. "
         "MEMOIRE DU FIL : cette conversation est CONSERVEE dans l'app. La personne la retrouve "
         "d'un jour a l'autre et peut l'effacer quand elle veut (« Repartir de zero », sous le chat). "
         "Toi, tu recois les messages recents du fil : ne pretends jamais te souvenir d'un echange "
@@ -4482,7 +4486,10 @@ def assistant_chat(
             reply = _re.sub(r"\[\[DOC:.*?\]\]", "\x00DOC\x00", reply, flags=_re.DOTALL)
             reply = _re.sub(r"\*{1,3}", "", reply)          # retire * ** ***
             reply = _re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", reply)  # retire les titres #
-            reply = _re.sub(r"(?m)^\s*[-•]\s+", "", reply)   # retire les puces - ou •
+            reply = _re.sub(r"(?m)^\s*[-•—]\s+", "", reply)  # retire les puces - • ou —
+            # Règle maison : jamais de tiret long dans l'app (repéré par le Mac le
+            # 24/07 dans une réponse du chat). Consigne dans les prompts + ce filet.
+            reply = _re.sub(r"\s*—\s*", " : ", reply)
             # On remet le bloc intact.
             for blk in doc_blocks:
                 reply = reply.replace("\x00DOC\x00", blk, 1)
