@@ -4416,7 +4416,12 @@ def assistant_chat(
 
 TYPES_ACTIVITE_INTERMITTENT = ("heures", "cachet_isole", "cachet_groupe", "formation", "enseignement",
                                "arret_maternite", "arret_accident", "arret_ald", "arret_suspension",
-                               "arret_maladie_ordinaire", "arret_paternite")
+                               "arret_maladie_ordinaire", "arret_paternite",
+                               # Salaire HORS intermittence (pub, mannequinat, régime général…) :
+                               # 0h pour le moteur 507 (type inconnu de heures_de → 0, par construction),
+                               # exclu des Congés Spectacles et de la projection AJ (listes blanches),
+                               # visible dans le récap de revenus (demande testeuse 24/07/2026).
+                               "autre_salaire")
 
 
 class IntermittentActiviteRequest(BaseModel):
