@@ -151,9 +151,9 @@ def extract_are_data(file_path: str) -> dict:
     return {"date_anniversaire": date_anniv, "montant_journalier": montant, "filename": os.path.basename(file_path)}
 
 
-def _render_pdf_form_pages(raw: bytes) -> list:
+def _render_pdf_form_pages(raw: bytes, indices=None) -> list:
     """
-    Rend chaque page d'un PDF en image PNG, AVEC les champs de formulaire dessinés.
+    Rend des pages d'un PDF en images PNG, AVEC les champs de formulaire dessinés.
 
     Pourquoi : beaucoup d'AEM/FCTU (ex. TF1, éditées par France Travail) sont des
     formulaires PDF (AcroForm). Les valeurs saisies (employeur, SIRET, cachets…)
@@ -161,6 +161,9 @@ def _render_pdf_form_pages(raw: bytes) -> list:
     Quand on envoie le PDF brut à l'IA, elle l'aplatit et ne voit qu'un gabarit
     VIDE → « attestation non reconnue ». En rendant nous-mêmes les pages avec les
     champs, l'IA voit l'attestation remplie, exactement comme un humain.
+
+    `indices` : numéros de pages à rendre (défaut : les 15 premières, garde-fou
+    historique pour les appels sans découpage type ARE).
 
     Retourne une liste de blocs image (base64 PNG). Liste vide si échec.
     """
@@ -171,8 +174,11 @@ def _render_pdf_form_pages(raw: bytes) -> list:
     doc = pdfium.PdfDocument(raw)
     try:
         doc.init_forms()  # nécessaire pour que le rendu dessine les champs remplis
-        n = min(len(doc), 15)  # garde-fou : on ne rend pas un PDF interminable
-        for i in range(n):
+        if indices is None:
+            indices = range(min(len(doc), 15))
+        for i in indices:
+            if i >= len(doc):
+                break
             pil = doc[i].render(scale=2.0).to_pil()
             buf = io.BytesIO()
             pil.save(buf, format="PNG")
@@ -300,13 +306,17 @@ def _normalise(data: dict, filename: str) -> dict:
     }
 
 
-def extract_aem_data(file_path: str) -> dict:
-    if not ANTHROPIC_API_KEY:
-        raise RuntimeError("Lecture d'AEM indisponible : clé API non configurée.")
+# Découpage des gros PDF : pages par appel au modèle, avec 1 page de chevauchement
+# (une AEM à cheval sur deux lots est ainsi vue en entier dans au moins un lot).
+_LOT_PAGES = 6
+_LOT_CHEVAUCHEMENT = 1
+_MAX_PAGES_DOCUMENT = 40
 
+
+def _appeler_modele_aem(source_blocks: list) -> list:
+    """Un appel au modèle sur un lot de pages/images → liste d'objets AEM bruts.
+    Lève RuntimeError si la lecture échoue (HTTP ou JSON invalide)."""
     import requests  # déjà présent dans les dépendances backend
-
-    source_blocks = _build_source_blocks(file_path)
 
     resp = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -316,8 +326,10 @@ def extract_aem_data(file_path: str) -> dict:
             "content-type": "application/json",
         },
         json={
+            # max_tokens 4000 : une liasse d'une dizaine d'AEM tient sans être
+            # tronquée (l'ancien plafond de 1500 coupait le JSON en plein vol).
             "model": MODEL,
-            "max_tokens": 1500,
+            "max_tokens": 4000,
             "messages": [
                 {
                     "role": "user",
@@ -325,29 +337,104 @@ def extract_aem_data(file_path: str) -> dict:
                 }
             ],
         },
-        timeout=60,
+        timeout=90,
     )
 
     if resp.status_code != 200:
         raise RuntimeError(f"Lecture impossible (code {resp.status_code}).")
 
     body = resp.json()
-    # Concatène les blocs texte de la réponse
     parts = [b.get("text", "") for b in body.get("content", []) if b.get("type") == "text"]
     raw = _clean_json("".join(parts))
-
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
         raise RuntimeError("Je n'ai pas réussi à lire cette AEM. Essaie une photo plus nette, ou saisis à la main.")
-
-    fname = os.path.basename(file_path)
-    # Le document peut contenir plusieurs AEM → on attend une liste.
-    # Compatibilité : si le modèle renvoie un seul objet, on l'enveloppe dans une liste.
     if isinstance(data, dict):
         data = [data]
     if not isinstance(data, list):
         raise RuntimeError("Lecture impossible : format inattendu. Saisis à la main.")
+    return data
+
+
+def _lots_de_pages(nb_pages: int) -> list:
+    """Découpe [0..nb_pages) en lots de _LOT_PAGES avec chevauchement d'une page.
+    Ex. 20 pages → [0..5], [5..10], [10..15], [15..19]."""
+    lots = []
+    debut = 0
+    while debut < nb_pages:
+        fin = min(debut + _LOT_PAGES, nb_pages)
+        lots.append(list(range(debut, fin)))
+        if fin >= nb_pages:
+            break
+        debut = fin - _LOT_CHEVAUCHEMENT
+    return lots
+
+
+def _cle_dedup(item: dict):
+    """Clé d'identité d'une AEM extraite, pour écarter les doublons créés par le
+    chevauchement des lots (même employeur, mêmes dates, même volume, même brut)."""
+    return (
+        (item.get("employeur") or "").strip().lower(),
+        item.get("date"),
+        item.get("date_fin"),
+        item.get("type_activite"),
+        item.get("nombre"),
+        item.get("salaire_brut"),
+    )
+
+
+def extract_aem_data(file_path: str) -> dict:
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("Lecture d'AEM indisponible : clé API non configurée.")
+
+    ext = os.path.splitext(file_path)[1].lower()
+    data = None
+
+    if ext == ".pdf":
+        with open(file_path, "rb") as f:
+            raw_pdf = f.read()
+        try:
+            import pypdfium2 as pdfium
+            doc = pdfium.PdfDocument(raw_pdf)
+            nb_pages = len(doc)
+            has_form = doc.get_formtype() != 0
+            doc.close()
+        except Exception:
+            nb_pages, has_form = 0, False
+
+        if nb_pages > _MAX_PAGES_DOCUMENT:
+            raise RuntimeError(
+                f"Ce document fait {nb_pages} pages, c'est trop pour une seule lecture "
+                f"(maximum {_MAX_PAGES_DOCUMENT}). Envoie-le en plusieurs fois."
+            )
+
+        # Formulaire PDF (champs remplis) OU liasse de plus de _LOT_PAGES pages :
+        # on rend les pages en images et on lit lot par lot. Avant, tout partait en
+        # un seul appel : les pages au-delà de 15 étaient JETÉES en silence et une
+        # réponse trop longue était tronquée → les dernières AEM d'une liasse
+        # disparaissaient (bug remonté par une utilisatrice le 23/07/2026).
+        if nb_pages > 0 and (has_form or nb_pages > _LOT_PAGES):
+            data = []
+            for lot in _lots_de_pages(nb_pages):
+                blocks = _render_pdf_form_pages(raw_pdf, lot)
+                if not blocks:
+                    raise RuntimeError(
+                        f"Je n'ai pas réussi à lire les pages {lot[0] + 1} à {lot[-1] + 1}. "
+                        "Réessaie, ou envoie ce document en plusieurs fois."
+                    )
+                try:
+                    data.extend(_appeler_modele_aem(blocks))
+                except RuntimeError:
+                    # Un seul relancement : les gros documents méritent une 2e chance
+                    # avant de tout abandonner.
+                    data.extend(_appeler_modele_aem(blocks))
+
+    if data is None:
+        # Image, ou PDF court sans formulaire : un seul appel, comme avant.
+        data = _appeler_modele_aem(_build_source_blocks(file_path))
+
+    fname = os.path.basename(file_path)
 
     # Garde-fou : document reconnu comme N'ÉTANT PAS une attestation employeur (fiche de paie,
     # contrat, courrier…) → on le dit honnêtement au lieu d'extraire des données fausses en silence.
@@ -361,6 +448,16 @@ def extract_aem_data(file_path: str) -> dict:
     resultats = [_normalise(item, fname) for item in items]
     # On écarte les entrées totalement vides (ni date, ni nombre exploitable).
     resultats = [r for r in resultats if r.get("date") or (r.get("nombre") or 0) > 0]
+    # Dédoublonnage : le chevauchement des lots peut faire lire deux fois la même
+    # AEM. Deux attestations distinctes gardent des dates différentes → conservées.
+    vus, uniques = set(), []
+    for r in resultats:
+        cle = _cle_dedup(r)
+        if cle in vus:
+            continue
+        vus.add(cle)
+        uniques.append(r)
+    resultats = uniques
     if not resultats:
         raise RuntimeError("Je n'ai rien trouvé d'exploitable sur ce document. Essaie une photo plus nette, ou saisis à la main.")
     return resultats
