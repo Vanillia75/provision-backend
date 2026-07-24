@@ -373,3 +373,81 @@ def calculer_mois(
         "arrondi_approximatif": arrondi_approximatif,
         "avertissement": AVERTISSEMENT,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ESTIMATION DU MOIS CIVIL (décision Camille 24/07/2026 : lancé en mode
+#  ESTIMATION assumée, AVANT le backtest sur un relevé de situation réel — le
+#  premier relevé partagé servira à se caler, la carte le dit à l'utilisateur).
+#  S'appuie sur calculer_mois (guide FT, exemple officiel 12) et sur l'AJ de la
+#  carte allocation (validée au centime par le backtest n°1).
+#  Loi X : l'appelant vérifie branche_affichable AVANT d'appeler — on reste donc
+#  en zone validée (annexe 10, ≤ 60 €), où la CSG est nulle et le net fiable.
+#  Franchises non stockées côté profil : comptées à 0 (dit dans la carte).
+# ─────────────────────────────────────────────────────────────────────────────
+def estimer_mois_civil(annexe: str, res_aj: dict, activites: list, annee: int, mois: int) -> dict:
+    """
+    res_aj    : résultat de calculer_aj — la MÊME AJ que la carte allocation.
+    activites : dicts {date, type_activite, nombre, salaire_brut} ; seules celles
+                du mois civil (annee, mois) comptent. Travail = _TYPES_TRAVAIL
+                (formation exclue du décalage) ; autre_salaire = 0 heure mais son
+                brut compte pour le plafond mensuel de cumul (toutes les paies).
+    """
+    import calendar as _cal
+    jours_cal = _cal.monthrange(annee, mois)[1]
+
+    heures = 0.0
+    bruts = 0.0
+    bruts_manquants = False
+    nb_travail = 0
+    for a in activites:
+        d = a.get("date")
+        if not d or d.year != annee or d.month != mois:
+            continue
+        t = a.get("type_activite")
+        n = max(0.0, float(a.get("nombre") or 0))
+        if t in _TYPES_TRAVAIL:
+            nb_travail += 1
+            heures += n if t == "heures" else n * 12.0
+            if a.get("salaire_brut") is None:
+                bruts_manquants = True
+            else:
+                bruts += float(a["salaire_brut"])
+        elif t == "autre_salaire" and a.get("salaire_brut") is not None:
+            bruts += float(a["salaire_brut"])
+
+    m = calculer_mois(
+        annexe,
+        aj_brute=res_aj["aj_brute"],
+        heures_mois=heures,
+        remunerations_brutes=bruts,
+        jours_calendaires=jours_cal,
+    )
+
+    # Brut → net du mois. En zone validée (≤ 60 €), pas de CSG : le net du jour
+    # est aj_nette (retenue retraite comprise). Si le plafond de cumul a rogné
+    # le brut, on convertit au prorata (approximation, signalée comme telle).
+    prorata_plafond = False
+    if m["are_versee"] <= 0:
+        net = 0.0
+    elif not m["plafond_cumul_applique"]:
+        net = round(m["jours_indemnisables"] * res_aj["aj_nette"], 2)
+    else:
+        prorata_plafond = True
+        net = round(m["are_versee"] * (res_aj["aj_nette"] / res_aj["aj_brute"]), 2) if res_aj["aj_brute"] > 0 else 0.0
+
+    approximatif = bool(m["arrondi_approximatif"] or bruts_manquants or prorata_plafond)
+
+    return {
+        **m,
+        "annee": annee,
+        "mois": mois,
+        "jours_calendaires": jours_cal,
+        "heures_mois": round(heures, 1),
+        "remunerations_brutes": round(bruts, 2),
+        "bruts_manquants": bruts_manquants,
+        "activites_travail_mois": nb_travail,
+        "net_estime": net,
+        "prorata_plafond": prorata_plafond,
+        "approximatif": approximatif,
+    }

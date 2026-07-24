@@ -5174,6 +5174,47 @@ def get_intermittent_offres(
     return {"offres": offres, "source": "France Travail"}
 
 
+@app.get("/intermittent/estimation-mois")
+def estimation_mois_intermittent(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Estimation du versement France Travail pour le MOIS CIVIL EN COURS, à partir
+    de l'AJ de la carte allocation (validée au centime, backtest n°1) et des
+    activités saisies dans le mois (moteur du mois calé sur le guide officiel).
+    Décision Camille 24/07/2026 : lancé en mode ESTIMATION assumée AVANT le
+    backtest sur relevé réel — la carte le dit et promet de se caler dessus.
+    Réservé TOTOR Veille ({verrou: true} pour les gratuits, vitrine côté front).
+    Loi X : MÊME discipline d'affichage que la carte allocation (branche validée
+    seulement : annexe 10, ≤ 60 €/jour — zone sans CSG, net fiable)."""
+    if not billing.is_premium(db, user):
+        return {"verrou": True}
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    alloc = _allocation_pour_profil(profile)
+    if alloc is None:
+        return {"verrou": False, "ok": False, "raison": "allocation_manquante"}
+    if not alloc["affichable"]:
+        return {"verrou": False, "ok": False, "raison": alloc["raison_non_affichable"]}
+    res_aj = ae.calculer_aj(profile.annexe_allocation, profile.salaire_reference, profile.heures_reference)
+    rows = (
+        db.query(IntermittentActivity)
+        .filter(IntermittentActivity.user_id == user.id)
+        .all()
+    )
+    activites = [
+        {"date": r.date, "type_activite": r.type_activite, "nombre": r.nombre, "salaire_brut": r.salaire_brut}
+        for r in rows
+    ]
+    auj = date.today()
+    out = ae.estimer_mois_civil(profile.annexe_allocation, res_aj, activites, auj.year, auj.month)
+    out.update({
+        "verrou": False,
+        "ok": True,
+        "aj_brute": res_aj["aj_brute"],
+        "aj_nette": res_aj["aj_nette"],
+        "montant_officiel": profile.montant_journalier,
+        "coherent_officiel": alloc.get("coherent_officiel"),
+    })
+    return out
+
+
 @app.get("/intermittent/projection-aj")
 def projection_aj_renouvellement(
     cachets_sup: int = 0,
