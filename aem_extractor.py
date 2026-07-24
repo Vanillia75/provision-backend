@@ -30,6 +30,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 # pour pouvoir le parser directement.
 PROMPT = """Tu lis un document qui contient UNE OU PLUSIEURS AEM (Attestation Employeur Mensuelle) d'un intermittent du spectacle français. Un même document (souvent un PDF de plusieurs pages) regroupe fréquemment PLUSIEURS attestations, une par contrat.
 Le document peut aussi être une attestation GUSO (Guichet Unique du Spectacle Occasionnel — l'équivalent de l'AEM pour les employeurs occasionnels, fréquent chez les musiciens) : traite-la exactement comme une AEM et extrais les mêmes champs.
+Le document peut aussi être une AER CS, dite aussi AE CS (« Attestation Employeur Rematérialisée Cinéma Spectacle ») : c'est la remplaçante progressive de l'AEM (réforme 2025-2027), produite par France Travail à partir de la DSN de l'employeur. Elle regroupe parfois PLUSIEURS contrats d'un même employeur sur le mois : traite-la exactement comme une AEM ("type_document": "aem") et extrais chaque contrat/période distinct comme une entrée séparée.
 
 Repère CHAQUE attestation distincte (chaque numéro d'attestation différent, chaque période de travail différente = une AEM séparée) et extrais-les TOUTES.
 
