@@ -245,6 +245,11 @@ class IntermittentActivity(Base):
     # Permet de déclarer au plus juste en attendant le document réel, puis de régulariser.
     # Affichée avec un badge distinct ; ne doit jamais être présentée comme un chiffre certain.
     estime = Column(Boolean, nullable=False, default=False)
+    # true si l'utilisateur a VÉRIFIÉ qu'une alerte « doublon possible » n'en était pas un
+    # (deux contrats légitimes qui se ressemblent, ex. cachets samedi + cachets semaine du
+    # même mois). Acquitte l'alerte définitivement (demande testeuse 23/07/2026).
+    # ALTER TABLE exécuté sur Railway le 23/07/2026 AVANT ce commit.
+    doublon_ok = Column(Boolean, nullable=False, default=False, server_default="false")
     # Nom du fichier AEM scanné, le cas échéant.
     aem_filename = Column(String, nullable=True)
     # Clé du fichier original stocké sur Cloudflare R2 (pour consultation / suppression RGPD).

@@ -4562,6 +4562,7 @@ def list_intermittent_activites(
             "a_document": bool(r.aem_r2_key),
             "source": r.source,
             "metier": r.metier,
+            "doublon_ok": bool(r.doublon_ok),
         }
         for r in rows
     ]
@@ -4840,6 +4841,30 @@ def update_intermittent_activite(
     # On met à jour le statut "estimé" (passe à False quand l'utilisateur confirme l'AEM réelle).
     row.estime = bool(req.estime)
     row.metier = _metier_valide(req.metier)
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/intermittent/activite/{activite_id}/doublon-ok")
+def acquitter_doublon_activite(
+    activite_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """L'utilisateur a vérifié une alerte « doublon possible » et confirme que ce
+    n'est PAS un doublon : on acquitte l'alerte définitivement pour cette ligne
+    (demande testeuse 23/07/2026 : une alerte doit pouvoir être tranchée)."""
+    row = (
+        db.query(IntermittentActivity)
+        .filter(
+            IntermittentActivity.id == activite_id,
+            IntermittentActivity.user_id == user.id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Activite introuvable")
+    row.doublon_ok = True
     db.commit()
     return {"ok": True}
 
