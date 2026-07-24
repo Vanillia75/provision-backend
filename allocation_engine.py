@@ -140,6 +140,119 @@ def calculer_aj(annexe: str, sr: float, nht: float) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  PROJECTION AU PROCHAIN RENOUVELLEMENT (demande testeuse 23/07/2026)
+#  À partir des activités DÉJÀ déclarées de la fenêtre de référence, on projette
+#  l'AJ que donnerait la formule si le dossier était examiné tel quel, et une
+#  courbe « et si j'ajoute N cachets » (au cachet moyen RÉEL de l'utilisateur).
+#  Loi X : fonction PRUDENTE — pas de chiffre si les bruts sont trop incomplets,
+#  annexe indéterminée → estimation BASSE des deux annexes, jamais l'inverse.
+# ─────────────────────────────────────────────────────────────────────────────
+_TYPES_TRAVAIL = ("heures", "cachet_isole", "cachet_groupe", "cachet")
+_COMPLETUDE_MIN = 80  # % d'heures couvertes par un brut, en dessous on refuse de projeter
+
+
+def projeter_renouvellement(activites: list, fin) -> dict:
+    """
+    activites : liste de dicts {date (date), type_activite, nombre, salaire_brut, metier}.
+    fin       : fin de la fenêtre de référence (date anniversaire si connue et à venir,
+                sinon aujourd'hui). La fenêtre = les 365 jours qui la précèdent.
+
+    Seules les heures TRAVAILLÉES entrent dans le montant (formation/enseignement/
+    arrêts comptent pour les 507h mais PAS pour l'AJ — docstring de calculer_aj).
+    """
+    from datetime import timedelta
+
+    debut = fin - timedelta(days=365)
+    sel = [
+        a for a in activites
+        if a.get("date") and debut <= a["date"] <= fin and a.get("type_activite") in _TYPES_TRAVAIL
+    ]
+
+    def _h(a):
+        n = max(0.0, float(a.get("nombre") or 0))
+        return n if a["type_activite"] == "heures" else n * 12.0
+
+    nht = sum(_h(a) for a in sel)
+    if nht <= 0:
+        return {"ok": False, "raison": "aucune_activite"}
+
+    heures_avec_brut = sum(_h(a) for a in sel if a.get("salaire_brut") is not None)
+    sr = sum(float(a["salaire_brut"]) for a in sel if a.get("salaire_brut") is not None)
+    completude = round(100 * heures_avec_brut / nht)
+    if completude < _COMPLETUDE_MIN:
+        return {"ok": False, "raison": "bruts_incomplets", "completude": completude, "nht": round(nht, 1)}
+
+    # Annexe : les cachets sont artiste par nature ; les heures votent par leur métier.
+    h_artiste = sum(_h(a) for a in sel if a["type_activite"] != "heures" or a.get("metier") == "artiste")
+    h_technicien = sum(_h(a) for a in sel if a["type_activite"] == "heures" and a.get("metier") == "technicien")
+    if h_artiste > 0 or h_technicien > 0:
+        annexe = "annexe10" if h_artiste >= h_technicien else "annexe8"
+        indeterminee = False
+        res = calculer_aj(annexe, sr=sr, nht=nht)
+    else:
+        # Aucune heure départagée : on retient la PLUS BASSE des deux annexes (prudence).
+        a8 = calculer_aj("annexe8", sr=sr, nht=nht)
+        a10 = calculer_aj("annexe10", sr=sr, nht=nht)
+        res = a8 if a8["aj_brute"] <= a10["aj_brute"] else a10
+        annexe = res["annexe"]
+        indeterminee = True
+
+    socle = {
+        "ok": True,
+        "annexe": annexe,
+        "annexe_indeterminee": indeterminee,
+        "nht": round(nht, 1),
+        "sr": round(sr, 2),
+        "completude": completude,
+        "fenetre_debut": debut.isoformat(),
+        "fenetre_fin": fin.isoformat(),
+        "avertissement": AVERTISSEMENT,
+    }
+
+    # Loi X : MÊME discipline d'affichage que la carte allocation (branche_affichable).
+    # Hors branche validée (annexe 8, ou > 60 €/jour) → AUCUN chiffre, raison honnête.
+    affichable, raison_affichable = branche_affichable(annexe, res)
+    if not affichable:
+        socle.update({"affichable": False, "raison_non_affichable": raison_affichable})
+        return socle
+
+    # Cachet moyen RÉEL (cachets avec brut) — sert d'hypothèse de la courbe.
+    nb_cachets_brut = sum(float(a.get("nombre") or 0) for a in sel
+                          if a["type_activite"] != "heures" and a.get("salaire_brut") is not None)
+    brut_cachets = sum(float(a["salaire_brut"]) for a in sel
+                       if a["type_activite"] != "heures" and a.get("salaire_brut") is not None)
+    if nb_cachets_brut > 0:
+        brut_moyen_cachet = round(brut_cachets / nb_cachets_brut, 2)
+    else:
+        brut_moyen_cachet = round(sr / nht * 12.0, 2)  # équivalent 12h au tarif moyen réel
+
+    # La courbe s'ARRÊTE au premier point hors branche validée (> 60 € : CSG non
+    # vérifiée sur cas réel) — on le dit plutôt que d'extrapoler.
+    points = []
+    courbe_plafonnee = False
+    for n in range(0, 9):
+        p = calculer_aj(annexe, sr=sr + n * brut_moyen_cachet, nht=nht + n * 12.0)
+        p_ok, _ = branche_affichable(annexe, p)
+        if not p_ok:
+            courbe_plafonnee = True
+            break
+        points.append({"cachets": n, "aj_brute": p["aj_brute"]})
+
+    socle.update({
+        "affichable": True,
+        "raison_non_affichable": None,
+        "aj_brute": res["aj_brute"],
+        "aj_nette": res["aj_nette"],
+        "plancher_applique": res["plancher_applique"],
+        "plafond_applique": res["plafond_applique"],
+        "brut_moyen_cachet": brut_moyen_cachet,
+        "points": points,
+        "courbe_plafonnee_60": courbe_plafonnee,
+    })
+    return socle
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  LE MOIS TYPE : combien de jours sont payés ce mois-ci.
 #  Guide France Travail p.16-17 (exemple 12 vérifié) :
 #    jours travaillés = heures du mois / 8 (A8) ou / 10 (A10) — cachet = 12h ;

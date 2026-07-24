@@ -5056,6 +5056,48 @@ def get_intermittent_offres(
     return {"offres": offres, "source": "France Travail"}
 
 
+@app.get("/intermittent/projection-aj")
+def projection_aj_renouvellement(
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """Projection de l'allocation journalière au PROCHAIN renouvellement, calculée
+    depuis les activités déjà déclarées (moteur AJ validé). Réservé TOTOR Veille :
+    c'est la promesse « je recalcule ton allocation » du paywall. Les gratuits
+    reçoivent {verrou: true}, sans chiffre (le front affiche la vitrine)."""
+    if not billing.is_premium(db, user):
+        return {"verrou": True}
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    aujourd_hui = date.today()
+    fin = (
+        profile.date_anniversaire
+        if profile and profile.date_anniversaire and profile.date_anniversaire >= aujourd_hui
+        else aujourd_hui
+    )
+    rows = (
+        db.query(IntermittentActivity)
+        .filter(IntermittentActivity.user_id == user.id)
+        .all()
+    )
+    activites = [
+        {
+            "date": r.date,
+            "type_activite": r.type_activite,
+            "nombre": r.nombre,
+            "salaire_brut": r.salaire_brut,
+            "metier": r.metier,
+        }
+        for r in rows
+    ]
+    out = ae.projeter_renouvellement(activites, fin)
+    out["verrou"] = False
+    out["date_anniversaire"] = (
+        profile.date_anniversaire.isoformat()
+        if profile and profile.date_anniversaire
+        else None
+    )
+    return out
+
+
 @app.get("/intermittent/cockpit")
 def get_intermittent_cockpit(
     user: User = Depends(get_current_user), db: Session = Depends(get_db)
