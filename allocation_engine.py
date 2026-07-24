@@ -151,11 +151,15 @@ _TYPES_TRAVAIL = ("heures", "cachet_isole", "cachet_groupe", "cachet")
 _COMPLETUDE_MIN = 80  # % d'heures couvertes par un brut, en dessous on refuse de projeter
 
 
-def projeter_renouvellement(activites: list, fin) -> dict:
+def projeter_renouvellement(activites: list, fin, cachets_sup: int = 0, brut_cachet=None) -> dict:
     """
     activites : liste de dicts {date (date), type_activite, nombre, salaire_brut, metier}.
     fin       : fin de la fenêtre de référence (date anniversaire si connue et à venir,
                 sinon aujourd'hui). La fenêtre = les 365 jours qui la précèdent.
+    cachets_sup / brut_cachet : simulation optionnelle « et si j'ajoute N cachets à
+                X € chacun ? » (X = cachet moyen réel si absent). Le bloc `simulation`
+                de la réponse obéit à la MÊME Loi X : hors branche validée, pas de
+                chiffre, une raison honnête.
 
     Seules les heures TRAVAILLÉES entrent dans le montant (formation/enseignement/
     arrêts comptent pour les 507h mais PAS pour l'AJ — docstring de calculer_aj).
@@ -249,6 +253,20 @@ def projeter_renouvellement(activites: list, fin) -> dict:
         "points": points,
         "courbe_plafonnee_60": courbe_plafonnee,
     })
+
+    # Simulation « et si j'ajoute N cachets à X € ? » (demande testeuse 24/07) —
+    # bornée pour rester raisonnable, et soumise à la même discipline d'affichage.
+    if cachets_sup and cachets_sup > 0:
+        n = min(int(cachets_sup), 200)
+        unitaire = float(brut_cachet) if brut_cachet not in (None, "", 0) else brut_moyen_cachet
+        unitaire = max(0.0, min(unitaire, 100000.0))
+        sim = calculer_aj(annexe, sr=sr + n * unitaire, nht=nht + n * 12.0)
+        sim_ok, sim_raison = branche_affichable(annexe, sim)
+        bloc = {"cachets": n, "brut_cachet": round(unitaire, 2), "affichable": sim_ok, "raison_non_affichable": sim_raison}
+        if sim_ok:
+            bloc.update({"aj_brute": sim["aj_brute"], "aj_nette": sim["aj_nette"], "plafond_applique": sim["plafond_applique"]})
+        socle["simulation"] = bloc
+
     return socle
 
 

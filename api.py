@@ -5083,6 +5083,8 @@ def get_intermittent_offres(
 
 @app.get("/intermittent/projection-aj")
 def projection_aj_renouvellement(
+    cachets_sup: int = 0,
+    brut_cachet: Optional[float] = None,
     user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """Projection de l'allocation journalière au PROCHAIN renouvellement, calculée
@@ -5113,7 +5115,7 @@ def projection_aj_renouvellement(
         }
         for r in rows
     ]
-    out = ae.projeter_renouvellement(activites, fin)
+    out = ae.projeter_renouvellement(activites, fin, cachets_sup=cachets_sup, brut_cachet=brut_cachet)
     out["verrou"] = False
     out["date_anniversaire"] = (
         profile.date_anniversaire.isoformat()

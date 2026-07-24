@@ -107,6 +107,32 @@ def test_annexe_indeterminee_prudente():
         assert "aj_brute" not in r
 
 
+def test_simulation_n_cachets_a_x_euros():
+    # « Et si j'ajoute 5 cachets a 200 EUR ? » : la simulation doit tomber
+    # exactement sur calculer_aj avec le lot ajoute, et rester dans la Loi X.
+    acts = [_act(i * 7, nombre=4, brut=520.0) for i in range(1, 11)]  # 480 h / 5 200 EUR
+    r = projeter_renouvellement(acts, FIN, cachets_sup=5, brut_cachet=200.0)
+    assert "simulation" in r
+    s = r["simulation"]
+    assert s["cachets"] == 5 and s["brut_cachet"] == 200.0
+    attendu = calculer_aj("annexe10", sr=5200.0 + 5 * 200.0, nht=480.0 + 60.0)
+    if s["affichable"]:
+        assert s["aj_brute"] == attendu["aj_brute"]
+    else:
+        assert s["raison_non_affichable"] == "au_dela_60"
+        assert "aj_brute" not in s
+
+
+def test_simulation_hors_branche_reste_muette():
+    # Une simulation enorme depasse 60 EUR -> pas de chiffre, raison honnete.
+    acts = [_act(i * 7, nombre=4, brut=520.0) for i in range(1, 11)]
+    r = projeter_renouvellement(acts, FIN, cachets_sup=200, brut_cachet=5000.0)
+    s = r["simulation"]
+    assert s["affichable"] is False
+    assert s["raison_non_affichable"] == "au_dela_60"
+    assert "aj_brute" not in s
+
+
 def test_formation_exclue_du_montant():
     # La formation compte pour les 507h mais PAS pour l'AJ : elle ne doit pas
     # entrer dans la projection (ni en heures ni en brut).
