@@ -314,48 +314,69 @@ _LOT_CHEVAUCHEMENT = 1
 _MAX_PAGES_DOCUMENT = 40
 
 
+# Pauses (secondes) avant les tentatives 2 et 3 de chaque appel au modèle.
+# Vécu du 23/07 : sur 3 fichiers envoyés coup sur coup, un appel peut prendre un
+# refus passager (surcharge API, réseau) — un simple réessai suffit presque toujours.
+_RETRY_PAUSES = (2.0, 5.0)
+
+
 def _appeler_modele_aem(source_blocks: list) -> list:
     """Un appel au modèle sur un lot de pages/images → liste d'objets AEM bruts.
-    Lève RuntimeError si la lecture échoue (HTTP ou JSON invalide)."""
+    Réessaie automatiquement (3 tentatives au total) avant d'abandonner.
+    Lève RuntimeError si la lecture échoue encore après les réessais."""
+    import time
     import requests  # déjà présent dans les dépendances backend
 
-    resp = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key": ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        json={
-            # max_tokens 4000 : une liasse d'une dizaine d'AEM tient sans être
-            # tronquée (l'ancien plafond de 1500 coupait le JSON en plein vol).
-            "model": MODEL,
-            "max_tokens": 4000,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": source_blocks + [{"type": "text", "text": PROMPT}],
-                }
-            ],
-        },
-        timeout=90,
-    )
+    derniere_erreur = None
+    for tentative in range(len(_RETRY_PAUSES) + 1):
+        if tentative > 0:
+            time.sleep(_RETRY_PAUSES[tentative - 1])
+        try:
+            resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    # max_tokens 4000 : une liasse d'une dizaine d'AEM tient sans être
+                    # tronquée (l'ancien plafond de 1500 coupait le JSON en plein vol).
+                    "model": MODEL,
+                    "max_tokens": 4000,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": source_blocks + [{"type": "text", "text": PROMPT}],
+                        }
+                    ],
+                },
+                timeout=90,
+            )
+        except requests.RequestException:
+            derniere_erreur = RuntimeError("Lecture impossible (connexion). Réessaie dans un instant.")
+            continue
 
-    if resp.status_code != 200:
-        raise RuntimeError(f"Lecture impossible (code {resp.status_code}).")
+        if resp.status_code != 200:
+            derniere_erreur = RuntimeError(f"Lecture impossible (code {resp.status_code}).")
+            continue
 
-    body = resp.json()
-    parts = [b.get("text", "") for b in body.get("content", []) if b.get("type") == "text"]
-    raw = _clean_json("".join(parts))
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        raise RuntimeError("Je n'ai pas réussi à lire cette AEM. Essaie une photo plus nette, ou saisis à la main.")
-    if isinstance(data, dict):
-        data = [data]
-    if not isinstance(data, list):
-        raise RuntimeError("Lecture impossible : format inattendu. Saisis à la main.")
-    return data
+        body = resp.json()
+        parts = [b.get("text", "") for b in body.get("content", []) if b.get("type") == "text"]
+        raw = _clean_json("".join(parts))
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            derniere_erreur = RuntimeError("Je n'ai pas réussi à lire cette AEM. Essaie une photo plus nette, ou saisis à la main.")
+            continue
+        if isinstance(data, dict):
+            data = [data]
+        if not isinstance(data, list):
+            derniere_erreur = RuntimeError("Lecture impossible : format inattendu. Saisis à la main.")
+            continue
+        return data
+
+    raise derniere_erreur
 
 
 def _lots_de_pages(nb_pages: int) -> list:
@@ -424,12 +445,8 @@ def extract_aem_data(file_path: str) -> dict:
                         f"Je n'ai pas réussi à lire les pages {lot[0] + 1} à {lot[-1] + 1}. "
                         "Réessaie, ou envoie ce document en plusieurs fois."
                     )
-                try:
-                    data.extend(_appeler_modele_aem(blocks))
-                except RuntimeError:
-                    # Un seul relancement : les gros documents méritent une 2e chance
-                    # avant de tout abandonner.
-                    data.extend(_appeler_modele_aem(blocks))
+                # Le réessai automatique vit DANS _appeler_modele_aem (3 tentatives).
+                data.extend(_appeler_modele_aem(blocks))
 
     if data is None:
         # Image, ou PDF court sans formulaire : un seul appel, comme avant.

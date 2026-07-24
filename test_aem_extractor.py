@@ -6,7 +6,10 @@ du modèle (plafonnée à 1500 tokens) était tronquée → les dernières AEM
 disparaissaient. Le scan lit désormais lot par lot, avec chevauchement.
 """
 
-from aem_extractor import _lots_de_pages, _cle_dedup, _LOT_PAGES, _MAX_PAGES_DOCUMENT
+import json
+
+import aem_extractor
+from aem_extractor import _lots_de_pages, _cle_dedup, _appeler_modele_aem, _LOT_PAGES, _MAX_PAGES_DOCUMENT
 
 
 def test_lots_document_court():
@@ -68,3 +71,47 @@ def test_dedup_deux_aem_distinctes_conservees():
     a = _aem()
     b = _aem(date="2026-02-15", date_fin="2026-02-18")
     assert _cle_dedup(a) != _cle_dedup(b)
+
+
+class _FausseReponse:
+    def __init__(self, status, texte=None):
+        self.status_code = status
+        self._texte = texte
+
+    def json(self):
+        return {"content": [{"type": "text", "text": self._texte or "[]"}]}
+
+
+def test_reessai_automatique_apres_erreur_passagere(monkeypatch):
+    # Cas reel du 23/07 : 3 fichiers coup sur coup, un appel prend un refus
+    # passager (surcharge, redeploiement) -> le reessai doit sauver la lecture.
+    import requests
+
+    appels = {"n": 0}
+    bonne = json.dumps([{"type_document": "aem", "employeur": "Art And Show", "date": "2026-03-27",
+                         "type_activite": "cachet_isole", "nombre": 1, "salaire_brut": 100}])
+
+    def faux_post(*a, **k):
+        appels["n"] += 1
+        if appels["n"] == 1:
+            return _FausseReponse(529)  # surcharge passagere
+        return _FausseReponse(200, bonne)
+
+    monkeypatch.setattr(requests, "post", faux_post)
+    monkeypatch.setattr(aem_extractor, "_RETRY_PAUSES", (0, 0))  # pas d'attente en test
+    data = _appeler_modele_aem([])
+    assert appels["n"] == 2
+    assert data[0]["employeur"] == "Art And Show"
+
+
+def test_reessai_epuise_leve_la_derniere_erreur(monkeypatch):
+    # Un document qui echoue 3 fois -> on abandonne avec un message honnete.
+    import requests
+
+    monkeypatch.setattr(requests, "post", lambda *a, **k: _FausseReponse(500))
+    monkeypatch.setattr(aem_extractor, "_RETRY_PAUSES", (0, 0))
+    try:
+        _appeler_modele_aem([])
+        assert False, "aurait du lever"
+    except RuntimeError as e:
+        assert "500" in str(e)
