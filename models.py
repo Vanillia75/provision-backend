@@ -54,6 +54,9 @@ class User(Base):
     ai_usage = relationship(
         "AIUsage", back_populates="user", cascade="all, delete-orphan"
     )
+    chat_messages = relationship(
+        "ChatMessage", back_populates="user", cascade="all, delete-orphan"
+    )
     fiscal_settings = relationship(
         "FiscalSettings", uselist=False, back_populates="user", cascade="all, delete-orphan"
     )
@@ -433,6 +436,26 @@ class AIUsage(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="ai_usage")
+
+
+# ============================================================================
+#  CHAT MESSAGE — historique « Parle à Totor » (demande testeuse 24/07/2026).
+#  La conversation se retrouve d'un jour à l'autre et d'un appareil à l'autre.
+#  Chaque espace garde son fil (séparation stricte des métiers) ; l'utilisateur
+#  peut tout effacer depuis l'écran du chat. Seul le canal "chat" est enregistré :
+#  l'Aide vivante et le « Que se passe-t-il si » restent éphémères.
+# ============================================================================
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    espace = Column(String, nullable=False)   # "intermittent" | "auto_entrepreneur"
+    role = Column(String, nullable=False)     # "user" | "assistant"
+    content = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="chat_messages")
 
 
 # ============================================================================

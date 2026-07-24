@@ -25,7 +25,7 @@ from google.auth.transport import requests as google_requests
 
 from apple_auth import verifier_identity_token as verifier_apple_identity_token, AppleTokenInvalide
 from database import Base, engine, get_db, SessionLocal
-from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt, FiscalSettings, Subscription
+from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt, FiscalSettings, Subscription, ChatMessage as ChatMessageDB
 from auth import (
     hash_password, verify_password, create_token, get_current_user,
     create_purpose_token, verify_purpose_token,
@@ -3596,6 +3596,19 @@ def export_account_data(user: User = Depends(get_current_user), db: Session = De
                 "description": ex.description,
             } for ex in expenses
         ],
+        # Historique « Parle à Totor » (les deux espaces) : données personnelles,
+        # donc incluses dans la portabilité RGPD.
+        "conversations_totor": [
+            {
+                "espace": m.espace,
+                "role": m.role,
+                "contenu": m.content,
+                "date": m.created_at.isoformat() if m.created_at else None,
+            } for m in db.query(ChatMessageDB)
+                        .filter(ChatMessageDB.user_id == user.id)
+                        .order_by(ChatMessageDB.created_at)
+                        .all()
+        ],
     }
 
 
@@ -3609,6 +3622,8 @@ def delete_account(user: User = Depends(get_current_user), db: Session = Depends
     # AIUsage est supprimé en cascade via la relationship, mais on l'efface aussi
     # explicitement par sécurité (au cas où la cascade ne serait pas appliquée).
     db.query(AIUsage).filter(AIUsage.user_id == user.id).delete()
+    # Même précaution pour l'historique du chat (données personnelles, RGPD).
+    db.query(ChatMessageDB).filter(ChatMessageDB.user_id == user.id).delete()
     db.delete(user)
     db.commit()
     return {"ok": True}
@@ -3929,6 +3944,10 @@ class AssistantRequest(BaseModel):
     # Le canal décide du régime de quota, pas une classification IA.
     mode: Optional[str] = None
     ecran: Optional[str] = None  # écran courant (pour les stats UX, jamais de données du compte)
+    # canal = "chat" (écran « Parle à Totor ») : l'échange est ENREGISTRÉ pour être
+    # retrouvé d'un jour à l'autre. Les autres appels (aide, « Que se passe-t-il si »,
+    # anciennes versions de l'app qui n'envoient pas le champ) restent éphémères.
+    canal: Optional[str] = None
 
 
 @app.post("/vapi/tools")
@@ -4010,6 +4029,63 @@ def voice_jingle():
         raise HTTPException(status_code=404, detail="Jingle indisponible")
     return FileResponse(_JINGLE_PATH, media_type="audio/mpeg",
                         headers={"Cache-Control": "public, max-age=86400"})
+
+
+def _espace_chat(profile) -> str:
+    """L'espace dont on parle : chaque métier garde son fil de conversation."""
+    return "intermittent" if (profile and profile.statut == "intermittent") else "auto_entrepreneur"
+
+
+def enregistrer_echange_chat(db: Session, user_id: str, espace: str, question: str, reponse: str):
+    """Historique « Parle à Totor » : garde la question et la réponse pour que la
+    conversation se retrouve d'un jour à l'autre (demande testeuse du 24/07).
+    JAMAIS bloquant : si l'enregistrement échoue, la réponse part quand même."""
+    try:
+        if question:
+            db.add(ChatMessageDB(user_id=user_id, espace=espace, role="user", content=question[:8000]))
+        db.add(ChatMessageDB(user_id=user_id, espace=espace, role="assistant", content=(reponse or "")[:8000]))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+@app.get("/assistant/chat/historique")
+def chat_historique(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Les derniers échanges « Parle à Totor » de l'espace courant, en ordre
+    chronologique. La lecture ne touche à AUCUN quota (relire n'est pas discuter)."""
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    espace = _espace_chat(profile)
+    rows = (
+        db.query(ChatMessageDB)
+        .filter(ChatMessageDB.user_id == user.id, ChatMessageDB.espace == espace)
+        .order_by(ChatMessageDB.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    # Ordre chronologique ; à horodatage égal (même commit), la question précède la réponse.
+    rows.sort(key=lambda r: (r.created_at or datetime.min, 0 if r.role == "user" else 1))
+    return {
+        "espace": espace,
+        "messages": [
+            {"role": r.role, "content": r.content, "date": r.created_at.isoformat() if r.created_at else None}
+            for r in rows
+        ],
+    }
+
+
+@app.delete("/assistant/chat/historique")
+def effacer_chat_historique(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """« Repartir de zéro » : efface l'historique de l'espace courant seulement
+    (l'autre espace garde le sien). Ne touche pas aux quotas."""
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    espace = _espace_chat(profile)
+    n = (
+        db.query(ChatMessageDB)
+        .filter(ChatMessageDB.user_id == user.id, ChatMessageDB.espace == espace)
+        .delete()
+    )
+    db.commit()
+    return {"ok": True, "supprimes": n}
 
 
 @app.post("/assistant/chat")
@@ -4176,6 +4252,12 @@ def assistant_chat(
             "aboiement, aucun jeu de mots canin, pas d'emojis pattes. "
             "Tu reponds en francais, clair et direct, en tutoyant, et tu vas a l'essentiel. "
             "\n"
+            "MEMOIRE DU FIL : cette conversation est CONSERVEE dans l'app. La personne la retrouve "
+            "d'un jour a l'autre et peut l'effacer quand elle veut (« Repartir de zero », sous le chat). "
+            "Toi, tu recois les messages recents du fil : ne pretends jamais te souvenir d'un echange "
+            "qui n'est pas dans les messages fournis ; si on t'evoque un vieil echange absent, dis "
+            "simplement que tu n'as plus ce detail sous les yeux et repars de la question du jour. "
+            "\n"
             "SEPARATION DES METIERS (absolue) : cette personne est intermittente du spectacle. Tu ne "
             "mentionnes JAMAIS de notions d'auto-entreprise (cotisations URSSAF micro, versement "
             "liberatoire, la Paie lissee, chiffre d'affaires, TVA micro) : ce n'est pas son monde, "
@@ -4319,6 +4401,11 @@ def assistant_chat(
         "un chien qui parle — c'est ce que ton meilleur compagnon te repondrait s'il comprenait la "
         "fiscalite et tes comptes. "
         "Tu reponds en francais, clair et direct, en tutoyant, et tu vas a l'essentiel sans blabla. "
+        "MEMOIRE DU FIL : cette conversation est CONSERVEE dans l'app. La personne la retrouve "
+        "d'un jour a l'autre et peut l'effacer quand elle veut (« Repartir de zero », sous le chat). "
+        "Toi, tu recois les messages recents du fil : ne pretends jamais te souvenir d'un echange "
+        "qui n'est pas dans les messages fournis ; si on t'evoque un vieil echange absent, dis "
+        "simplement que tu n'as plus ce detail sous les yeux et repars de la question du jour. "
         "SEPARATION DES METIERS (absolue) : cette personne est auto-entrepreneur. Tu ne mentionnes "
         "JAMAIS de notions d'intermittent du spectacle (AEM ou attestation employeur, 507 heures, "
         "cachets, actualisation, allocation, ARE, France Travail, date anniversaire) : ce n'est pas "
@@ -4423,6 +4510,12 @@ def assistant_chat(
             )
         except Exception:
             pass
+
+    # Historique (canal "chat" du « Parle à Totor » UNIQUEMENT) : la conversation se
+    # retrouve d'un jour à l'autre. L'aide et les canaux éphémères ne laissent rien.
+    if req.canal == "chat" and not mode_aide and reply:
+        derniere_question = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
+        enregistrer_echange_chat(db, user.id, _espace_chat(profile), derniere_question, reply)
 
     return {"reply": reply or "Desole, je n'ai pas pu generer de reponse."}
 

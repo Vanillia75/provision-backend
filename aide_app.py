@@ -21,7 +21,9 @@ MODE AUTO-ENTREPRENEUR (menu de gauche) :
   « Ta paie est prête », fiche avec trois montants prudent/recommandé/maximum et « je me suis
   versé X »), les mini-cartes (URSSAF à mettre de côté, réserve visée), le Disponible et la jauge
   de réserve, la zone « Parle à Totor » (chat métier + vérifications rapides puis-je acheter /
-  me verser), la carte « Connexion bancaire » (accordéon, lecture seule, en cours d'ouverture),
+  me verser ; NOUVEAU : la conversation est CONSERVÉE d'un jour à l'autre et d'un appareil à
+  l'autre, et « Repartir de zéro » sous le chat l'efface entièrement),
+  la carte « Connexion bancaire » (accordéon, lecture seule, en cours d'ouverture),
   et le foyer de Totor (jours de tranquillité).
 - Mon argent → Mes encaissements : ajouter un encaissement à la main (les dates PASSÉES sont
   acceptées : on peut remplir son historique), et les factures marquées « payée » comptent
@@ -80,6 +82,9 @@ MODE INTERMITTENT (menu de gauche) :
   personne : il prépare tout, c'est elle qui valide sur francetravail.fr. Un email de rappel
   part le 28 (désactivable dans Réglages → Rappel d'actualisation).
 - Offres spectacle : de vraies offres France Travail filtrées spectacle, par ville.
+- Parle à Totor : le chat expert du régime intermittent (quota par conversation en gratuit).
+  NOUVEAU : la conversation est CONSERVÉE d'un jour à l'autre (et d'un appareil à l'autre) ;
+  le bouton « Repartir de zéro » sous le chat l'efface entièrement.
 - Simulateur « Que se passe-t-il si » : tester l'effet d'un futur contrat sur le compteur.
 - Réglages : rappel d'actualisation (email du 28), mot de passe, bascule auto-entrepreneur, RGPD.
   NOUVEAU — La ligne TOTOR (réservée aux abonnés TOTOR Veille) : une vraie ligne
