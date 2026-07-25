@@ -380,11 +380,14 @@ def create_checkout_session(db: Session, user: User, promo_code: str | None = No
     else:
         params["customer_email"] = user.email
 
-    # Code influenceur : on attache le coupon Stripe correspondant.
+    # Code influenceur : on attache le coupon Stripe correspondant, et on trace
+    # le code sur la session pour que le webhook compte l'utilisation au
+    # PAIEMENT réel (jamais à la simple ouverture du checkout).
     if promo_code:
         pc = _valid_promo(db, promo_code)
         if pc and pc.kind == "influencer" and pc.stripe_coupon_id:
             params["discounts"] = [{"coupon": pc.stripe_coupon_id}]
+            params["metadata"]["promo_code"] = pc.code
 
     session = stripe.checkout.Session.create(**params)
     return session.url
@@ -431,6 +434,21 @@ def process_webhook(db: Session, payload: bytes, sig_header: str):
         # On récupère l'abonnement complet pour refléter statut + période.
         if sub_id:
             _apply_stripe_subscription(db, stripe.Subscription.retrieve(sub_id))
+        # Comptage des codes influenceurs AU PAIEMENT (les codes testeurs se
+        # comptent à l'activation directe) : fait respecter max_uses et alimente
+        # l'alerte fondateur, sur la foi d'une session réellement payée.
+        code_promo = _g(_g(obj, "metadata"), "promo_code")
+        if code_promo:
+            pc = next((p for p in db.query(PromoCode).all() if _canon(p.code) == _canon(code_promo)), None)
+            if pc:
+                pc.times_used += 1
+                db.commit()
+                try:
+                    from emailing import send_founder_promo_alert
+                    email_client = _g(_g(obj, "customer_details"), "email") or ""
+                    send_founder_promo_alert(pc.code, pc.times_used, pc.max_uses, email_client)
+                except Exception:
+                    pass
 
     elif etype in ("customer.subscription.updated", "customer.subscription.deleted"):
         _apply_stripe_subscription(db, obj)
