@@ -153,6 +153,31 @@ Disponible aujourd'hui :
     17 j (tronqué) → **14 AJ dues** une fois l'instruction close, soit 854,00 € net à lui
     reverser (14 × 61,00). Si le prochain relevé confirme, le moteur décalage est validé
     au jour près sur un mois complexe de bout en bout.
+- ✅ **EXEMPLE OFFICIEL ANNEXE 8 — NOTRE MOTEUR TOMBE JUSTE (2026-07-25, recherche web)** :
+  l'exemple publié (technicien, **SR 12 000 €, NHT 600 h → « environ 53 € nets »**) donne chez
+  nous A=32,21 + B=9,83 + C=12,78 = **54,82 € brut**, − retraite 1,49 € (0,93 % × SJM 160,00),
+  CSG 0 € (AJ < 60 €) = **53,33 € net**. Écart ≈ 0,3 €/j sur un chiffre annoncé « environ » :
+  la formule annexe 8 tient sur l'exemple officiel. ⚠️ Ce n'est PAS encore un cas RÉEL
+  (notification de technicien) : la Loi X reste en vigueur pour l'annexe 8 jusqu'au backtest n°3.
+- 🔓 **RÈGLE D'ÉCRÊTEMENT ENFIN SOURCÉE (2026-07-25, France Travail « Quelles retenues sociales… »)** :
+  il existe DEUX plafonds protecteurs distincts, jamais modélisés jusqu'ici :
+  1. **CSG/CRDS** : le prélèvement « ne doit pas avoir pour conséquence de réduire l'allocation
+     versée à un montant inférieur au **SMIC journalier** ».
+  2. **Retraite complémentaire** : « ne peut pas avoir pour conséquence de réduire le montant de
+     l'allocation journalière à un chiffre inférieur à celui de **l'allocation chômage minimale** ».
+  L'assiette 98,25 % (abattement 1,75 % « frais de recherche d'emploi ») est confirmée par la
+  même page. **Cette règle explique EXACTEMENT l'anomalie du cas réel n°2** : AJ brute 63,69 −
+  retraite 1,57 = 62,12 ; si le plancher vaut **61,00 €**, la CSG écrêtée = 62,12 − 61,00 =
+  **1,12 €/j**, soit précisément la valeur observée sur le relevé (net 61,00 ✓).
+  ⚠️ **Hypothèse concurrente à écarter avec un 2e cas** : 1,75 % × 63,69 = **1,11 €** donne le
+  même chiffre par coïncidence. Impossible de trancher sur un seul dossier.
+  ⚠️ **À déterminer** : la définition exacte du « SMIC journalier » retenu par France Travail
+  (SMIC horaire 12,02 € au 01/01/2026 ; ni × 5, ni mensuel ÷ 30 ne tombent pile sur 61,00).
+- ❓ **CONTRADICTION À TRANCHER : taux de la retenue retraite complémentaire.** France Travail
+  publie « **3 % du salaire journalier de référence** », alors que **NOS DEUX cas réels donnent
+  0,93 %** au centime près (cas n°1 : 1,25 / 134,23 ; cas n°2 : 1,57 / 168,37). Le moteur suit
+  les cas réels (0,93 %), mais un 3e dossier avec le détail des retenues doit expliquer l'écart
+  (taux spécifique intermittents ? écrêtement ? assiette différente ?).
 - 👍 Souhaitable : 1-2 notifications supplémentaires (autres profils : annexe 8,
   SR > plafond, AJ > 60 € avec CSG) pour couvrir les autres branches du calcul.
 
