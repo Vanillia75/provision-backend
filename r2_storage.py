@@ -75,6 +75,29 @@ def upload_aem(file_path: str, user_id: str, original_filename: str) -> str:
     return key
 
 
+def upload_document(file_path: str, user_id: str, original_filename: str) -> str:
+    """
+    Dépose une pièce du classeur personnel (contrat, bulletin, certificat Congés
+    Spectacles…) dans le coffre. Même cloisonnement par utilisateur que les AEM,
+    préfixe distinct pour que la purge RGPD les retrouve toutes.
+    """
+    ext = os.path.splitext(original_filename or "")[1].lower() or ".bin"
+    key = f"documents/{user_id}/{uuid.uuid4().hex}{ext}"
+    content_type = {
+        ".pdf": "application/pdf",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }.get(ext, "application/octet-stream")
+
+    client = _get_client()
+    with open(file_path, "rb") as f:
+        client.put_object(Bucket=R2_BUCKET, Key=key, Body=f, ContentType=content_type)
+    logger.info("Document personnel déposé sur R2 : %s", key)
+    return key
+
+
 def upload_devis_signe(pdf_bytes: bytes, user_id: str, quote_id: str) -> str:
     """
     PDF scellé d'un devis accepté en ligne (pièce du fichier de preuve de la
@@ -130,8 +153,9 @@ def delete_all_for_user(user_id: str) -> int:
         paginator = client.get_paginator("list_objects_v2")
         count = 0
         # TOUS les espaces de l'utilisateur : AEM originales (+ signalements,
-        # même préfixe) et devis signés. Ajouter ici tout nouveau préfixe.
-        for prefix in (f"aem/{user_id}/", f"devis-signes/{user_id}/"):
+        # même préfixe), classeur personnel et devis signés.
+        # Ajouter ici tout nouveau préfixe.
+        for prefix in (f"aem/{user_id}/", f"documents/{user_id}/", f"devis-signes/{user_id}/"):
             for page in paginator.paginate(Bucket=R2_BUCKET, Prefix=prefix):
                 objs = page.get("Contents", [])
                 if not objs:

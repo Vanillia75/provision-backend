@@ -57,6 +57,9 @@ class User(Base):
     chat_messages = relationship(
         "ChatMessage", back_populates="user", cascade="all, delete-orphan"
     )
+    documents_perso = relationship(
+        "DocumentPerso", back_populates="user", cascade="all, delete-orphan"
+    )
     fiscal_settings = relationship(
         "FiscalSettings", uselist=False, back_populates="user", cascade="all, delete-orphan"
     )
@@ -436,6 +439,30 @@ class AIUsage(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="ai_usage")
+
+
+# ============================================================================
+#  DOCUMENT PERSO — le classeur de l'intermittent, rangé PAR EMPLOYEUR.
+#  Un intermittent reçoit, pour chaque production : contrat, bulletin de paie,
+#  certificat Congés Spectacles, attestations diverses. Aujourd'hui tout dort
+#  dans sa boîte mail. Ici, chaque pièce est déposée dans le coffre chiffré
+#  (même stockage R2 que les AEM) et rattachée à son employeur.
+#  ⚠️ Données très personnelles (un bulletin porte le NIR) : cloisonné par
+#  utilisateur, purgé à la suppression de compte, jamais public.
+# ============================================================================
+class DocumentPerso(Base):
+    __tablename__ = "documents_perso"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    employeur = Column(String, nullable=True)        # la clé de rangement (null = « sans employeur »)
+    type_document = Column(String, nullable=False)   # contrat | bulletin | conges_spectacles | attestation | autre
+    filename = Column(String, nullable=False)        # nom d'origine, affiché tel quel
+    r2_key = Column(String, nullable=False)          # clé dans le coffre chiffré
+    date_document = Column(Date, nullable=True)      # date figurant sur la pièce, si connue
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="documents_perso")
 
 
 # ============================================================================

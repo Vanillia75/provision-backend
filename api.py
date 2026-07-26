@@ -25,7 +25,7 @@ from google.auth.transport import requests as google_requests
 
 from apple_auth import verifier_identity_token as verifier_apple_identity_token, AppleTokenInvalide
 from database import Base, engine, get_db, SessionLocal
-from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt, FiscalSettings, Subscription, ChatMessage as ChatMessageDB
+from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt, FiscalSettings, Subscription, ChatMessage as ChatMessageDB, DocumentPerso
 from auth import (
     hash_password, verify_password, create_token, get_current_user,
     create_purpose_token, verify_purpose_token,
@@ -3596,6 +3596,20 @@ def export_account_data(user: User = Depends(get_current_user), db: Session = De
                 "description": ex.description,
             } for ex in expenses
         ],
+        # Le classeur : la LISTE des pièces déposées (les fichiers eux-mêmes se
+        # téléchargent depuis l'app, un par un, par lien signé).
+        "classeur": [
+            {
+                "employeur": d.employeur,
+                "type": d.type_document,
+                "fichier": d.filename,
+                "date_document": d.date_document.isoformat() if d.date_document else None,
+                "depose_le": d.created_at.isoformat() if d.created_at else None,
+            } for d in db.query(DocumentPerso)
+                        .filter(DocumentPerso.user_id == user.id)
+                        .order_by(DocumentPerso.created_at)
+                        .all()
+        ],
         # Historique « Parle à Totor » (les deux espaces) : données personnelles,
         # donc incluses dans la portabilité RGPD.
         "conversations_totor": [
@@ -3624,6 +3638,8 @@ def delete_account(user: User = Depends(get_current_user), db: Session = Depends
     db.query(AIUsage).filter(AIUsage.user_id == user.id).delete()
     # Même précaution pour l'historique du chat (données personnelles, RGPD).
     db.query(ChatMessageDB).filter(ChatMessageDB.user_id == user.id).delete()
+    # Et pour le classeur (les fichiers eux-mêmes sont partis avec delete_all_for_user).
+    db.query(DocumentPerso).filter(DocumentPerso.user_id == user.id).delete()
     db.delete(user)
     db.commit()
     return {"ok": True}
@@ -5054,6 +5070,135 @@ def get_aem_document_url(
     except Exception as e:
         raise HTTPException(status_code=500, detail="Impossible de générer le lien.")
     return {"url": url}
+
+
+# ════════════════════════════════════════════════════════════════════════
+#  LE CLASSEUR : les papiers de l'intermittent, rangés par employeur.
+#  Contrat, bulletin, certificat Congés Spectacles… déposés dans le MÊME
+#  coffre chiffré que les AEM. Rien n'est lu ni analysé ici : on range, on
+#  retrouve, on supprime. Les AEM restent gérées par « Mes AEM ».
+# ════════════════════════════════════════════════════════════════════════
+TYPES_DOCUMENT = ("contrat", "bulletin", "conges_spectacles", "attestation", "autre")
+
+
+@app.post("/documents")
+async def deposer_document(
+    file: UploadFile = File(...),
+    employeur: Optional[str] = Form(None),
+    type_document: str = Form("autre"),
+    date_document: Optional[str] = Form(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+    if not file.filename or not file.filename.lower().endswith(allowed_ext):
+        raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
+    if type_document not in TYPES_DOCUMENT:
+        type_document = "autre"
+    if not r2_storage.R2_ENABLED:
+        raise HTTPException(status_code=503, detail="Le coffre n'est pas disponible pour le moment. Réessaie un peu plus tard.")
+
+    d_doc = None
+    if date_document:
+        try:
+            d_doc = date.fromisoformat(date_document)
+        except ValueError:
+            d_doc = None
+
+    tmp_dir = tempfile.mkdtemp()
+    file_path = os.path.join(tmp_dir, os.path.basename(file.filename))
+    try:
+        taille = 0
+        with open(file_path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                taille += len(chunk)
+                if taille > AEM_MAX_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Fichier trop volumineux (max {AEM_MAX_BYTES // (1024*1024)} Mo).",
+                    )
+                f.write(chunk)
+        try:
+            key = r2_storage.upload_document(file_path, str(user.id), file.filename)
+        except Exception:
+            raise HTTPException(status_code=502, detail="Le dépôt a échoué. Réessaie dans un moment.")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    row = DocumentPerso(
+        user_id=user.id,
+        employeur=(employeur or "").strip() or None,
+        type_document=type_document,
+        filename=file.filename,
+        r2_key=key,
+        date_document=d_doc,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _document_vers_dict(row)
+
+
+def _document_vers_dict(row) -> dict:
+    return {
+        "id": row.id,
+        "employeur": row.employeur,
+        "type_document": row.type_document,
+        "filename": row.filename,
+        "date_document": row.date_document.isoformat() if row.date_document else None,
+        "depose_le": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@app.get("/documents")
+def liste_documents(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Le classeur complet, du plus récent au plus ancien. Le regroupement par
+    employeur se fait à l'affichage (le front sait déjà grouper les AEM)."""
+    rows = (
+        db.query(DocumentPerso)
+        .filter(DocumentPerso.user_id == user.id)
+        .order_by(DocumentPerso.created_at.desc())
+        .all()
+    )
+    return [_document_vers_dict(r) for r in rows]
+
+
+@app.get("/documents/{document_id}/lien")
+def lien_document(document_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Lien temporaire (1 h) pour consulter une pièce. Jamais d'URL publique."""
+    row = (
+        db.query(DocumentPerso)
+        .filter(DocumentPerso.id == document_id, DocumentPerso.user_id == user.id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+    if not r2_storage.R2_ENABLED:
+        raise HTTPException(status_code=503, detail="Coffre indisponible.")
+    try:
+        return {"url": r2_storage.get_signed_url(row.r2_key, expires_seconds=3600)}
+    except Exception:
+        raise HTTPException(status_code=500, detail="Impossible de générer le lien.")
+
+
+@app.delete("/documents/{document_id}")
+def supprimer_document(document_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Suppression définitive : la pièce quitte le coffre ET la base."""
+    row = (
+        db.query(DocumentPerso)
+        .filter(DocumentPerso.id == document_id, DocumentPerso.user_id == user.id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+    if row.r2_key and r2_storage.R2_ENABLED:
+        r2_storage.delete_file(row.r2_key)
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/profile/date-anniversaire")
