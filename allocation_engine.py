@@ -387,13 +387,19 @@ def calculer_mois(
 #  en zone validée (annexe 10, ≤ 60 €), où la CSG est nulle et le net fiable.
 #  Franchises non stockées côté profil : comptées à 0 (dit dans la carte).
 # ─────────────────────────────────────────────────────────────────────────────
-def estimer_mois_civil(annexe: str, res_aj: dict, activites: list, annee: int, mois: int) -> dict:
+def estimer_mois_civil(annexe: str, res_aj: dict, activites: list, annee: int, mois: int,
+                       franchise_cp_jours=None, franchise_salaires_jours=None) -> dict:
     """
     res_aj    : résultat de calculer_aj — la MÊME AJ que la carte allocation.
     activites : dicts {date, type_activite, nombre, salaire_brut} ; seules celles
                 du mois civil (annee, mois) comptent. Travail = _TYPES_TRAVAIL
                 (formation exclue du décalage) ; autre_salaire = 0 heure mais son
                 brut compte pour le plafond mensuel de cumul (toutes les paies).
+    franchise_* : différés d'indemnisation RESTANTS, tels que l'utilisateur les a
+                recopiés de sa notification (jamais devinés). On les passe en
+                « restante » ET en « totale » : le rythme officiel (2 j/mois, 3 si
+                le total dépasse 24) se calcule alors sur ce que la personne a
+                sous les yeux. Le mois suivant, c'est elle qui met à jour.
     """
     import calendar as _cal
     jours_cal = _cal.monthrange(annee, mois)[1]
@@ -425,12 +431,18 @@ def estimer_mois_civil(annexe: str, res_aj: dict, activites: list, annee: int, m
             bruts += float(a["salaire_brut"])
             autre_salaire_mois = True
 
+    f_cp = max(0.0, float(franchise_cp_jours or 0))
+    f_sal = max(0.0, float(franchise_salaires_jours or 0))
     m = calculer_mois(
         annexe,
         aj_brute=res_aj["aj_brute"],
         heures_mois=heures,
         remunerations_brutes=bruts,
         jours_calendaires=jours_cal,
+        franchise_cp_restante=f_cp,
+        franchise_cp_totale=f_cp,
+        franchise_salaires_restante=f_sal,
+        franchise_salaires_totale=f_sal,
     )
 
     # Brut → net du mois. En zone validée (≤ 60 €), pas de CSG : le net du jour
@@ -460,4 +472,8 @@ def estimer_mois_civil(annexe: str, res_aj: dict, activites: list, annee: int, m
         "net_estime": net,
         "prorata_plafond": prorata_plafond,
         "approximatif": approximatif,
+        # Ce qui reste APRÈS le mois, à recopier par l'utilisateur au prochain relevé.
+        "franchise_cp_restante_apres": round(max(0.0, f_cp - m["franchise_cp_imputee"]), 1),
+        "franchise_salaires_restante_apres": round(max(0.0, f_sal - m["franchise_salaires_imputee"]), 1),
+        "franchises_declarees": bool(f_cp or f_sal),
     }

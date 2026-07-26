@@ -86,6 +86,13 @@ class Profile(Base):
     salaire_reference = Column(Float, nullable=True)    # SR : salaires bruts de la période de référence
     heures_reference = Column(Float, nullable=True)     # NHT : heures retenues sur la période
     annexe_allocation = Column(String, nullable=True)   # "annexe8" (technicien) | "annexe10" (artiste)
+    # Différés d'indemnisation (« franchises ») RESTANTS, recopiés par l'utilisateur
+    # depuis sa notification ou son dernier relevé de situation. Jamais devinés, jamais
+    # décrémentés tout seuls : ils dérivent trop vite (une régularisation les change).
+    # ALTER TABLE exécuté sur Railway le 26/07/2026 AVANT ce commit.
+    franchise_cp_jours = Column(Float, nullable=True)        # différé congés payés restant (jours)
+    franchise_salaires_jours = Column(Float, nullable=True)  # différé salaires restant (jours)
+    franchise_maj_le = Column(Date, nullable=True)           # date de la saisie (affichée : « d'après ta saisie du … »)
     onboarding_complete = Column(Boolean, default=False)
     # Visite guidee deja vue. En base et pas en local : le navigateur oublie a
     # chaque reinstallation de l'app ou changement de telephone, et la personne

@@ -5355,7 +5355,11 @@ def estimation_mois_intermittent(user: User = Depends(get_current_user), db: Ses
         for r in rows
     ]
     auj = date.today()
-    out = ae.estimer_mois_civil(profile.annexe_allocation, res_aj, activites, auj.year, auj.month)
+    out = ae.estimer_mois_civil(
+        profile.annexe_allocation, res_aj, activites, auj.year, auj.month,
+        franchise_cp_jours=profile.franchise_cp_jours,
+        franchise_salaires_jours=profile.franchise_salaires_jours,
+    )
     out.update({
         "verrou": False,
         "ok": True,
@@ -5363,8 +5367,49 @@ def estimation_mois_intermittent(user: User = Depends(get_current_user), db: Ses
         "aj_nette": res_aj["aj_nette"],
         "montant_officiel": profile.montant_journalier,
         "coherent_officiel": alloc.get("coherent_officiel"),
+        "franchise_cp_jours": profile.franchise_cp_jours,
+        "franchise_salaires_jours": profile.franchise_salaires_jours,
+        "franchise_maj_le": profile.franchise_maj_le.isoformat() if profile.franchise_maj_le else None,
     })
     return out
+
+
+class FranchisesRequest(BaseModel):
+    """Différés d'indemnisation RESTANTS, recopiés de la notification ou du
+    dernier relevé. null = « je ne sais pas / plus de franchise »."""
+    franchise_cp_jours: Optional[float] = None
+    franchise_salaires_jours: Optional[float] = None
+
+
+@app.post("/intermittent/franchises")
+def enregistrer_franchises(
+    req: FranchisesRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=400, detail="Profil introuvable")
+
+    def _borne(v):
+        # Garde-fou : un différé se compte en jours, jamais négatif, jamais délirant.
+        if v is None:
+            return None
+        v = float(v)
+        if v <= 0:
+            return None
+        return min(v, 365.0)
+
+    profile.franchise_cp_jours = _borne(req.franchise_cp_jours)
+    profile.franchise_salaires_jours = _borne(req.franchise_salaires_jours)
+    profile.franchise_maj_le = date.today() if (profile.franchise_cp_jours or profile.franchise_salaires_jours) else None
+    db.commit()
+    return {
+        "ok": True,
+        "franchise_cp_jours": profile.franchise_cp_jours,
+        "franchise_salaires_jours": profile.franchise_salaires_jours,
+        "franchise_maj_le": profile.franchise_maj_le.isoformat() if profile.franchise_maj_le else None,
+    }
 
 
 @app.get("/intermittent/projection-aj")
