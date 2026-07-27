@@ -75,6 +75,19 @@ if _SENTRY_DSN:
 Base.metadata.create_all(bind=engine)
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+
+# Destinataires acceptes d'un jeton Google (le champ « aud »). Il en faut
+# plusieurs : le site et l'appli Android visent l'identifiant WEB, alors que
+# l'appli iPhone vise son propre identifiant iOS (c'est le SDK Google d'Apple
+# qui l'impose, on ne peut pas le lui faire viser le web).
+# Reglable par variable Railway (valeurs separees par des virgules), meme
+# principe que APPLE_AUDIENCES. Sans la variable, on retombe sur le seul
+# identifiant web : le comportement d'avant, a l'identique.
+GOOGLE_AUDIENCES = [
+    a.strip()
+    for a in os.environ.get("GOOGLE_AUDIENCES", GOOGLE_CLIENT_ID).split(",")
+    if a.strip()
+]
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()  # .strip() : Railway garde parfois un \n en fin de valeur -> en-tete x-api-key invalide
 
 # ── Plafonds anti-abus des appels IA (par utilisateur, par jour) ──
@@ -626,14 +639,22 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 
 @app.post("/auth/google", response_model=AuthResponse)
 def auth_google(req: GoogleAuthRequest, db: Session = Depends(get_db)):
-    if not GOOGLE_CLIENT_ID:
+    if not GOOGLE_AUDIENCES:
         raise HTTPException(status_code=500, detail="Connexion Google non configuree")
 
+    # On verifie d'abord la signature et l'emetteur (c'est ce qui prouve que le
+    # jeton vient bien de Google et n'a pas ete bricole), PUIS on controle nous
+    # memes le destinataire contre notre liste. Passer « audience=None » ne
+    # baisse pas la garde : la seule verification mise de cote ici est celle du
+    # « aud », qu'on refait juste en dessous, avec plusieurs valeurs permises.
     try:
         payload = google_id_token.verify_oauth2_token(
-            req.credential, google_requests.Request(), GOOGLE_CLIENT_ID
+            req.credential, google_requests.Request(), audience=None
         )
     except ValueError:
+        raise HTTPException(status_code=401, detail="Jeton Google invalide")
+
+    if payload.get("aud") not in GOOGLE_AUDIENCES:
         raise HTTPException(status_code=401, detail="Jeton Google invalide")
 
     email = payload.get("email")

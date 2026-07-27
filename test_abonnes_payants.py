@@ -4,6 +4,7 @@
 #  proches/VIP inclus (argent réel = légitime). Exclut UNIQUEMENT le sandbox,
 #  le grâcieux (comp) et les abonnements non actifs (annulés).
 # ════════════════════════════════════════════════════════════════════════
+import itertools
 from datetime import datetime
 
 import pytest
@@ -24,9 +25,16 @@ def db():
     session.close()
 
 
+# Adresses uniques : un simple compteur. L'heure ne suffisait PAS. Un test qui
+# cree plusieurs payeurs a la suite peut en fabriquer deux dans la meme
+# milliseconde, donc deux fois la meme adresse, et la base refuse le doublon.
+# L'echec ne tombait qu'une fois sur trois, machine chaude.
+_numero = itertools.count(1)
+
+
 def _payeur(db, *, is_test=False, source="apple", status="active",
             is_sandbox=False, plan="premium", email=None):
-    u = User(email=email or f"u{datetime.utcnow().timestamp()}@ex.fr", is_test=is_test)
+    u = User(email=email or f"u{next(_numero)}@ex.fr", is_test=is_test)
     db.add(u); db.commit(); db.refresh(u)
     db.add(Subscription(user_id=u.id, plan=plan, status=status,
                         source=source, is_sandbox=is_sandbox, created_at=datetime.utcnow()))
