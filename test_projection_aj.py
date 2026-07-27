@@ -46,18 +46,18 @@ def test_fenetre_365_jours():
     assert r["sr"] == 480.0
 
 
-def test_annexe8_non_affichable_loi_x():
-    # Le cas du guide (800 h / 18 000 EUR annexe 8) est CALCULABLE mais pas
-    # AFFICHABLE : aucune notification technicien reelle ne l'a encore validee.
-    # Meme discipline que la carte allocation : aucun chiffre ne sort.
+def test_annexe8_affichable_depuis_l_ouverture_du_27_07():
+    # Le cas du guide (800 h / 18 000 EUR annexe 8). L'annexe 8 etait muette faute
+    # de cas reel ; elle a ete validee le 27/07/2026 contre le simulateur OFFICIEL
+    # de France Travail (14 cas). La projection doit donc sortir des chiffres.
     acts = [_act(100, type_activite="heures", nombre=800, brut=18000.0, metier="technicien")]
     r = projeter_renouvellement(acts, FIN)
     assert r["ok"] is True
     assert r["annexe"] == "annexe8"
-    assert r["affichable"] is False
-    assert r["raison_non_affichable"] == "technicien"
-    assert "aj_brute" not in r
-    assert "points" not in r
+    assert r["affichable"] is True
+    assert r["raison_non_affichable"] is None
+    assert r["aj_brute"] == calculer_aj("annexe8", sr=18000.0, nht=800.0)["aj_brute"]
+    assert len(r["points"]) > 0
 
 
 def test_artiste_affichable_et_coherent_moteur():
@@ -116,21 +116,20 @@ def test_simulation_n_cachets_a_x_euros():
     s = r["simulation"]
     assert s["cachets"] == 5 and s["brut_cachet"] == 200.0
     attendu = calculer_aj("annexe10", sr=5200.0 + 5 * 200.0, nht=480.0 + 60.0)
-    if s["affichable"]:
-        assert s["aj_brute"] == attendu["aj_brute"]
-    else:
-        assert s["raison_non_affichable"] == "au_dela_60"
-        assert "aj_brute" not in s
+    assert s["affichable"] is True
+    assert s["aj_brute"] == attendu["aj_brute"]
 
 
-def test_simulation_hors_branche_reste_muette():
-    # Une simulation enorme depasse 60 EUR -> pas de chiffre, raison honnete.
+def test_simulation_enorme_reste_juste_et_plafonnee():
+    # Une simulation enorme (200 cachets a 5 000 EUR) sort maintenant un chiffre,
+    # mais ce chiffre doit etre le PLAFOND officiel : 155,77 EUR, pas une
+    # extrapolation. C'est la correction du 27/07 qui rend ce cas honnete.
     acts = [_act(i * 7, nombre=4, brut=520.0) for i in range(1, 11)]
     r = projeter_renouvellement(acts, FIN, cachets_sup=200, brut_cachet=5000.0)
     s = r["simulation"]
-    assert s["affichable"] is False
-    assert s["raison_non_affichable"] == "au_dela_60"
-    assert "aj_brute" not in s
+    assert s["affichable"] is True
+    assert s["aj_brute"] == 155.77
+    assert s["plafond_applique"] is True
 
 
 def test_formation_exclue_du_montant():

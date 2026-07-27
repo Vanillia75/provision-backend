@@ -5335,7 +5335,8 @@ def estimation_mois_intermittent(user: User = Depends(get_current_user), db: Ses
     backtest sur relevé réel — la carte le dit et promet de se caler dessus.
     Réservé TOTOR Veille ({verrou: true} pour les gratuits, vitrine côté front).
     Loi X : MÊME discipline d'affichage que la carte allocation (branche validée
-    seulement : annexe 10, ≤ 60 €/jour — zone sans CSG, net fiable)."""
+    seulement). Depuis le 27/07/2026, les deux annexes sont validées au centime
+    contre le simulateur officiel France Travail."""
     if not billing.is_premium(db, user):
         return {"verrou": True}
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()

@@ -24,6 +24,7 @@ AJ_MIN = valeur_de("ajMinimale")                       # 31,96 €
 PLAFOND_AJ = valeur_de("allocationPlafondAJ")          # 174,80 €
 _RETENUE = valeur_de("allocationRetenueRetraiteComp")  # {taux, seuilExoneration, seuilCsg}
 _CSG = valeur_de("allocationCsgCrds")                  # {csgPlein, csgReduit, crds, assiette}
+_PLANCHER_NET_CSG = valeur_de("allocationPlancherNetCsg")  # 62,00 € : la CSG ne peut pas passer dessous
 _PMSS = valeur_de("pmssMensuel")                       # {montant, annee, coefPlafondCumul}
 
 _PARAMS = {
@@ -49,24 +50,31 @@ def _params(annexe: str) -> dict:
 #  Un montant en euros ne peut être MONTRÉ à l'utilisateur que si la branche de
 #  calcul empruntée a été validée sur un cas réel documenté (une vraie notification
 #  France Travail comparée au calcul de Totor — registre : MOTEUR_AJ_SOURCES.md §6).
-#  Aujourd'hui, une seule branche est validée : annexe 10 (artistes), AJ ≤ 60 €
-#  (backtest n°1, 2026-07-03, 0,00 € d'écart). Tout le reste — annexe 8, AJ > 60 €
-#  (donc CSG, dont l'assiette n'est pas confirmée) — reste CALCULÉ en interne mais
-#  JAMAIS affiché. Le moteur calcule ; la Loi décide de ce qu'on montre.
+#  ══ OUVERTURE DU 2026-07-27 (décision de Camille) ══
+#  Les DEUX annexes sont désormais affichables, sans plafond de montant.
+#  Ce n'est pas une prise de risque : le calcul complet (allocation, retenue
+#  retraite, CSG écrêtée) a été confronté au SIMULATEUR OFFICIEL de France Travail
+#  (simucalcul.pole-emploi-services.fr, accessible sans compte) sur 14 cas couvrant
+#  les annexes 8 ET 10, de 2 000 à 500 000 € de salaire de référence, 507 h et
+#  1 200 h. Les planchers d'allocation (44 € et 38 €) et la retenue retraite
+#  ressortent EXACTS ; l'allocation est chez nous 0 à 2 centimes en dessous de
+#  France Travail (on tronque là où ils arrondissent), donc toujours du côté
+#  prudent. Registre : MOTEUR_AJ_SOURCES.md §6.
+#
+#  Le plafond d'allocation lui-même a été mesuré ce jour-là et CORRIGÉ (155,77 €
+#  et non 174,80 €) : il est donc validé, et n'a plus à être caché non plus.
+#
+#  La Loi X n'est pas abrogée pour autant : le mécanisme reste en place, et toute
+#  branche future non vérifiée devra repasser par ici pour se taire honnêtement.
 # ─────────────────────────────────────────────────────────────────────────────
-BRANCHE_VALIDEE_AJ_MAX_ANNEXE10 = 60.0  # au-delà, la CSG entre en jeu (non validée)
-
-
 def branche_affichable(annexe: str, resultat: dict) -> tuple:
     """
     Retourne (affichable: bool, raison: str|None).
     raison explique, quand ce n'est PAS affichable, pourquoi — pour que Totor puisse
     dire honnêtement « je préfère ne pas te donner de chiffre » plutôt qu'approximer.
     """
-    if annexe != "annexe10":
-        return (False, "technicien")  # annexe 8 : aucune notification réelle ne l'a encore jugée
-    if resultat.get("nette_estimee") or resultat["aj_brute"] > BRANCHE_VALIDEE_AJ_MAX_ANNEXE10:
-        return (False, "au_dela_60")  # CSG en jeu : assiette non validée sur cas réel
+    if annexe not in _PARAMS:
+        return (False, "annexe_inconnue")
     return (True, None)
 
 
@@ -108,19 +116,34 @@ def calculer_aj(annexe: str, sr: float, nht: float) -> dict:
     # Salaire journalier moyen — sert à la retenue retraite complémentaire.
     sjm = round(sr / (nht / p["diviseurSJM"]), 2) if nht > 0 else 0.0
 
-    # Brut → net. La branche CSG (> 60 €) n'est pas validée par un cas réel :
-    # le net est alors marqué comme estimation (le moteur n'affirme pas).
+    # ── Brut → net, en DEUX temps et dans cet ordre (vérifié au centime le
+    #    2026-07-27 contre le simulateur officiel France Travail, 14 cas) :
+    #
+    #    1. la retenue retraite complémentaire (0,93 % du salaire journalier moyen) ;
+    #    2. la CSG/CRDS, calculée sur ce qui RESTE après la retraite (piège : pas
+    #       sur l'allocation de départ), puis RABOTÉE de façon que le net ne tombe
+    #       jamais sous le plancher légal. Trois allocations brutes différentes
+    #       (63,27 / 64,64 / 65,99 €) donnent toutes 62,00 € net exactement.
+    #
+    #    On applique toujours le taux PLEIN de CSG (6,2 %). Un allocataire à faible
+    #    revenu fiscal a droit au taux réduit, voire à l'exonération : son net réel
+    #    sera donc SUPÉRIEUR à ce qu'on annonce, jamais inférieur. C'est le sens
+    #    prudent, celui qu'on veut quand on parle d'argent à quelqu'un.
     retenue_retraite = 0.0
     retenue_csg_crds = 0.0
-    nette_estimee = False
     if brute > _RETENUE["seuilExoneration"]:
         retenue_retraite = round(_RETENUE["taux"] * sjm, 2)
-    if brute > _RETENUE["seuilCsg"]:
-        taux_csg_crds = _CSG["csgPlein"] + _CSG["crds"]
-        retenue_csg_crds = round(brute * _CSG["assiette"] * taux_csg_crds, 2)
-        nette_estimee = True
 
-    nette = round(brute - retenue_retraite - retenue_csg_crds, 2)
+    apres_retraite = round(brute - retenue_retraite, 2)
+
+    if apres_retraite > _RETENUE["seuilCsg"]:
+        taux_csg_crds = _CSG["csgPlein"] + _CSG["crds"]
+        theorique = round(apres_retraite * _CSG["assiette"] * taux_csg_crds, 2)
+        marge_avant_plancher = round(apres_retraite - _PLANCHER_NET_CSG, 2)
+        retenue_csg_crds = max(0.0, min(theorique, marge_avant_plancher))
+
+    nette = round(apres_retraite - retenue_csg_crds, 2)
+    nette_estimee = False  # branche validée : plus une estimation aveugle
 
     return {
         "annexe": annexe,
@@ -214,7 +237,8 @@ def projeter_renouvellement(activites: list, fin, cachets_sup: int = 0, brut_cac
     }
 
     # Loi X : MÊME discipline d'affichage que la carte allocation (branche_affichable).
-    # Hors branche validée (annexe 8, ou > 60 €/jour) → AUCUN chiffre, raison honnête.
+    # Hors branche validée → AUCUN chiffre, raison honnête. Depuis le 27/07/2026 les
+    # deux annexes passent : ne reste bloqué que le plafond d'allocation.
     affichable, raison_affichable = branche_affichable(annexe, res)
     if not affichable:
         socle.update({"affichable": False, "raison_non_affichable": raison_affichable})
@@ -230,8 +254,11 @@ def projeter_renouvellement(activites: list, fin, cachets_sup: int = 0, brut_cac
     else:
         brut_moyen_cachet = round(sr / nht * 12.0, 2)  # équivalent 12h au tarif moyen réel
 
-    # La courbe s'ARRÊTE au premier point hors branche validée (> 60 € : CSG non
-    # vérifiée sur cas réel) — on le dit plutôt que d'extrapoler.
+    # La courbe s'ARRÊTE au premier point hors branche validée — on le dit plutôt
+    # que d'extrapoler. En pratique elle ne s'arrête quasiment plus depuis
+    # l'ouverture du 27/07/2026 (seul le plafond d'allocation la couperait).
+    # NB : la clé de sortie garde son nom « courbe_plafonnee_60 » exprès. Les
+    # applis iOS et Android DÉJÀ EN LIGNE lisent ce nom : le renommer les casserait.
     points = []
     courbe_plafonnee = False
     for n in range(0, 9):
@@ -383,8 +410,11 @@ def calculer_mois(
 #  premier relevé partagé servira à se caler, la carte le dit à l'utilisateur).
 #  S'appuie sur calculer_mois (guide FT, exemple officiel 12) et sur l'AJ de la
 #  carte allocation (validée au centime par le backtest n°1).
-#  Loi X : l'appelant vérifie branche_affichable AVANT d'appeler — on reste donc
-#  en zone validée (annexe 10, ≤ 60 €), où la CSG est nulle et le net fiable.
+#  Loi X : l'appelant vérifie branche_affichable AVANT d'appeler. Depuis le
+#  27/07/2026, l'AJ nette qu'on reçoit ici (CSG écrêtée comprise) est vérifiée au
+#  centime contre le simulateur officiel France Travail, sur les DEUX annexes.
+#  Ce qui reste une estimation, c'est le DÉCOMPTE du mois lui-même (jours non
+#  indemnisables, décalage, plafond de cumul), pas le montant de la journée.
 #  Franchises non stockées côté profil : comptées à 0 (dit dans la carte).
 # ─────────────────────────────────────────────────────────────────────────────
 def estimer_mois_civil(annexe: str, res_aj: dict, activites: list, annee: int, mois: int,
@@ -445,9 +475,10 @@ def estimer_mois_civil(annexe: str, res_aj: dict, activites: list, annee: int, m
         franchise_salaires_totale=f_sal,
     )
 
-    # Brut → net du mois. En zone validée (≤ 60 €), pas de CSG : le net du jour
-    # est aj_nette (retenue retraite comprise). Si le plafond de cumul a rogné
-    # le brut, on convertit au prorata (approximation, signalée comme telle).
+    # Brut → net du mois. Le net du jour, c'est aj_nette : retenue retraite ET
+    # CSG écrêtée déjà déduites par calculer_aj (vérifié au centime le 27/07/2026).
+    # Si le plafond de cumul a rogné le brut, on convertit au prorata
+    # (approximation, signalée comme telle).
     prorata_plafond = False
     if m["are_versee"] <= 0:
         net = 0.0

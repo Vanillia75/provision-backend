@@ -17,6 +17,8 @@ fractionnaires du mois type), le résultat porte un drapeau d'estimation.
 """
 import math
 
+import pytest
+
 from allocation_engine import calculer_aj, calculer_mois, branche_affichable
 
 
@@ -58,9 +60,10 @@ def test_plancher_annexe_8():
 
 
 def test_plafond_aj():
-    """Très gros salaires : l'AJ est plafonnée à 174,80 €."""
+    """Très gros salaires : l'AJ est plafonnée à 155,77 € (mesuré sur le
+    simulateur officiel le 27/07/2026 ; on avait 174,80 €, c'était faux)."""
     r = calculer_aj("annexe8", sr=500000.0, nht=2000.0)
-    assert r["aj_brute"] == 174.80
+    assert r["aj_brute"] == 155.77
     assert r["plafond_applique"] is True
 
 
@@ -72,13 +75,16 @@ def test_aj_sous_31_96_aucune_retenue():
     assert r["aj_nette"] == round(44.0 - r["retenue_retraite"], 2)
 
 
-def test_aj_au_dela_de_60_marquee_estimation():
-    """Au-delà de 60 €, la CSG entre en jeu : assiette non validée par un cas réel
-    → le net doit être marqué comme ESTIMATION (Loi I : on n'affirme pas)."""
+def test_aj_au_dela_de_60_n_est_plus_une_estimation_aveugle():
+    """Au-delà de 60 € la CSG entre en jeu. Depuis le backtest du 27/07/2026 contre
+    le simulateur officiel, cette branche est vérifiée : le net n'est plus marqué
+    comme estimation. Le net reste sous le brut (retraite + CSG écrêtée)."""
     r = calculer_aj("annexe8", sr=18000.0, nht=800.0)  # brute 64,78 > 60
     assert r["aj_brute"] == 64.78
-    assert r["nette_estimee"] is True
+    assert r["nette_estimee"] is False
     assert r["aj_nette"] < r["aj_brute"]
+    # Le net ne peut pas tomber sous le plancher légal de 62,00 €.
+    assert r["aj_nette"] >= 62.00
 
 
 def test_annexe_inconnue_refusee():
@@ -150,28 +156,45 @@ def test_mois_exact_pas_de_drapeau():
 #  3. LOI X — ce que Totor a le DROIT d'afficher
 # ─────────────────────────────────────────────────────────────────────────────
 def test_affichable_artiste_sous_60_le_cas_reel():
-    """La seule branche validée sur cas réel : annexe 10, AJ ≤ 60 € (cas réel n°1)."""
+    """Le cas réel n°1 (annexe 10, 51,18 € net) reste affichable."""
     r = calculer_aj("annexe10", sr=8537.10, nht=636.0)  # 51,18 € net
     affichable, raison = branche_affichable("annexe10", r)
     assert affichable is True
     assert raison is None
 
 
-def test_non_affichable_technicien():
-    """Annexe 8 : aucune notification réelle ne l'a jugée → jamais affiché (Loi X)."""
+def test_affichable_technicien_depuis_ouverture_27_07():
+    """Annexe 8 : OUVERTE le 27/07/2026, validée contre le simulateur officiel."""
     r = calculer_aj("annexe8", sr=18000.0, nht=800.0)
     affichable, raison = branche_affichable("annexe8", r)
-    assert affichable is False
-    assert raison == "technicien"
+    assert affichable is True
+    assert raison is None
 
 
-def test_non_affichable_au_dela_60():
-    """Artiste mais AJ > 60 € : la CSG entre en jeu, assiette non validée → interdit."""
-    r = calculer_aj("annexe10", sr=60000.0, nht=900.0)  # AJ brute > 60
+def test_affichable_au_dela_de_60_depuis_ouverture_27_07():
+    """Au-delà de 60 € la CSG entre en jeu : désormais calculée juste, donc affichable."""
+    r = calculer_aj("annexe10", sr=60000.0, nht=900.0)
     assert r["aj_brute"] > 60
     affichable, raison = branche_affichable("annexe10", r)
+    assert affichable is True
+    assert raison is None
+
+
+def test_non_affichable_annexe_inconnue():
+    """Une annexe qu'on ne connaît pas ne produit jamais de chiffre."""
+    affichable, raison = branche_affichable("annexe42", {"aj_brute": 50.0})
     assert affichable is False
-    assert raison == "au_dela_60"
+    assert raison == "annexe_inconnue"
+
+
+def test_affichable_au_plafond():
+    """Le plafond a été mesuré et corrigé (155,77 €) le 27/07 : il est affichable."""
+    r = calculer_aj("annexe10", sr=500000.0, nht=507.0)
+    assert r["plafond_applique"] is True
+    assert r["aj_brute"] == pytest.approx(155.77, abs=0.005)
+    affichable, raison = branche_affichable("annexe10", r)
+    assert affichable is True
+    assert raison is None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -54,11 +54,18 @@ indemnisables = 16 ; ARE = 2 240 € ; cumul 6 240 € > plafond 4 559,52 € �
 ## 3. Du brut au net
 
 - AJ brute ≤ 31,96 € → **net = brut** (aucune retenue).
-- 31,96 € < AJ ≤ 60 € → retenue **retraite complémentaire = 0,93 % × SJM**
+- Au-delà → retenue **retraite complémentaire = 0,93 % × SJM**
   (SJM = SR / (NHTM/8) en A8 ; SR / (NHTM/10) en A10).
-- AJ > 60 € → en plus : **CSG 6,2 %** (ou 3,8 % selon revenu fiscal, ou 0 % si non imposable)
-  + **CRDS 0,5 %** (assiette CSG/CRDS = 98,25 % de l'allocation — à confirmer, cf. §5).
+- Si ce qui RESTE dépasse 60 € → en plus : **CSG 6,2 %** + **CRDS 0,5 %**, soit 6,7 %,
+  sur **98,25 %** de l'allocation **APRÈS retenue retraite** (et non avant).
+- **ÉCRÊTEMENT** : cette retenue CSG/CRDS est ensuite rabotée pour que le net ne
+  tombe jamais sous **62,00 €** (valeur 2026, ≈ SMIC brut mensuel / 30). Si l'allocation
+  est déjà sous ce plancher, la retenue est de **zéro**.
+- **Plafond de l'allocation : 155,77 €** (et non 174,80 € comme écrit avant le 27/07/2026).
 - Alsace-Moselle : +1,50 %. Puis prélèvement à la source selon le taux fiscal.
+
+**✅ TOUT CE PARAGRAPHE EST VÉRIFIÉ AU CENTIME (2026-07-27)** contre le **simulateur
+officiel France Travail** — voir §6, backtest n°3.
 
 ## 4. Franchises et délais (décalent le premier paiement)
 
@@ -94,14 +101,49 @@ art. 29 §1, 30, 31 §1-2) relu mot à mot ce jour :
 
 ## 5. Reste à confirmer avant/pendant le code
 
-1. Formule exacte de la **franchise salaires** (schéma p. 14 illisible en extraction texte).
-2. **Assiette CSG/CRDS** (98,25 % ?) et arrondis exacts appliqués par France Travail.
+1. Formule exacte de la **franchise salaires**. ⚠️ **Piste ouverte le 27/07/2026** : le
+   simulateur officiel la CALCULE. La franchise congés payés vaut simplement
+   `jours travaillés ÷ 10` (vérifié : 60 j → 6, 120 j → 12). La franchise salaires dépend
+   d'un seuil sur le salaire TOTAL de la période (60 j / 20 000 € → 0 j ; 120 j / 40 000 €
+   → 18 j : même salaire journalier, résultats différents). Quelques cas de plus sur le
+   simulateur devraient suffire à la percer, et on pourrait alors CALCULER les franchises
+   au lieu de les demander à l'utilisateur.
+2. ~~**Assiette CSG/CRDS** (98,25 % ?) et arrondis exacts.~~ ✅ **RÉSOLU le 27/07/2026**
+   (backtest n°3 ci-dessous). Assiette 98,25 % confirmée, appliquée APRÈS la retenue
+   retraite, puis écrêtée au plancher net de 62,00 €.
 3. Valeur **PMSS courante** pour le plafond 118 % (paramètre annuel).
-4. Revalorisations : AJ min (31,96 €) et plafond AJ (174,80 €) à vérifier au 01/07/2026.
+4. ~~Revalorisations : plafond AJ 174,80 €.~~ ✅ **CORRIGÉ le 27/07/2026 : 155,77 €**
+   (le 174,80 € était faux, cf. backtest n°3). Reste : AJ min (31,96 €) et le plancher
+   net (62,00 €) à revérifier à chaque revalorisation du SMIC.
 
 ## 6. Le backtest (la porte à franchir avant tout affichage)
 
 Disponible aujourd'hui :
+- 🎯 ✅ **BACKTEST n°3 — LE SIMULATEUR OFFICIEL (2026-07-27), CELUI QUI A OUVERT LA LOI X.**
+  Camille a trouvé que le simulateur officiel France Travail
+  (**<https://simucalcul.pole-emploi-services.fr/>**) tourne **SANS COMPTE**. C'est donc un
+  banc d'essai illimité, alimentable avec des chiffres INVENTÉS : plus besoin d'attendre la
+  notification d'une vraie personne, et zéro donnée personnelle en jeu.
+  **24 cas relevés ce jour-là**, annexes 8 ET 10, salaire de référence de 2 000 à
+  1 000 000 €, 507 h et 1 200 h. Résultats :
+  - **Allocation** : identique à 0 à 2 centimes près, TOUJOURS en dessous de France Travail
+    (on tronque là où ils arrondissent des termes intermédiaires). Jamais au-dessus.
+  - **Retenue retraite** : **exacte au centime sur tous les cas**, y compris à 91,72 €.
+  - **Planchers d'allocation** (44 € annexe 10, 38 € annexe 8) : **exacts**.
+  - **CSG/CRDS** : règle entièrement percée (cf. §3). L'hypothèse concurrente « 1,75 % × AJ »
+    est **RÉFUTÉE** (elle prédisait 1,11 € là où France Travail prélève 1,27 €) ; le 1,75 %
+    n'était pas un taux mais l'abattement d'assiette (98,25 %).
+  - **🚨 BUG TROUVÉ ET CORRIGÉ** : notre plafond d'allocation valait **174,80 €** (guide FT
+    p.11, daté de 2024) alors que le simulateur plafonne à **155,77 €**, annexe 8 comme
+    annexe 10. Au-delà d'environ 306 500 € de salaire de référence, on aurait annoncé
+    **PLUS** que France Travail : exactement ce que la Loi X interdit. Sans ce backtest,
+    personne ne l'aurait vu.
+  → **Conséquence : la Loi X est ouverte aux DEUX annexes, sans plafond de montant**
+  (décision de Camille, 27/07/2026). Les 24 cas sont figés en tests permanents dans
+  `test_simulateur_officiel_ft.py` : si quelqu'un touche aux formules, ils le diront.
+  ⚠️ Ce backtest valide l'allocation **à l'ouverture des droits**. Le **décompte mensuel**
+  (jours non indemnisables, décalage, plafond de cumul) reste couvert par les seuls
+  backtests mensuels ci-dessous.
 - ✅ 2 cas officiels du guide (exemples 6 et 12) → tests unitaires.
 - ✅ Historique réel d'heures/salaires (attestations FCTU/AEM réelles scannées le 2026-07-03).
 - ✅ **BACKTEST RÉEL n°1 : RÉUSSI À 0,00 € D'ÉCART** (2026-07-03). Notification France
