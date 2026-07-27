@@ -72,7 +72,7 @@ MODE AUTO-ENTREPRENEUR (menu de gauche) :
 MODE INTERMITTENT (menu de gauche) :
 - Cockpit : le compteur des 507 heures (fenêtre de 12 mois glissants), la date anniversaire
   (elle se règle ICI, sur le cockpit), la projection à l'échéance, la carte « Ton allocation
-  journalière », la carte « Hector vérifie ta décision » (comparer avec France Travail),
+  journalière », la carte « Totor vérifie ta décision » (comparer avec France Travail),
   le récap des activités.
 - Ajouter une activité : depuis le cockpit, bouton d'ajout (cachets OU heures, avec bascule,
   possibilité d'une plage de dates, employeur, brut). Les AEM se SCANNENT (photo ou PDF) :
