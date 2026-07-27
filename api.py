@@ -5289,6 +5289,132 @@ def _offres_ratelimit(request: Request, now: float):
             _OFFRES_RL.pop(vieille_ip, None)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  SIMULATEUR PUBLIC (27/07/2026) — sans compte, sans email, rien de conservé.
+#
+#  Pourquoi : tous les concurrents en ont un en accès libre, c'est une porte
+#  d'entrée SEO majeure (« simulateur allocation intermittent »). Le nôtre a un
+#  avantage qu'aucun autre n'a : ils affichent le BRUT, nous affichons le NET,
+#  parce que notre calcul brut→net a été vérifié au centime contre le simulateur
+#  officiel France Travail le 27/07/2026 (24 cas, les deux annexes).
+#
+#  Vie privée : AUCUNE écriture en base, aucun identifiant, aucun cookie. Les
+#  chiffres saisis servent au calcul puis disparaissent. C'est un point à dire
+#  clairement sur la page : les gens tapent leur salaire réel.
+# ─────────────────────────────────────────────────────────────────────────────
+_SIMU_RL = {}               # ip -> horodatages récents
+_SIMU_RL_MAX = 20           # calculs max par IP
+_SIMU_RL_FEN = 60           # sur 60 secondes
+
+
+def _simu_ratelimit(request: Request, now: float):
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+        or (request.client.host if request.client else "?")
+    horodatages = [t for t in _SIMU_RL.get(ip, []) if now - t < _SIMU_RL_FEN]
+    if len(horodatages) >= _SIMU_RL_MAX:
+        _SIMU_RL[ip] = horodatages
+        raise HTTPException(status_code=429, detail="Trop de calculs d'affilée, réessaie dans une minute.")
+    horodatages.append(now)
+    _SIMU_RL[ip] = horodatages
+    if len(_SIMU_RL) > 5000:
+        for vieille_ip in [k for k, v in _SIMU_RL.items() if not v or now - v[-1] > _SIMU_RL_FEN]:
+            _SIMU_RL.pop(vieille_ip, None)
+
+
+class SimulateurPublicRequest(BaseModel):
+    annexe: str                                    # "annexe8" | "annexe10"
+    heures: float                                  # heures de travail (hors assimilées)
+    salaire_reference: float
+    heures_enseignement: float = 0.0
+    heures_formation: float = 0.0
+    date_fin_contrat: Optional[str] = None         # AAAA-MM-JJ, pour la date anniversaire
+    jours_travailles: Optional[float] = None       # pour la franchise congés payés
+
+
+@app.post("/public/simulateur-allocation")
+def simulateur_allocation_public(req: SimulateurPublicRequest, request: Request):
+    """Calcul d'allocation journalière en accès libre. Rien n'est enregistré."""
+    import time as _time
+    _simu_ratelimit(request, _time.time())
+
+    annexe = (req.annexe or "").strip()
+    if annexe not in ("annexe8", "annexe10"):
+        raise HTTPException(status_code=400, detail="Choisis l'annexe 8 (technicien) ou l'annexe 10 (artiste).")
+
+    def _borne_positive(x, maxi):
+        try:
+            v = float(x or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        return max(0.0, min(v, maxi))
+
+    heures = _borne_positive(req.heures, 10000)
+    sr = _borne_positive(req.salaire_reference, 5_000_000)
+
+    # Heures assimilées : elles comptent pour les 507 h mais JAMAIS pour le montant.
+    # Plafonds officiels : enseignement ≤ 70 h, et enseignement + formation ≤ 338 h.
+    plafond_ens = regle_valeur("enseignementPlafond")
+    plafond_assim = regle_valeur("formationPlafondNouvelleAdmission")
+    h_ens = min(_borne_positive(req.heures_enseignement, 10000), plafond_ens)
+    h_form = _borne_positive(req.heures_formation, 10000)
+    h_assimilees = min(h_ens + h_form, plafond_assim)
+    heures_507 = heures + h_assimilees
+    seuil = regle_valeur("seuilHeures")
+    eligible = heures_507 >= seuil
+
+    res = ae.calculer_aj(annexe, sr, heures)
+    affichable, raison = ae.branche_affichable(annexe, res)
+    apres_retraite = round(res["aj_brute"] - res["retenue_retraite"], 2)
+
+    out = {
+        "eligible": eligible,
+        "heures_travail": round(heures, 2),
+        "heures_assimilees": round(h_assimilees, 2),
+        "heures_total_507": round(heures_507, 2),
+        "seuil_507": seuil,
+        "manque_heures": round(max(0.0, seuil - heures_507), 2),
+        "annexe": annexe,
+        "affichable": affichable,
+        "raison_non_affichable": raison,
+        "avertissement": ae.AVERTISSEMENT,
+    }
+
+    if affichable:
+        out.update({
+            "aj_initiale": res["aj_brute"],
+            "partie_a": res["partie_a"],
+            "partie_b": res["partie_b"],
+            "partie_c": res["partie_c"],
+            "retenue_retraite": res["retenue_retraite"],
+            "aj_brute": apres_retraite,
+            "retenue_csg_crds": res["retenue_csg_crds"],
+            "aj_nette": res["aj_nette"],
+            "plancher_applique": res["plancher_applique"],
+            "plafond_applique": res["plafond_applique"],
+            "allocation_mensuelle_indicative": round(res["aj_nette"] * 30, 2),
+        })
+
+    # Date anniversaire : 365 jours après la fin du contrat retenue.
+    if req.date_fin_contrat:
+        try:
+            d_fin = date.fromisoformat(req.date_fin_contrat.strip()[:10])
+            out["date_fin_contrat"] = d_fin.isoformat()
+            out["date_anniversaire"] = (d_fin + timedelta(days=365)).isoformat()
+        except (ValueError, AttributeError):
+            pass
+
+    # Franchise congés payés : formule officielle (jours × 2,5 / 24, tronquée,
+    # plafonnée à 30 j). VÉRIFIÉE sur le simulateur officiel le 27/07/2026, dont
+    # le cas qui départage : 96 jours donnent 10 j (et non 9 comme le ferait un
+    # simple « jours ÷ 10 »), et 300 jours restent bloqués à 30.
+    if req.jours_travailles is not None:
+        j = _borne_positive(req.jours_travailles, 366)
+        out["jours_travailles"] = round(j, 1)
+        out["franchise_cp_jours"] = min(30, int(j * 2.5 / 24 + 1e-9))
+
+    return out
+
+
 @app.get("/intermittent/offres")
 def get_intermittent_offres(
     request: Request,
