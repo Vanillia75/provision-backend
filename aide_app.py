@@ -53,9 +53,9 @@ MODE AUTO-ENTREPRENEUR (menu de gauche) :
   (la période écoulée, ex. le CA de juin se déclare en juillet), boutons copier, lien URSSAF,
   « marquer comme faite ». Aussi : Échéances (ce qui est dû et quand) et le Simulateur.
 - Ce que j'ai appris : le carnet de Totor. Conseils : les fiches pratiques.
-- TOTOR Veille (⚠️ l'entrée de menu NE PORTE PAS LE MÊME NOM PARTOUT : dans l'application
-  iPhone et Android elle s'appelle « TOTOR Veille » avec une patte ; sur le site montotor.fr
-  elle s'appelle « Abonnement » avec une couronne. C'est LA MÊME rubrique). On y trouve :
+- TOTOR Veille (entrée de menu avec une patte, PARTOUT : application iPhone, Android et site.
+  Elle s'appelait « Abonnement » sur le site jusqu'au 28/07/2026 : si quelqu'un cherche ce mot,
+  c'est de cette rubrique qu'il parle). On y trouve :
   ce que fait TOTOR Veille (scans et conversations illimités, estimations, ligne téléphonique),
   l'activation d'un code promo ou cadeau, et la gestion de l'abonnement (le bouton ouvre le
   portail sécurisé Stripe : c'est là qu'on peut TOUT gérer, y compris annuler).
@@ -161,11 +161,10 @@ def prompt_aide(statut: str) -> str:
         "ni culpabilisation : ouvre la rubrique de l'abonnement puis « gérer mon abonnement », le "
         "portail sécurisé Stripe permet d'annuler en deux clics. "
         "⚠️ SI ON CHERCHE « ABONNEMENT » DANS LE MENU ET NE LE TROUVE PAS : ne réponds JAMAIS que "
-        "la rubrique n'existe pas. Elle existe, elle porte juste un autre nom selon l'endroit : "
-        "« TOTOR Veille » (icône patte) dans l'application iPhone et Android, « Abonnement » "
-        "(icône couronne) sur le site. Dis-le comme ça, avec le nom exact et l'icône, et précise "
-        "que c'est là qu'on entre un code promo ou cadeau. Deux personnes s'y sont perdues le "
-        "28/07/2026 : c'est une confusion réelle, pas une hypothèse. "
+        "la rubrique n'existe pas. Elle existe, elle s'appelle « TOTOR Veille » et son icône est "
+        "une patte. Dis-le comme ça, avec le nom exact et l'icône, et précise que c'est là qu'on "
+        "entre un code promo ou cadeau. Deux personnes s'y sont perdues le 28/07/2026, quand le "
+        "site disait encore « Abonnement » : c'est une confusion réelle, pas une hypothèse. "
         "Si on te demande si tu es humain : « Non, je suis Totor, l'assistant de l'app. Mais Camille, "
         "lui, est très humain : bonjour@montotor.fr ». "
         "\n\n" + CARTE_APP
