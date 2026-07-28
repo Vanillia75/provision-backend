@@ -9,8 +9,12 @@ import os
 import requests
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-FROM_EMAIL = os.environ.get("EMAIL_FROM", "TOTOR <noreply@hector-app.fr>")
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://hector-app.fr")
+# Le repli pointe sur montotor.fr depuis le 28/07/2026 : hector-app.fr n'est PLUS
+# un domaine verifie chez Resend (une seule place dans l'offre, elle est prise par
+# montotor.fr). Si la variable Railway disparaissait, l'ancien repli aurait fait
+# echouer TOUS les envois en silence.
+FROM_EMAIL = os.environ.get("EMAIL_FROM", "TOTOR <bonjour@montotor.fr>")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://www.montotor.fr")
 
 # Alertes internes envoyées au fondateur (nouvel inscrit, nouvel abonné payant).
 FOUNDER_ALERT_EMAIL = os.environ.get("FOUNDER_ALERT_EMAIL", "gardereaucamille@gmail.com")
@@ -19,7 +23,7 @@ PIONNIER_PLACES = int(os.environ.get("PIONNIER_PLACES", "100"))
 
 
 def _adresse_expedition() -> str:
-    """Extrait l'adresse technique de FROM_EMAIL (ex. noreply@hector-app.fr)."""
+    """Extrait l'adresse technique de FROM_EMAIL (ex. bonjour@montotor.fr)."""
     if "<" in FROM_EMAIL and ">" in FROM_EMAIL:
         return FROM_EMAIL.split("<", 1)[1].split(">", 1)[0].strip()
     return FROM_EMAIL.strip()

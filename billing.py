@@ -36,7 +36,7 @@ STRIPE_PRICE_PREMIUM_ANNUAL = os.environ.get("STRIPE_PRICE_PREMIUM_ANNUAL", "").
 STRIPE_PRICE_PIONNIER = os.environ.get("STRIPE_PRICE_PIONNIER", "").strip()
 PIONNIER_LIMITE = 100
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://hector-app.fr")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://www.montotor.fr")
 
 # Domaines autorisés pour le retour de paiement. On renvoie l'utilisateur EXACTEMENT sur
 # le domaine d'où il vient (pour préserver sa session/localStorage), mais jamais sur une
