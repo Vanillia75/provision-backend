@@ -4125,9 +4125,37 @@ def effacer_chat_historique(user: User = Depends(get_current_user), db: Session 
     return {"ok": True, "supprimes": n}
 
 
+def _plateforme_lisible(user_agent: str) -> str:
+    """D'ou vient la personne, en clair, pour le radar de l'Aide vivante.
+
+    Lu dans l'en-tete User-Agent : AUCUNE donnee de compte, et surtout aucun
+    changement cote application, donc ca marche des le deploiement pour les
+    gens deja installes.
+
+    Limite assumee : sur iPhone, la WebView de l'appli et Safari envoient
+    pratiquement le meme en-tete. On distingue donc l'iPhone de l'Android a
+    coup sur, mais « appli ou navigateur » n'est fiable que sur Android
+    (marqueur « wv »). On prefere dire « iPhone » sans mentir plutot que
+    d'inventer une precision qu'on n'a pas.
+    """
+    ua = (user_agent or "").lower()
+    if "android" in ua:
+        return "Android (application)" if "; wv" in ua or " wv)" in ua else "Android (navigateur)"
+    if "iphone" in ua:
+        return "iPhone"
+    if "ipad" in ua:
+        return "iPad"
+    if "mac os" in ua or "macintosh" in ua:
+        return "Mac"
+    if "windows" in ua:
+        return "Ordinateur Windows"
+    return "inconnu"
+
+
 @app.post("/assistant/chat")
 def assistant_chat(
     req: AssistantRequest,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -4549,6 +4577,7 @@ def assistant_chat(
                 f"[Aide] {req.ecran or 'écran inconnu'}",
                 f"<div style='font-family:sans-serif;max-width:480px'>"
                 f"<p><strong>Écran :</strong> {html.escape(req.ecran or 'inconnu')}</p>"
+                f"<p><strong>Depuis :</strong> {html.escape(_plateforme_lisible(request.headers.get('user-agent', '')))}</p>"
                 f"<p><strong>Question :</strong> {html.escape(question[:500])}</p>"
                 f"<p style='color:#6B7A8D;font-size:12px'>Radar UX de l'Aide vivante — aucune donnée de compte.</p></div>",
             )
