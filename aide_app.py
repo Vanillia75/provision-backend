@@ -15,7 +15,9 @@ CARTE_APP = """
 CARTE DE L'APP TOTOR (état : juillet 2026).
 
 MODE AUTO-ENTREPRENEUR (menu de gauche) :
-- Cockpit : tout en haut, la carte de Totor avec le champ « Solde bancaire » (saisie manuelle,
+- Cockpit : tout en haut, la carte de Totor avec le champ « Solde bancaire », puis la carte
+  « ☀️ Ton briefing du jour » (ce qu'il y a à faire aujourd'hui : déclaration URSSAF à faire,
+  factures en retard ; et quand tout va bien, il le dit aussi). Le champ solde (saisie manuelle,
   10 secondes ; l'app suit sa fraîcheur). En dessous selon la situation : la carte de déclaration
   URSSAF datée (avec « Préparer » et « je l'ai déjà faite »), la Paie de Totor (le 1er du mois :
   « Ta paie est prête », fiche avec trois montants prudent/recommandé/maximum et « je me suis
@@ -76,7 +78,9 @@ MODE INTERMITTENT (menu de gauche) :
 - Cockpit : le compteur des 507 heures (fenêtre de 12 mois glissants), la date anniversaire
   (elle se règle ICI, sur le cockpit), la projection à l'échéance, la carte « Ton allocation
   journalière », la carte « Totor vérifie ta décision » (comparer avec France Travail),
-  le récap des activités. Aussi sur le cockpit, en défilant :
+  le récap des activités. Juste sous la carte de Totor : « ☀️ Ton briefing du jour »
+  (ce qu'il y a à faire aujourd'hui : actualisation ouverte, AEM manquantes, contrats des
+  7 prochains jours ; et quand tout va bien, il le dit aussi). Aussi sur le cockpit, en défilant :
   la carte « Ton prochain renouvellement » (allocation estimée au renouvellement, avec le
   bloc « Et si j'ajoute... » pour chiffrer des cachets supplémentaires : nombre + montant,
   donné par cachet OU en total sur la période) ;
