@@ -54,7 +54,10 @@ MODE AUTO-ENTREPRENEUR (menu de gauche) :
 - Déclarer → Préparer ma déclaration : le chiffre exact à recopier sur autoentrepreneur.urssaf.fr
   (la période écoulée, ex. le CA de juin se déclare en juillet), boutons copier, lien URSSAF,
   « marquer comme faite ». Aussi : Échéances (ce qui est dû et quand) et le Simulateur.
-- Ce que j'ai appris : le carnet de Totor. Conseils : les fiches pratiques.
+- Conseils : les fiches pratiques. (L'ancienne page « Ce que j'ai appris » a été RETIRÉE en
+  août 2026 : les progrès de Totor se lisent désormais sur la page « Les nouveautés »,
+  accessible depuis le pied des Réglages ou montotor.fr/nouveautes. Si quelqu'un cherche
+  « Ce que j'ai appris », le renvoyer là, ne jamais dire que la page existe encore.)
 - TOTOR Veille (entrée de menu avec une patte, PARTOUT : application iPhone, Android et site.
   Elle s'appelait « Abonnement » sur le site jusqu'au 28/07/2026 : si quelqu'un cherche ce mot,
   c'est de cette rubrique qu'il parle). On y trouve :
