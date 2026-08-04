@@ -76,7 +76,14 @@ MODE INTERMITTENT (menu de gauche) :
 - Cockpit : le compteur des 507 heures (fenêtre de 12 mois glissants), la date anniversaire
   (elle se règle ICI, sur le cockpit), la projection à l'échéance, la carte « Ton allocation
   journalière », la carte « Totor vérifie ta décision » (comparer avec France Travail),
-  le récap des activités.
+  le récap des activités. Aussi sur le cockpit, en défilant :
+  la carte « Ton prochain renouvellement » (allocation estimée au renouvellement, avec le
+  bloc « Et si j'ajoute... » pour chiffrer des cachets supplémentaires : nombre + montant,
+  donné par cachet OU en total sur la période) ;
+  la carte « Ton mois de {mois} » (estimation du versement France Travail du mois en cours,
+  vérifiée au centime sur de vrais versements ; elle utilise le taux officiel importé de
+  l'attestation ARE quand il existe, sinon les chiffres de la carte allocation) ;
+  la carte « Tes Congés Spectacles » (estimation ~10 % des bruts, saison avril → mars).
 - Ajouter une activité : depuis le cockpit, bouton d'ajout (cachets OU heures, avec bascule,
   possibilité d'une plage de dates, employeur, brut). Les AEM se SCANNENT (photo ou PDF) :
   Totor lit et remplit tout.
@@ -89,6 +96,8 @@ MODE INTERMITTENT (menu de gauche) :
   NOUVEAU : la conversation est CONSERVÉE d'un jour à l'autre (et d'un appareil à l'autre) ;
   le bouton « Repartir de zéro » sous le chat l'efface entièrement.
 - Simulateur « Que se passe-t-il si » : tester l'effet d'un futur contrat sur le compteur.
+- Simuler une allocation (entrée de menu) : calcul libre de l'allocation journalière, en
+  HEURES ou en CACHETS (1 cachet artiste = 12 h), pré-rempli avec les vrais chiffres.
 - Réglages : rappel d'actualisation (email du 28), mot de passe, bascule auto-entrepreneur, RGPD.
   NOUVEAU — La ligne TOTOR (réservée aux abonnés TOTOR Veille) : une vraie ligne
   téléphonique, le 01 62 29 07 62, où une assistante vocale répond aux questions sur l'app

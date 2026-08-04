@@ -4406,11 +4406,16 @@ def assistant_chat(
             "PLUSIEURS mecanismes retardent ou reduisent les premiers paiements : un differe d'indemnisation, un "
             "delai d'attente, une franchise conges payes, une franchise salaires. Explique a quoi ils servent. "
             "Quand quelqu'un demande son montant exact : explique-lui d'abord ces mecanismes pour qu'il comprenne, "
-            "DIS-LUI clairement que tu ne donnes pas le chiffre toi-meme parce qu'il depend de parametres fins "
-            "(salaire de reference precis, franchises, dates) et que tu refuses de lui donner un nombre approximatif "
-            "qui pourrait l'induire en erreur, PUIS oriente-le vers le simulateur OFFICIEL de France Travail "
-            "('estimez vos allocations' sur leur site) qui calcule a partir de ses vrais salaires et heures. "
-            "Ne sors jamais toi-meme un montant en euros, meme approximatif, meme si on insiste. "
+            "DIS-LUI que tu ne calcules pas le chiffre toi-meme dans la conversation, PUIS donne-lui le CHEMIN "
+            "PRECIS dans l'app, jamais un renvoi vague du genre 'regarde ton cockpit'. Les chemins exacts : "
+            "pour son allocation au prochain renouvellement -> sur le Cockpit, la carte 'Ton prochain "
+            "renouvellement', qui contient aussi le bloc 'Et si j'ajoute...' pour chiffrer des cachets "
+            "supplementaires (nombre de cachets + montant) ; pour son versement du mois en cours -> sur le "
+            "Cockpit, la carte 'Ton mois' ; pour un calcul libre avec d'autres chiffres -> l'entree de menu "
+            "'Simuler une allocation'. En dernier recours seulement, le simulateur OFFICIEL de France Travail "
+            "('estimez vos allocations' sur leur site). Ne sors jamais toi-meme un montant en euros dans la "
+            "conversation, meme approximatif, meme si on insiste : les cartes et simulateurs de l'app, EUX, "
+            "donnent le chiffre (moteur verifie au centime sur des versements reels). "
             "\n\n"
             "TA POSTURE — tu es la pour aider la personne a COMPRENDRE et a DECIDER, pas pour botter en touche, "
             "mais pas non plus pour balancer des chiffres que tu ne peux pas garantir. Distingue trois registres : "
@@ -4421,8 +4426,10 @@ def assistant_chat(
             "tu les DONNES, datees 'valeur 2026', France Travail fait foi. "
             "(3) LES CALCULS PERSONNELS — le montant exact de SON allocation, ses jours indemnises, ses "
             "franchises : la-dessus tu expliques la LOGIQUE clairement, tu peux situer (plutot haut, plutot bas), "
-            "mais tu ne CALCULES pas toi-meme le chiffre : tu orientes vers la carte 'Ton prochain "
-            "renouvellement' du Cockpit (moteur valide) et le simulateur officiel de France Travail. "
+            "mais tu ne CALCULES pas toi-meme le chiffre : tu donnes le CHEMIN EXACT (carte 'Ton prochain "
+            "renouvellement' du Cockpit et son bloc 'Et si j'ajoute...', carte 'Ton mois' pour le versement du "
+            "mois, entree de menu 'Simuler une allocation'), et en dernier recours le simulateur officiel de "
+            "France Travail. "
             "Cette prudence n'est pas de la faiblesse : c'est ce qui rend Totor fiable. Mieux vaut un 'voici la "
             "logique, le chiffre exact se verifie ici' qu'un nombre approximatif faux. "
             "Si une information precise te manque pour conclure (par ex. tu ne sais pas son salaire de reference), "
@@ -4686,6 +4693,26 @@ def _allocation_pour_profil(profile: Optional[Profile]) -> Optional[dict]:
         out["ecart_officiel"] = ecart
         out["coherent_officiel"] = abs(ecart) <= 0.50   # tolérance d'un demi-euro (arrondis)
     return out
+
+
+def _annexe_depuis_activites(rows: list) -> Optional[str]:
+    """Choisit l'annexe comme projeter_renouvellement : les cachets sont artiste
+    par nature (annexe 10), les heures votent par leur métier. Aucun vote possible
+    → None : on REDEMANDE, on ne devine jamais une formule de décalage."""
+    h_artiste = 0.0
+    h_technicien = 0.0
+    for r in rows:
+        if r.type_activite not in ae._TYPES_TRAVAIL:
+            continue
+        n = max(0.0, float(r.nombre or 0))
+        h = n if r.type_activite == "heures" else n * 12.0
+        if r.type_activite != "heures" or getattr(r, "metier", None) == "artiste":
+            h_artiste += h
+        elif getattr(r, "metier", None) == "technicien":
+            h_technicien += h
+    if h_artiste <= 0 and h_technicien <= 0:
+        return None
+    return "annexe10" if h_artiste >= h_technicien else "annexe8"
 
 
 def _activites_modele_vers_moteur(rows: list) -> list:
@@ -5516,24 +5543,40 @@ def estimation_mois_intermittent(user: User = Depends(get_current_user), db: Ses
     if not billing.is_premium(db, user):
         return {"verrou": True}
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
-    alloc = _allocation_pour_profil(profile)
-    if alloc is None:
-        return {"verrou": False, "ok": False, "raison": "allocation_manquante"}
-    if not alloc["affichable"]:
-        return {"verrou": False, "ok": False, "raison": alloc["raison_non_affichable"]}
-    res_aj = ae.calculer_aj(profile.annexe_allocation, profile.salaire_reference, profile.heures_reference)
     rows = (
         db.query(IntermittentActivity)
         .filter(IntermittentActivity.user_id == user.id)
         .all()
     )
+    alloc = _allocation_pour_profil(profile)
+    if alloc is not None:
+        if not alloc["affichable"]:
+            return {"verrou": False, "ok": False, "raison": alloc["raison_non_affichable"]}
+        res_aj = ae.calculer_aj(profile.annexe_allocation, profile.salaire_reference, profile.heures_reference)
+        annexe = profile.annexe_allocation
+        taux_source = "calcule"
+    else:
+        # Repli sur le TAUX OFFICIEL importé de l'attestation ARE (retour réel du
+        # 04/08/2026 : « je t'ai déjà donné mon attestation, pourquoi tu me
+        # redemandes des chiffres ? »). Le taux que France Travail PAIE vaut mieux
+        # qu'un recalcul redemandé (Loi X), et le backtest du même jour l'a prouvé :
+        # 22 j × taux officiel = versement réel, au centime. L'annexe (qui choisit
+        # la formule du décalage) vient du profil, sinon du même vote d'activités
+        # que la projection ; sans vote possible, on redemande, on ne devine pas.
+        if profile is None or profile.montant_journalier is None:
+            return {"verrou": False, "ok": False, "raison": "allocation_manquante"}
+        annexe = profile.annexe_allocation or _annexe_depuis_activites(rows)
+        if annexe is None:
+            return {"verrou": False, "ok": False, "raison": "annexe_manquante"}
+        res_aj = {"aj_brute": profile.montant_journalier, "aj_nette": profile.montant_journalier}
+        taux_source = "officiel"
     activites = [
         {"date": r.date, "type_activite": r.type_activite, "nombre": r.nombre, "salaire_brut": r.salaire_brut}
         for r in rows
     ]
     auj = date.today()
     out = ae.estimer_mois_civil(
-        profile.annexe_allocation, res_aj, activites, auj.year, auj.month,
+        annexe, res_aj, activites, auj.year, auj.month,
         franchise_cp_jours=profile.franchise_cp_jours,
         franchise_salaires_jours=profile.franchise_salaires_jours,
     )
@@ -5542,8 +5585,9 @@ def estimation_mois_intermittent(user: User = Depends(get_current_user), db: Ses
         "ok": True,
         "aj_brute": res_aj["aj_brute"],
         "aj_nette": res_aj["aj_nette"],
+        "taux_source": taux_source,
         "montant_officiel": profile.montant_journalier,
-        "coherent_officiel": alloc.get("coherent_officiel"),
+        "coherent_officiel": alloc.get("coherent_officiel") if alloc else None,
         "franchise_cp_jours": profile.franchise_cp_jours,
         "franchise_salaires_jours": profile.franchise_salaires_jours,
         "franchise_maj_le": profile.franchise_maj_le.isoformat() if profile.franchise_maj_le else None,
