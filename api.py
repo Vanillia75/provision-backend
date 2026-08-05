@@ -806,7 +806,7 @@ def change_password(
     if not user.password_hash:
         raise HTTPException(
             status_code=400,
-            detail="Ton compte utilise la connexion Google — il n'y a pas de mot de passe à changer.",
+            detail="Ton compte utilise la connexion Google : il n'y a pas de mot de passe à changer.",
         )
     # Le mot de passe ACTUEL est exigé (empêche un changement via une session volée).
     if not verify_password(req.current_password, user.password_hash):
@@ -1467,7 +1467,7 @@ def _verifier_et_incrementer_quota_ia(db: Session, user_id: str, type_appel: str
     deja = int(usage.count) if usage else 0
     if deja >= limite:
         if type_appel == "aem_scan":
-            msg = ("Tu as scanné beaucoup d'AEM aujourd'hui — je fais une petite pause pour rester raisonnable. "
+            msg = ("Tu as scanné beaucoup d'AEM aujourd'hui, je fais une petite pause pour rester raisonnable. "
                    "Réessaie demain, ou saisis cette activité à la main en attendant.")
         else:
             msg = ("On a beaucoup échangé aujourd'hui ! Je me repose un peu et je reviens en pleine forme demain. "
@@ -2063,7 +2063,7 @@ def _build_invoice_email_html(inv: ClientInvoice, req: "SendInvoiceRequest", fis
       {message_html}
       {bloc_emetteur_html}
       <p style="color:#6B7A8D; font-size:13px;">
-        Émise le {inv.date_emission.strftime("%d/%m/%Y")} — destinée à {e(inv.client_nom)}
+        Émise le {inv.date_emission.strftime("%d/%m/%Y")}, destinée à {e(inv.client_nom)}
       </p>
       {echeance_html}
       <table style="width:100%; border-collapse:collapse; margin-top:16px; font-size:14px;">
@@ -2235,7 +2235,7 @@ def _executer_relances_auto():
                     # Expéditeur = le nom de l'utilisateur (adresse technique inchangée,
                     # DMARC en place) ; Reply-To = son email, pour que le client réponde
                     # directement à la bonne personne.
-                    if send_invoice_email(inv.client_email, f"Relance — Facture {inv.numero}", html_mail,
+                    if send_invoice_email(inv.client_email, f"Relance : facture {inv.numero}", html_mail,
                                           from_name=signature, reply_to=email_reponse):
                         inv.relance_envoyee_le = datetime.utcnow()
                         db.commit()
@@ -2808,7 +2808,7 @@ def _build_quote_email_html(q: Quote, req: "SendInvoiceRequest", fiscal: dict = 
         {f"SIRET : {e(req.emitter_siret)}" if req.emitter_siret else ""}{vat_html}
       </div>
       <p style="color:#6B7A8D; font-size:13px;">
-        Émis le {q.date_emission.strftime("%d/%m/%Y")} — destiné à {e(q.client_nom)}
+        Émis le {q.date_emission.strftime("%d/%m/%Y")}, destiné à {e(q.client_nom)}
       </p>
       {validite_html}
       <table style="width:100%; border-collapse:collapse; margin-top:16px; font-size:14px;">
@@ -3966,7 +3966,7 @@ def signaler_bug(
     ok = send_email(SUPPORT_EMAIL, f"[BUG] {req.ecran or 'écran inconnu'}", corps,
                     reply_to=(req.email or None))
     if not ok:
-        raise HTTPException(status_code=502, detail="L'envoi n'a pas marché — réessaie, ou écris directement à bonjour@montotor.fr.")
+        raise HTTPException(status_code=502, detail="L'envoi n'a pas marché. Réessaie, ou écris directement à bonjour@montotor.fr.")
     return {"ok": True}
 
 
@@ -4377,7 +4377,7 @@ def assistant_chat(
             "\n\n"
             "LE CALCUL DE L'ALLOCATION (ARE) — tu EXPLIQUES la mecanique clairement pour que la personne "
             "COMPRENNE comment ca marche, mais tu ne donnes JAMAIS de chiffre final ni de coefficient precis : "
-            "le moteur de calcul ARE n'est pas encore valide cote Totor, et on refuse d'inventer un nombre. "
+            "le calcul exact vit dans les cartes et simulateurs de l'app (moteur valide, verifie au centime sur des versements reels France Travail), et toi, dans la conversation, tu refuses d'improviser un nombre hors moteur. "
             "Voici la logique que tu peux expliquer : "
             "L'allocation journaliere (AJ) combine trois composantes — une partie liee a ton salaire de reference, "
             "une partie liee a ton nombre d'heures travaillees, et une partie fixe. Il existe un plancher (l'AJ "
