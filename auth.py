@@ -39,6 +39,10 @@ def get_current_user(
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Token invalide ou expire")
+    # Un jeton « à usage précis » (réinitialisation, vérif email, palier MFA) ne
+    # doit JAMAIS servir de session : il ouvre une seule porte, pas l'app.
+    if payload.get("purpose"):
+        raise HTTPException(status_code=401, detail="Token invalide ou expire")
     user = db.query(User).filter(User.id == payload["sub"]).first()
     if not user:
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")

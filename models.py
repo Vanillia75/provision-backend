@@ -25,6 +25,13 @@ class User(Base):
     # l'inscrit ne vient pas d'une pub Google.
     gclid = Column(String, nullable=True)
     email_verified = Column(Boolean, nullable=False, default=False)
+    # ── Double vérification (MFA/TOTP), comptes email+mot de passe seulement.
+    #    Les connexions Google/Apple héritent du MFA de leur fournisseur.
+    #    mfa_secret : secret TOTP Base32 (posé au setup, actif seulement quand
+    #    mfa_enabled passe à vrai). mfa_recovery : JSON de codes de secours HACHÉS.
+    mfa_secret = Column(String, nullable=True)
+    mfa_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    mfa_recovery = Column(String, nullable=True)
     # Compte de test/fondateur : exclu des stats du dashboard honnête (marque
     # explicite, remplace l'ancienne devinette par motif d'email).
     is_test = Column(Boolean, nullable=False, default=False, server_default="false")

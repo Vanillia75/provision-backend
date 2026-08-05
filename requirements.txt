@@ -18,3 +18,4 @@ reportlab==4.2.5
 boto3
 stripe==15.3.0
 sentry-sdk[fastapi]==2.64.0
+segno==1.6.6

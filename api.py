@@ -46,6 +46,7 @@ from invoice_extractor import extract_invoice_data
 from aem_extractor import extract_aem_data, extract_are_data
 import r2_storage
 import sauvegarde
+import mfa
 import intermittent_engine as ie
 import allocation_engine as ae
 from regles_intermittent import valeur_de as regle_valeur
@@ -197,8 +198,30 @@ class AppleAuthRequest(BaseModel):
 
 
 class AuthResponse(BaseModel):
-    token: str
+    # token absent + mfa_requise vrai = le mot de passe est bon mais il manque
+    # le code de double vérification : le front enchaîne sur /auth/mfa/verify.
+    token: Optional[str] = None
     email: str
+    mfa_requise: bool = False
+    mfa_token: Optional[str] = None
+
+
+class MfaVerifyRequest(BaseModel):
+    mfa_token: str
+    code: str  # code TOTP à 6 chiffres OU code de secours XXXX-XXXX
+
+
+class MfaSetupRequest(BaseModel):
+    password: str
+
+
+class MfaActivateRequest(BaseModel):
+    code: str
+
+
+class MfaDisableRequest(BaseModel):
+    password: str
+    code: str
 
 
 class ProfileRequest(BaseModel):
@@ -633,8 +656,93 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         _login_enregistrer_echec(db, email, att)
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
 
+    if user.mfa_enabled and user.mfa_secret:
+        # Mot de passe correct MAIS double vérification active : pas encore de
+        # session. On remet un jeton-palier de 10 minutes, à échanger contre le
+        # vrai jeton sur /auth/mfa/verify. Le compteur anti-force-brute n'est
+        # PAS remis à zéro : le second facteur reste sous sa protection.
+        return AuthResponse(
+            email=user.email,
+            mfa_requise=True,
+            mfa_token=create_purpose_token(user.id, "mfa", expire_minutes=10),
+        )
+
     _login_reset(db, email)
     return AuthResponse(token=create_token(user.id), email=user.email)
+
+
+@app.post("/auth/mfa/verify", response_model=AuthResponse)
+def mfa_verify(req: MfaVerifyRequest, db: Session = Depends(get_db)):
+    """Second palier de la connexion : le code TOTP (ou un code de secours)."""
+    user_id = verify_purpose_token(req.mfa_token, "mfa")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not user.mfa_enabled or not user.mfa_secret:
+        raise HTTPException(status_code=401, detail="Session de vérification invalide, reconnecte-toi.")
+    email = (user.email or "").lower()
+    att = _login_verifier_blocage(db, email)
+
+    if mfa.verifier_code(user.mfa_secret, req.code):
+        _login_reset(db, email)
+        return AuthResponse(token=create_token(user.id), email=user.email)
+
+    restants = mfa.consommer_code_secours(req.code, json.loads(user.mfa_recovery or "[]"))
+    if restants is not None:
+        user.mfa_recovery = json.dumps(restants)
+        db.commit()
+        _login_reset(db, email)
+        return AuthResponse(token=create_token(user.id), email=user.email)
+
+    _login_enregistrer_echec(db, email, att)
+    raise HTTPException(status_code=401, detail="Code incorrect. Réessaie, ou utilise un code de secours.")
+
+
+@app.post("/auth/mfa/setup")
+def mfa_setup(req: MfaSetupRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Prépare l'activation : génère le secret et le QR. Rien n'est actif tant
+    que /auth/mfa/activate n'a pas validé un premier code."""
+    if not user.password_hash:
+        raise HTTPException(status_code=400, detail="Ton compte utilise la connexion Google ou Apple : la double vérification est déjà gérée par eux.")
+    if not verify_password(req.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Mot de passe incorrect")
+    if user.mfa_enabled:
+        raise HTTPException(status_code=400, detail="La double vérification est déjà active.")
+    secret = mfa.generer_secret()
+    user.mfa_secret = secret
+    db.commit()
+    uri = mfa.uri_provisionnement(secret, user.email)
+    return {"secret": secret, "uri": uri, "qr": mfa.qr_svg_data_uri(uri)}
+
+
+@app.post("/auth/mfa/activate")
+def mfa_activate(req: MfaActivateRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Valide le premier code et arme la double vérification. Retourne les codes
+    de secours, montrés UNE SEULE fois (seuls leurs hachés sont conservés)."""
+    if not user.mfa_secret or user.mfa_enabled:
+        raise HTTPException(status_code=400, detail="Commence par l'étape précédente.")
+    if not mfa.verifier_code(user.mfa_secret, req.code):
+        raise HTTPException(status_code=401, detail="Code incorrect. Vérifie l'heure de ton téléphone et réessaie.")
+    codes = mfa.generer_codes_secours()
+    user.mfa_recovery = json.dumps(mfa.hacher_codes_secours(codes))
+    user.mfa_enabled = True
+    db.commit()
+    return {"codes_secours": codes}
+
+
+@app.post("/auth/mfa/disable")
+def mfa_disable(req: MfaDisableRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Coupe la double vérification : mot de passe + un code (TOTP ou secours)."""
+    if not user.mfa_enabled:
+        raise HTTPException(status_code=400, detail="La double vérification n'est pas active.")
+    if not user.password_hash or not verify_password(req.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Mot de passe incorrect")
+    ok = mfa.verifier_code(user.mfa_secret or "", req.code)
+    if not ok and mfa.consommer_code_secours(req.code, json.loads(user.mfa_recovery or "[]")) is None:
+        raise HTTPException(status_code=401, detail="Code incorrect.")
+    user.mfa_enabled = False
+    user.mfa_secret = None
+    user.mfa_recovery = None
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/auth/google", response_model=AuthResponse)
@@ -859,6 +967,10 @@ def get_profile(user: User = Depends(get_current_user), db: Session = Depends(ge
         quotas["chat"] = {"used": etat_fils["utilises"], "limit": etat_fils["limite"]}
 
     return {
+        # Double vérification : l'interrupteur des réglages lit ces deux champs.
+        # mfa_disponible = compte avec mot de passe (Google/Apple ont déjà la leur).
+        "mfa_enabled": bool(user.mfa_enabled),
+        "mfa_disponible": bool(user.password_hash),
         "statut": profile.statut,
         "activite": profile.activite,
         "periodicite": profile.periodicite,
