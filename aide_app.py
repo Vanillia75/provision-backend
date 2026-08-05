@@ -64,6 +64,11 @@ MODE AUTO-ENTREPRENEUR (menu de gauche) :
   ce que fait TOTOR Veille (scans et conversations illimités, estimations, ligne téléphonique),
   l'activation d'un code promo ou cadeau, et la gestion de l'abonnement (le bouton ouvre le
   portail sécurisé Stripe : c'est là qu'on peut TOUT gérer, y compris annuler).
+- Réglages, carte « Double vérification (2FA) » : pour les comptes email + mot de passe,
+  active un code à 6 chiffres demandé à chaque connexion (application d'authentification
+  type Google Authenticator), avec 8 codes de secours montrés UNE seule fois à l'activation.
+  Les comptes Google/Apple n'ont rien à activer : leur fournisseur gère déjà la double
+  vérification. Désactivation possible au même endroit (mot de passe + un code).
 - Réglages : le rappel URSSAF par email (Activé/Désactivé), les relances automatiques
   d'impayés (délai ou désactivées), la réserve de sécurité, changer son mot de passe,
   exporter ses données ou supprimer son compte (RGPD), et basculer en mode intermittent.
@@ -105,7 +110,10 @@ MODE INTERMITTENT (menu de gauche) :
 - Simulateur « Que se passe-t-il si » : tester l'effet d'un futur contrat sur le compteur.
 - Simuler une allocation (entrée de menu) : calcul libre de l'allocation journalière, en
   HEURES ou en CACHETS (1 cachet artiste = 12 h), pré-rempli avec les vrais chiffres.
-- Réglages : rappel d'actualisation (email du 28), mot de passe, bascule auto-entrepreneur, RGPD.
+- Réglages : rappel d'actualisation (email du 28), mot de passe, double vérification (2FA,
+  carte « Double vérification » : code à 6 chiffres à la connexion + codes de secours, pour
+  les comptes email + mot de passe ; les comptes Google/Apple sont déjà couverts par leur
+  fournisseur), bascule auto-entrepreneur, RGPD.
   NOUVEAU — La ligne TOTOR (réservée aux abonnés TOTOR Veille) : une vraie ligne
   téléphonique, le 01 62 29 07 62, où une assistante vocale répond aux questions sur l'app
   et les démarches, à toute heure. Le numéro et le code du jour (six chiffres, change chaque
