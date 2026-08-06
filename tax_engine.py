@@ -57,7 +57,31 @@ AUTO_ENTREPRENEUR_RATES = {
     },
 }
 
-ACRE_REDUCTION = 0.5  # 50% sur les cotisations sociales la 1ere annee
+# ── ACRE : l'exoneration depend de la DATE DE CREATION, pas de la date du jour ──
+#  Decret du 6 fevrier 2026 : l'exoneration de cotisations passe de 50 % a 25 %
+#  pour les micro-entreprises creees ou reprises A PARTIR DU 1er juillet 2026.
+#  Celles creees avant gardent 50 % jusqu'au bout de leurs 12 mois.
+#  Source : service-public.fr, « Acre : du changement pour le dispositif d'aide »
+#  (publie le 11/02/2026), verifie a la source le 06/08/2026.
+#
+#  ⚠️ Avant cette date, le moteur appliquait 50 % a tout le monde : les creations
+#  de juillet 2026 et apres etaient donc SOUS-PROVISIONNEES (moitie au lieu des
+#  trois quarts), ce qui est exactement la mauvaise surprise que TOTOR evite.
+ACRE_BASCULE = date(2026, 7, 1)
+ACRE_EXONERATION_AVANT = 0.50
+ACRE_EXONERATION_APRES = 0.25
+
+
+def acre_part_a_payer(date_creation: Optional[date]) -> float:
+    """Part des cotisations qui reste DUE quand l'ACRE s'applique (0,50 ou 0,75).
+
+    Date de creation inconnue : on garde 0,50, le cas majoritaire des beneficiaires
+    actuels (l'ACRE dure 12 mois, donc la plupart ont cree avant juillet 2026).
+    ⚠️ A REVOIR courant 2027, quand les creations d'apres la bascule domineront.
+    """
+    if date_creation and date_creation >= ACRE_BASCULE:
+        return 1.0 - ACRE_EXONERATION_APRES  # 0,75
+    return 1.0 - ACRE_EXONERATION_AVANT      # 0,50
 STATUTS_DISPONIBLES = ["auto_entrepreneur"]
 STATUTS_A_VENIR = ["sarl", "sas"]
 
@@ -176,6 +200,7 @@ def estimate_auto_entrepreneur(
     versement_liberatoire: bool,
     incomes: list,  # liste de tuples (date, montant)
     today: Optional[date] = None,
+    date_creation_activite: Optional[date] = None,  # decide du taux d'ACRE
 ) -> TaxEstimate:
     if activite not in AUTO_ENTREPRENEUR_RATES:
         raise ValueError(f"Activite inconnue : {activite}")
@@ -198,7 +223,9 @@ def estimate_auto_entrepreneur(
     ca_courante = ca_sur(periode_courante)
     ca_precedente = ca_sur(periode_precedente)
 
-    taux_cotisations = rates["cotisations"] * (ACRE_REDUCTION if acre else 1.0)
+    taux_cotisations = rates["cotisations"] * (
+        acre_part_a_payer(date_creation_activite) if acre else 1.0
+    )
     taux_cfp = rates["cfp"]
     taux_liberatoire = rates["liberatoire"] if versement_liberatoire else 0.0
     taux_global = taux_cotisations + taux_cfp + taux_liberatoire

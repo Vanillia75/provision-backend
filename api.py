@@ -3839,6 +3839,9 @@ def get_estimate(user: User = Depends(get_current_user), db: Session = Depends(g
             versement_liberatoire=profile.versement_liberatoire,
             incomes=incomes,
             today=date.today(),
+            # Decide du taux d'ACRE : 50 % d'exoneration avant le 01/07/2026,
+            # 25 % pour les micro-entreprises creees a partir de cette date.
+            date_creation_activite=profile.date_creation_activite,
         )
     except Exception as e:
         # Filet : on ne laisse jamais une erreur de calcul casser le chargement du dashboard.
@@ -3906,6 +3909,7 @@ def get_paie(user: User = Depends(get_current_user), db: Session = Depends(get_d
             periodicite=profile.periodicite or "mensuelle",
             acre=profile.acre, versement_liberatoire=profile.versement_liberatoire,
             incomes=incomes, today=date.today(),
+            date_creation_activite=profile.date_creation_activite,
         )
     except Exception:
         return {"disponible": False}
@@ -4016,6 +4020,7 @@ def get_projection(user: User = Depends(get_current_user), db: Session = Depends
             factures=factures,
             devis=devis,
             today=date.today(),
+            date_creation_activite=profile.date_creation_activite,
         )
     except Exception as e:
         # Filet : une erreur de calcul ne doit jamais casser le dashboard.

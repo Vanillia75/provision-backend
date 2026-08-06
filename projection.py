@@ -18,7 +18,7 @@ from datetime import date
 from dataclasses import dataclass, field
 from typing import Optional, List
 
-from tax_engine import AUTO_ENTREPRENEUR_RATES, ACRE_REDUCTION, _last_day_of_month, _add_months
+from tax_engine import AUTO_ENTREPRENEUR_RATES, acre_part_a_payer, _last_day_of_month, _add_months
 
 
 MOIS_FR = [
@@ -38,10 +38,15 @@ def _nb_mois_fenetre(today: date, horizon: date) -> int:
     return (horizon.year - today.year) * 12 + (horizon.month - today.month) + 1
 
 
-def _taux_global(activite: str, acre: bool, versement_liberatoire: bool) -> float:
-    """Taux de charges appliqué au CA encaissé (miroir du calcul du dashboard)."""
+def _taux_global(activite: str, acre: bool, versement_liberatoire: bool,
+                 date_creation_activite=None) -> float:
+    """Taux de charges appliqué au CA encaissé (miroir du calcul du dashboard).
+
+    L'ACRE dépend de la date de création de la micro-entreprise : 50 % d'exonération
+    avant le 01/07/2026, 25 % à partir de cette date (cf. tax_engine.acre_part_a_payer).
+    """
     rates = AUTO_ENTREPRENEUR_RATES.get(activite) or AUTO_ENTREPRENEUR_RATES["services"]
-    taux = rates["cotisations"] * (ACRE_REDUCTION if acre else 1.0)
+    taux = rates["cotisations"] * (acre_part_a_payer(date_creation_activite) if acre else 1.0)
     taux += rates["cfp"]
     if versement_liberatoire:
         taux += rates["liberatoire"]
@@ -113,7 +118,8 @@ def _message_hector(plancher, optimiste, horizon, impayees, devis_in, depenses_m
 
 
 def projeter_tresorerie(*, solde, depenses_mensuelles, activite, acre,
-                        versement_liberatoire, factures, devis, today=None) -> Projection:
+                        versement_liberatoire, factures, devis, today=None,
+                        date_creation_activite=None) -> Projection:
     """
     factures : liste de dicts {montant, statut, date_echeance, date_paiement, numero?}
     devis    : liste de dicts {montant, statut, date_validite}
@@ -124,7 +130,7 @@ def projeter_tresorerie(*, solde, depenses_mensuelles, activite, acre,
     today = today or date.today()
     horizon = _fin_mois_prochain(today)
     nb_mois = _nb_mois_fenetre(today, horizon)
-    taux = _taux_global(activite, acre, versement_liberatoire)
+    taux = _taux_global(activite, acre, versement_liberatoire, date_creation_activite)
 
     # Entrées certaines : factures émises (envoyée/impayée), non encore payées,
     # dont l'échéance tombe avant l'horizon.

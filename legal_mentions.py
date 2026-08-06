@@ -11,7 +11,25 @@ fait AUCUN calcul de TVA et ne déplace aucune logique fiscale existante.
 
 import re
 from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
+
+
+def _arrondi_centime(x) -> float:
+    """Arrondi COMMERCIAL au centime : les demis montent (13,125 donne 13,13).
+
+    ⚠️ Ne jamais remplacer par round(x, 2) : Python arrondit les demis vers le
+    chiffre PAIR (13,125 donnerait 13,12), ce qui faisait diverger d'un centime
+    l'apercu affiche dans l'app et la facture PDF envoyee au client. Constate et
+    corrige le 06/08/2026 : sur 63 combinaisons courantes quantite x prix, 16
+    divergeaient. Le site (legalMentions.js) fait l'arrondi commercial, c'est lui
+    qui a raison, c'est la convention francaise.
+    """
+    try:
+        return float(Decimal(str(x)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    except Exception:
+        # Entree illisible : on ne fabrique jamais un NaN sur une facture.
+        return 0.0
 
 # Modes de TVA côté facturation.
 # - fiscal_settings (réglage global de l'émetteur) : FRANCHISE ou ASSUJETTI uniquement.
@@ -127,16 +145,16 @@ def compute_invoice_totals(montant_ht, fiscal, invoice_date=None) -> dict:
     - franchise : tva=0, ttc=ht, mention 293 B, pas de n° TVA.
     - assujetti : tva = ht × rate/100, ttc = ht + tva, n° TVA émetteur, PAS de mention 293 B.
     """
-    ht = round(float(montant_ht or 0), 2)
+    ht = _arrondi_centime(float(montant_ht or 0))
     fiscal = fiscal or {}
     mode = fiscal.get("vat_mode")
     if mode == ASSUJETTI:
         rate = fiscal.get("vat_rate")
         rate = 20.0 if rate is None else float(rate)
-        tva = round(ht * rate / 100.0, 2)
+        tva = _arrondi_centime(ht * rate / 100.0)
         return {
             "mode": ASSUJETTI, "ht": ht, "rate": rate,
-            "tva": tva, "ttc": round(ht + tva, 2),
+            "tva": tva, "ttc": _arrondi_centime(ht + tva),
             "vat_number": fiscal.get("vat_number"),
             "mention": None,
         }
