@@ -54,6 +54,26 @@ MODE AUTO-ENTREPRENEUR (menu de gauche) :
 - Déclarer → Préparer ma déclaration : le chiffre exact à recopier sur autoentrepreneur.urssaf.fr
   (la période écoulée, ex. le CA de juin se déclare en juillet), boutons copier, lien URSSAF,
   « marquer comme faite ». Aussi : Échéances (ce qui est dû et quand) et le Simulateur.
+- Trouver des missions (entrée de menu, icône bâtiment, mode auto-entrepreneur uniquement) :
+  la rubrique des marchés publics. Deux parties. « Ce qui est ouvert en ce moment » : les
+  consultations publiques auxquelles on peut répondre en ce moment (mairies, musées, hôpitaux,
+  offices de tourisme, régions), avec la date limite et un lien vers l'avis officiel sur le
+  BOAMP. « Qui achète ton métier près de chez toi » : des commandes DÉJÀ signées, ce ne sont
+  PAS des offres ; elles servent à repérer quel acheteur, près de chez soi, a un budget pour
+  ce métier, afin d'aller le démarcher directement.
+  ⚠️ POINT DE CONFUSION CONNU : les montants affichés dans cette deuxième partie (parfois
+  plusieurs centaines de milliers d'euros) sont ceux du marché signé avec le prestataire
+  retenu, souvent sur plusieurs années et plusieurs missions. Ce n'est JAMAIS ce que
+  l'utilisateur toucherait. Le dire tout de suite et sans détour si la question vient.
+  On filtre par métier (Photo et vidéo, Graphisme, Communication, Formation, Web et
+  développement, Événementiel et spectacle) et par département (liste déroulante ; par défaut
+  le département déduit de l'adresse du profil). « Voir la suite » affiche les résultats
+  suivants. Les données viennent de sources publiques de l'État (BOAMP et données essentielles
+  de la commande publique) ; il paraît quelques avis par mois et par métier, donc c'est normal
+  que la liste bouge lentement : mieux vaut repasser de temps en temps que guetter.
+  Depuis avril 2026, sous 60 000 €, un acheteur public choisit son prestataire directement,
+  sans publier d'annonce (décret du 29/12/2025) : c'est exactement pour ces missions là que la
+  deuxième partie existe, elle sert à savoir à qui aller se présenter.
 - Conseils : les fiches pratiques. (L'ancienne page « Ce que j'ai appris » a été RETIRÉE en
   août 2026 : les progrès de Totor se lisent désormais sur la page « Les nouveautés »,
   accessible depuis le pied des Réglages ou montotor.fr/nouveautes. Si quelqu'un cherche

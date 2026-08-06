@@ -47,6 +47,7 @@ from aem_extractor import extract_aem_data, extract_are_data
 import r2_storage
 import sauvegarde
 import mfa
+import marches_publics
 import intermittent_engine as ie
 import allocation_engine as ae
 from regles_intermittent import valeur_de as regle_valeur
@@ -3960,6 +3961,61 @@ def get_paie(user: User = Depends(get_current_user), db: Session = Depends(get_d
         "versement_liberatoire": bool(profile.versement_liberatoire),
         "reserve_visee": profile.reserve_securite,
         **paie,
+    }
+
+
+@app.get("/marches-publics")
+def get_marches_publics(
+    departement: Optional[str] = None,
+    univers: Optional[str] = None,
+    depuis_le: int = 0,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Marchés publics : les opportunités ouvertes et les acheteurs à démarcher.
+
+    Deux services distincts, cf. marches_publics.py :
+      - opportunites : les avis de marché en cours (rares, quelques-uns par mois
+        et par département : c'est une VEILLE, jamais un flux d'emploi) ;
+      - acheteurs : les marchés DÉJÀ attribués près de chez soi, avec montants,
+        pour aller démarcher directement (les petits marchés, sous 60 000 € HT,
+        ne sont jamais publiés : c'est le seul moyen de les atteindre).
+
+    Données publiques sous Licence Ouverte 2.0. Consultation GRATUITE : c'est du
+    « je te montre » au sens de la doctrine, comme les offres spectacle des
+    intermittents. L'alerte automatique viendra plus tard, côté TOTOR Veille.
+    """
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=400, detail="Profil non configure")
+
+    # À défaut de département demandé, on le déduit de l'adresse du profil.
+    dep = (departement or "").strip() or marches_publics._departement_du_code_postal(profile.adresse or "")
+    cles = [u.strip() for u in (univers or "").split(",") if u.strip()] or None
+
+    try:
+        ouvertes = marches_publics.opportunites(
+            departement=dep, univers_choisis=cles, depuis_le=max(0, depuis_le))
+    except Exception:
+        # Une source publique indisponible ne doit jamais casser le cockpit.
+        ouvertes = {"disponible": False, "opportunites": []}
+
+    acheteurs = {"disponible": False, "acheteurs": []}
+    if dep:
+        try:
+            acheteurs = marches_publics.acheteurs_proches(dep, univers_choisis=cles)
+        except Exception:
+            pass
+
+    return {
+        "departement": dep,
+        "univers_disponibles": marches_publics.univers_disponibles(),
+        "opportunites": ouvertes.get("opportunites", []),
+        "total": ouvertes.get("total", 0),
+        "reste": ouvertes.get("reste", 0),
+        "depuis_le": max(0, depuis_le),
+        "acheteurs": acheteurs.get("acheteurs", []),
+        "attribution": marches_publics.ATTRIBUTION,
     }
 
 
