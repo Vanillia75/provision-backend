@@ -4019,6 +4019,65 @@ def get_marches_publics(
     }
 
 
+#  Vitrine publique (07/08/2026) — les mêmes marchés, sans compte.
+#
+#  Même raisonnement que les offres spectacle des intermittents : ce sont des
+#  données publiques de l'État, les cacher derrière une inscription n'aurait
+#  aucun sens et nous priverait d'une porte d'entrée. La landing
+#  auto-entrepreneur affiche donc de VRAIS marchés, pas une capture d'écran.
+#
+#  Trois garde-fous, repris de l'endpoint public des offres :
+#    · limite de débit par IP (une vitrine ne doit pas pouvoir servir de proxy) ;
+#    · cache partagé de 20 minutes (le BOAMP ne publie pas plus vite) ;
+#    · cache de secours : si la source tombe, on sert la version périmée
+#      plutôt qu'une erreur. Ce sont de vrais marchés, juste moins frais.
+_MARCHES_CACHE = {}          # (departement, univers) -> (timestamp, charge utile)
+_MARCHES_TTL = 20 * 60
+
+
+@app.get("/marches-publics/public")
+def get_marches_publics_public(
+    request: Request,
+    departement: Optional[str] = None,
+    univers: Optional[str] = None,
+):
+    import time as _time
+
+    dep = (departement or "").strip()
+    cles = [u.strip() for u in (univers or "").split(",") if u.strip()] or None
+    key = (dep, ",".join(sorted(cles)) if cles else "")
+
+    now = _time.time()
+    _offres_ratelimit(request, now)
+    cached = _MARCHES_CACHE.get(key)
+    if cached and now - cached[0] < _MARCHES_TTL:
+        return cached[1]
+
+    try:
+        ouvertes = marches_publics.opportunites(
+            departement=dep or None, univers_choisis=cles, limite=6)
+    except Exception:
+        if cached:
+            return cached[1]
+        return {"disponible": False, "opportunites": [],
+                "univers_disponibles": marches_publics.univers_disponibles(),
+                "attribution": marches_publics.ATTRIBUTION}
+
+    charge = {
+        "disponible": True,
+        "departement": dep,
+        "univers_disponibles": marches_publics.univers_disponibles(),
+        "opportunites": ouvertes.get("opportunites", []),
+        "total": ouvertes.get("total", 0),
+        "attribution": marches_publics.ATTRIBUTION,
+    }
+    _MARCHES_CACHE[key] = (now, charge)
+    if len(_MARCHES_CACHE) > 400:          # ménage : la vitrine n'a pas besoin de plus
+        for vieille in sorted(_MARCHES_CACHE, key=lambda k: _MARCHES_CACHE[k][0])[:200]:
+            _MARCHES_CACHE.pop(vieille, None)
+    return charge
+
+
 @app.get("/projection")
 def get_projection(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Projection de trésorerie auto-entrepreneur : « vais-je m'en sortir le mois prochain ? »
@@ -4659,6 +4718,18 @@ def assistant_chat(
         "JAMAIS de notions d'intermittent du spectacle (AEM ou attestation employeur, 507 heures, "
         "cachets, actualisation, allocation, ARE, France Travail, date anniversaire) : ce n'est pas "
         "son monde, les melanger serait une faute qui trahit l'app. "
+        "LA FACTURE ELECTRONIQUE (sujet anxiogene, beaucoup de gens s'affolent) : deux obligations "
+        "differentes partent de la MEME date, d'ou la confusion. Le 1er septembre 2026, il faut "
+        "seulement etre en mesure de RECEVOIR des factures electroniques (toutes les entreprises, "
+        "micro comprises) : recevoir, pas emettre. Le 1er septembre 2027 seulement, les micro, "
+        "petites et moyennes entreprises devront EMETTRE leurs factures au format electronique. "
+        "Donc : non, il n'y a rien a changer dans son quotidien en septembre 2026. "
+        "ATTENTION, ne dis JAMAIS que la franchise en base de TVA dispense de la reforme : elle ne "
+        "dispense pas, un micro-entrepreneur reste assujetti a la TVA et donc concerne. Dis-le "
+        "franchement, une demi-verite serait pire. Rassure ensuite avec ce qui est vrai : elle n'a "
+        "rien a faire, tu t'occupes de la mise en conformite de ses factures et ce sera pret dans "
+        "l'app avant l'echeance, elle cliquera sur le meme bouton qu'aujourd'hui. Ne promets JAMAIS "
+        "une date de livraison precise, et ne nomme aucun partenaire ni aucune plateforme. "
         "CAPACITE SPECIALE — preparer un devis OU une facture : si la personne te demande de "
         "preparer/faire un devis ou une facture (ex: 'fais-moi un devis pour Dupont, 800 EUR de design', "
         "ou 'une facture pour Martin de 354 EUR de consulting'), tu reponds en une phrase chaleureuse, "
