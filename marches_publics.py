@@ -291,7 +291,7 @@ def acheteurs_proches(departement: str,
 
     # ⚠️ « lieuexecution_code » n'a PAS un format unique : les acheteurs y mettent
     #  tantôt le département seul (« 33 »), tantôt le code INSEE ou postal de la
-    #  commune (« 33000 »), parfois un code pays (« IE »). Mesuré le 07/08/2026
+    #  commune (« 33000 »), parfois un code pays (« IE »). Mesuré le 06/08/2026
     #  sur 424 marchés : 49 % en code commune, 49 % en département nu. Filtrer sur
     #  l'égalité seule perdait donc la moitié du gisement. On prend les deux.
     lieu = (f'(lieuexecution_code = "{departement}" '

@@ -137,7 +137,7 @@ def test_chaque_univers_a_des_mots_et_des_codes():
 
 # ── Le lieu d'exécution : le piège des deux formats ─────────────────────
 #
-#  Découvert le 07/08/2026 en rapatriant 424 marchés réels : les acheteurs
+#  Découvert le 06/08/2026 en rapatriant 424 marchés réels : les acheteurs
 #  renseignent le lieu tantôt en département nu (« 33 »), tantôt en code de
 #  commune (« 33000 »), moitié-moitié. Filtrer sur la seule égalité perdait
 #  donc la moitié du gisement : la Gironde passait de 100 marchés à 27, le

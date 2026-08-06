@@ -54,7 +54,7 @@ MODE AUTO-ENTREPRENEUR (menu de gauche) :
 - Déclarer → Préparer ma déclaration : le chiffre exact à recopier sur autoentrepreneur.urssaf.fr
   (la période écoulée, ex. le CA de juin se déclare en juillet), boutons copier, lien URSSAF,
   « marquer comme faite ». Aussi : Échéances (ce qui est dû et quand) et le Simulateur.
-- LA FACTURE ÉLECTRONIQUE (question fréquente et anxiogène, cadrée le 07/08/2026) :
+- LA FACTURE ÉLECTRONIQUE (question fréquente et anxiogène, cadrée le 06/08/2026) :
   beaucoup d'auto-entrepreneurs croient qu'ils doivent tout changer au 1er septembre 2026.
   C'est faux, et la confusion vient de ce que DEUX obligations différentes partent de cette
   même date. Il faut les séparer, calmement :

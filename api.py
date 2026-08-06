@@ -4019,7 +4019,7 @@ def get_marches_publics(
     }
 
 
-#  Vitrine publique (07/08/2026) — les mêmes marchés, sans compte.
+#  Vitrine publique (06/08/2026) — les mêmes marchés, sans compte.
 #
 #  Même raisonnement que les offres spectacle des intermittents : ce sont des
 #  données publiques de l'État, les cacher derrière une inscription n'aurait
