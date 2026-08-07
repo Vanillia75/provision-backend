@@ -289,14 +289,18 @@ REGLES = {
         "libelle": "Plancher net : la CSG/CRDS ne peut pas faire descendre l'allocation sous ce montant",
         "source": "Déduit puis VÉRIFIÉ au centime le 2026-07-27 sur le simulateur officiel France "
                   "Travail : trois allocations brutes différentes (63,27 / 64,64 / 65,99 €) donnent "
-                  "toutes un net de 62,00 € exactement. Correspond au SMIC brut mensuel / 30.",
+                  "toutes un net de 62,00 € exactement. SMIC brut mensuel ÷ 30, arrondi à l'euro "
+                  "(1 867,02 ÷ 30 = 62,23 → 62 depuis le 01/06/2026).",
         "version": "2026.07",
-        "dateAppli": "2026",
+        "dateAppli": "2026-06-01",
         "verifie": True,
         "commentaire": "Règle : on calcule la CSG théorique, puis on la RABOTE de façon que le net ne "
                        "tombe jamais sous 62,00 €. Si l'allocation brute est déjà sous ce plancher, la "
                        "retenue est de ZÉRO (vérifié : brute 60,55 € et 61,91 € donnent CSG 0,00 €). "
-                       "C'est ce qui explique le cas réel n°2 (plancher plus bas cette année-là). "
+                       "⚠️ CETTE VALEUR EST CELLE D'AUJOURD'HUI SEULEMENT. Le plancher SUIT LE SMIC : "
+                       "il valait 61,00 € du 01/01/2026 au 31/05/2026 (observé sur deux relevés réels), "
+                       "et est passé à 62,00 € avec la revalorisation du SMIC du 01/06/2026. Pour "
+                       "calculer un mois PASSÉ, ne pas lire cette valeur : appeler plancher_net_csg(date). "
                        "ÉVOLUE AVEC LE SMIC : à revérifier au rituel de janvier, sur le simulateur.",
     },
     "pmssMensuel": {
@@ -336,6 +340,78 @@ def valeur_de(cle: str):
     """Renvoie juste la valeur d'une règle (raccourci pour les calculs)."""
     r = REGLES.get(cle)
     return r["valeur"] if r else None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  LE PLANCHER CSG DANS LE TEMPS (ajouté le 2026-08-06)
+#
+#  Découvert sur un relevé France Travail réel : ce plancher n'est PAS une
+#  constante, il suit le SMIC. Un même dossier montrait 61,00 € net par jour en
+#  mai 2026 puis 61,88 € en juin (plus aucune CSG prélevée ce mois-là), sans que
+#  rien n'ait changé dans ses droits. La seule chose qui avait bougé, c'est le
+#  SMIC, revalorisé le 1er juin 2026.
+#
+#  La règle qui recoupe toutes les observations : plancher = SMIC brut mensuel
+#  divisé par 30, arrondi à l'euro.
+#
+#  ⚠️ Avant cette correction, la valeur 62,00 était écrite en dur sans date :
+#  toute estimation d'un mois antérieur à juin 2026 utilisait donc 62 au lieu de
+#  61. C'est ce qui a fait douter une testeuse de l'ensemble de nos chiffres.
+#
+#  ⚠️ À REBRANCHER À CHAQUE REVALORISATION DU SMIC (rituel de janvier).
+#  Pour ajouter une entrée : SMIC brut mensuel ÷ 30, arrondi à l'euro, puis la
+#  confronter au simulateur officiel avant de la marquer vérifiée.
+# ─────────────────────────────────────────────────────────────────────────────
+PLANCHER_NET_CSG_HISTORIQUE = [
+    {
+        "depuis": "2026-06-01",
+        "valeur": 62.00,
+        "smic_mensuel": 1867.02,
+        "verifie": True,
+        "source": "SMIC 12,31 €/h au 01/06/2026 → 1 867,02 ÷ 30 = 62,23 → 62. "
+                  "VÉRIFIÉ au centime le 2026-07-27 sur le simulateur officiel France "
+                  "Travail : trois allocations brutes (63,27 / 64,64 / 65,99 €) donnent "
+                  "toutes 62,00 € net. Corroboré par un relevé réel de juin 2026 où la "
+                  "CSG n'est plus prélevée du tout (net 61,88 €, déjà sous le plancher).",
+    },
+    {
+        "depuis": "2026-01-01",
+        "valeur": 61.00,
+        "smic_mensuel": 1823.03,
+        "verifie": True,
+        "source": "SMIC 12,02 €/h au 01/01/2026 → 1 823,03 ÷ 30 = 60,77 → 61. "
+                  "OBSERVÉ sur deux relevés France Travail réels du même dossier "
+                  "(avril et mai 2026) : allocation brute 63,69 €, net exactement "
+                  "61,00 €/jour les deux fois.",
+    },
+]
+
+
+def plancher_net_csg(le=None) -> float:
+    """Le plancher applicable à une date donnée (par défaut : aujourd'hui).
+
+    `le` accepte une date, un datetime, ou une chaîne « AAAA-MM-JJ ». Pour une
+    date antérieure à la plus ancienne entrée connue, on renvoie cette plus
+    ancienne valeur : mieux vaut le dernier plancher sourcé qu'un chiffre
+    inventé, et TOTOR n'estime de toute façon pas de mois d'avant 2026.
+    """
+    from datetime import date as _date, datetime as _datetime
+
+    if le is None:
+        jour = _date.today().isoformat()
+    elif isinstance(le, str):
+        jour = le[:10]
+    elif isinstance(le, _datetime):
+        jour = le.date().isoformat()
+    elif isinstance(le, _date):
+        jour = le.isoformat()
+    else:
+        jour = str(le)[:10]
+
+    for entree in PLANCHER_NET_CSG_HISTORIQUE:      # du plus récent au plus ancien
+        if jour >= entree["depuis"]:
+            return entree["valeur"]
+    return PLANCHER_NET_CSG_HISTORIQUE[-1]["valeur"]
 
 
 def tracer(cle: str) -> str:

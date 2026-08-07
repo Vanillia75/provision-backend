@@ -18,13 +18,17 @@ allocation_engine.py — Moteur de l'allocation journalière (ARE annexes 8 et 1
 """
 import math
 
-from regles_intermittent import valeur_de
+from regles_intermittent import valeur_de, plancher_net_csg
 
 AJ_MIN = valeur_de("ajMinimale")                       # 31,96 €
 PLAFOND_AJ = valeur_de("allocationPlafondAJ")          # 174,80 €
 _RETENUE = valeur_de("allocationRetenueRetraiteComp")  # {taux, seuilExoneration, seuilCsg}
 _CSG = valeur_de("allocationCsgCrds")                  # {csgPlein, csgReduit, crds, assiette}
-_PLANCHER_NET_CSG = valeur_de("allocationPlancherNetCsg")  # 62,00 € : la CSG ne peut pas passer dessous
+# ⚠️ Le plancher CSG N'EST PAS UNE CONSTANTE : il suit le SMIC (61,00 € jusqu'au
+#  31/05/2026, 62,00 € depuis). On ne le fige donc plus au chargement du module,
+#  on le demande pour la DATE du calcul, via plancher_net_csg(le=...).
+#  Corrigé le 2026-08-06 après un relevé réel où mai donnait 61,00 € net et juin
+#  61,88 €, sans qu'aucun droit n'ait changé.
 _PMSS = valeur_de("pmssMensuel")                       # {montant, annee, coefPlafondCumul}
 
 _PARAMS = {
@@ -88,12 +92,16 @@ def branche_affichable(annexe: str, resultat: dict) -> tuple:
 def _tronque(x: float) -> float:
     """Troncature au centime (pas d'arrondi) — schéma des parties A, B, C."""
     return math.floor(x * 100 + 1e-9) / 100
-def calculer_aj(annexe: str, sr: float, nht: float) -> dict:
+def calculer_aj(annexe: str, sr: float, nht: float, le=None) -> dict:
     """
     annexe : "annexe8" (techniciens) ou "annexe10" (artistes).
     sr     : salaire de référence (salaires bruts annexes 8/10 de la période).
     nht    : heures travaillées retenues (SANS les heures assimilées formation/
              enseignement : elles comptent pour les 507h mais pas pour le montant).
+    le     : date à laquelle le calcul s'applique (« AAAA-MM-JJ » ou date).
+             Elle ne sert QU'AU plancher CSG, qui suit le SMIC. Par défaut :
+             aujourd'hui, donc tous les appels existants gardent le même
+             résultat qu'avant.
     """
     p = _params(annexe)
     sr = max(0.0, float(sr or 0))
@@ -136,10 +144,11 @@ def calculer_aj(annexe: str, sr: float, nht: float) -> dict:
 
     apres_retraite = round(brute - retenue_retraite, 2)
 
+    plancher = plancher_net_csg(le)
     if apres_retraite > _RETENUE["seuilCsg"]:
         taux_csg_crds = _CSG["csgPlein"] + _CSG["crds"]
         theorique = round(apres_retraite * _CSG["assiette"] * taux_csg_crds, 2)
-        marge_avant_plancher = round(apres_retraite - _PLANCHER_NET_CSG, 2)
+        marge_avant_plancher = round(apres_retraite - plancher, 2)
         retenue_csg_crds = max(0.0, min(theorique, marge_avant_plancher))
 
     nette = round(apres_retraite - retenue_csg_crds, 2)
@@ -156,6 +165,7 @@ def calculer_aj(annexe: str, sr: float, nht: float) -> dict:
         "sjm": sjm,
         "retenue_retraite": retenue_retraite,
         "retenue_csg_crds": retenue_csg_crds,
+        "plancher_net_csg": plancher,
         "aj_nette": nette,
         "nette_estimee": nette_estimee,
         "avertissement": AVERTISSEMENT,
