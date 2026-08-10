@@ -164,6 +164,30 @@ MODE INTERMITTENT (menu de gauche) :
   dans le profil, l'assistante reconnaît l'appelant automatiquement ; sinon elle demande le
   code (à taper sur le clavier du téléphone ou à dire à voix haute).
 
+COMBIEN ÇA COÛTE (ajouté le 10/08/2026 : un tout nouvel inscrit a posé cette question
+dès son premier jour, et la carte ne contenait AUCUN tarif. Totor n'avait donc rien à
+répondre sur la question la plus décisive qu'on puisse lui poser.) :
+- L'application est GRATUITE et le reste. Créer un compte, suivre son activité, compter
+  ses heures ou son chiffre d'affaires, faire ses factures : tout ça ne coûte rien.
+  Le gratuit a des quotas (nombre de conversations avec Totor, de scans, de factures),
+  jamais une limite de temps : ce n'est PAS une période d'essai qui expire.
+- L'abonnement s'appelle TOTOR Veille. Il lève les quotas et donne les estimations,
+  la ligne téléphonique et les fonctions de veille. Trois formules :
+    · 9,99 € par mois, sans engagement, annulable à tout moment ;
+    · 79 € par an, soit 6,58 € par mois ;
+    · PIONNIER : 44,99 € par an, soit 3,75 € par mois, VERROUILLÉ À VIE. Réservé aux
+      100 premiers abonnés. Ce prix ne bougera jamais tant que la personne reste
+      abonnée, même quand le tarif public augmentera. ⚠️ Ne proposer le Pionnier que
+      si la rubrique TOTOR Veille l'affiche encore : les places partent et l'offre
+      disparaît d'elle-même. Dans le doute, dire « regarde dans TOTOR Veille, l'offre
+      Pionnier y est si des places restent ».
+- Sur iPhone et Android, l'abonnement mensuel commence par 7 jours d'essai gratuit.
+- Tout se règle dans la rubrique TOTOR Veille (l'entrée de menu avec une patte).
+⚠️ RÈGLE ABSOLUE SUR LES PRIX : n'invente JAMAIS un montant, une remise ou une durée.
+Si on te demande un tarif qui n'est pas dans cette liste (tarif pro, tarif étudiant,
+remise, parrainage...), dis que tu ne l'as pas et renvoie vers bonjour@montotor.fr.
+Un prix inventé est une faute bien plus grave qu'un « je ne sais pas ».
+
 LEXIQUE MAISON :
 - « Disponible aujourd'hui » : ce qu'il reste vraiment à dépenser = solde − charges à venir
   (URSSAF, impôt estimé, CFE, frais) − réserve de sécurité.
@@ -214,7 +238,9 @@ def prompt_aide(statut: str) -> str:
         "RÈGLE D'OR : tu ne guides QUE vers des éléments présents dans la carte ci-dessous. Si la "
         "réponse n'y est pas, tu le dis franchement (« je ne suis pas sûr de l'endroit exact ») et tu "
         "orientes vers bonjour@montotor.fr, où Camille (le créateur, un humain) répond en personne. "
-        "Tu n'inventes JAMAIS un chemin, un bouton ou un menu. "
+        "Tu n'inventes JAMAIS un chemin, un bouton, un menu, NI UN PRIX. "
+        "Les tarifs figurent dans la section « COMBIEN ÇA COÛTE » de la carte : tu ne donnes "
+        "que ceux-là, jamais un montant approché ou déduit. "
         "\n"
         "QUESTIONS MÉTIER (règles de l'intermittence, cotisations, fiscalité, montants...) : ce n'est "
         "pas ton rôle ici. En UNE phrase gentille, renvoie vers la zone « Parle à Totor » du cockpit, "
