@@ -44,6 +44,7 @@ from projection import projeter_tresorerie
 from paie_engine import calculer_paie
 from aide_app import prompt_aide
 from invoice_extractor import extract_invoice_data
+import aem_extractor
 from aem_extractor import extract_aem_data, extract_are_data
 import r2_storage
 import sauvegarde
@@ -5175,6 +5176,25 @@ async def extract_aem(
                 r2_key = None
         for a in aems:
             a["aem_r2_key"] = r2_key
+
+        # ── Vigie des LECTURES PARTIELLES (14/08/2026) ──
+        #  Les échecs durs remontaient déjà à Sentry. Une AEM lue à moitié, elle,
+        #  passait en silence : l'utilisateur recevait un formulaire troué et
+        #  personne ne le comptait. On ne pouvait donc pas répondre à la seule
+        #  question qui compte, « est-ce qu'il lit vraiment tout ».
+        #  ⚠️ Compteurs et noms de champs SEULEMENT. Jamais une valeur lue,
+        #  jamais le nom du fichier, jamais le contenu.
+        try:
+            bilan = aem_extractor.completude(aems)
+            if bilan["incompletes"] > 0:
+                trous = ", ".join(f"{c}×{n}" for c, n in sorted(bilan["manquants"].items()))
+                sentry_sdk.capture_message(
+                    f"Scan AEM incomplet ({os.path.splitext(file.filename)[1].lower()}) : "
+                    f"{bilan['incompletes']}/{bilan['entrees']} entrées trouées — {trous}",
+                    level="warning",
+                )
+        except Exception:
+            pass  # la vigie ne doit JAMAIS casser un scan qui a réussi
 
         # Format de réponse : on renvoie toujours une liste sous "aems".
         # (Le front gère 1 ou plusieurs attestations à valider.)

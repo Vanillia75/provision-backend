@@ -479,3 +479,51 @@ def extract_aem_data(file_path: str) -> dict:
     if not resultats:
         raise RuntimeError("Je n'ai rien trouvé d'exploitable sur ce document. Essaie une photo plus nette, ou saisis à la main.")
     return resultats
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  MESURER CE QUE LE SCAN N'A PAS LU (14/08/2026)
+#
+#  Jusqu'ici, seuls les échecs DURS étaient surveillés : si le scan levait une
+#  erreur, Sentry le savait. Mais une lecture PARTIELLE passait en silence. Un
+#  document dont on tire la date sans le salaire brut est accepté, renvoyé à
+#  l'utilisateur avec un trou, et personne ne le compte.
+#
+#  Or « est-ce qu'il lit vraiment tout ? » est LA question. Sans cette mesure,
+#  elle est sans réponse : on ne peut pas distinguer un scan parfait d'un scan
+#  troué que l'utilisateur a rebouché à la main.
+#
+#  ⚠️ On ne remonte QUE des compteurs et des noms de champs. Jamais le contenu
+#  du document, jamais le nom du fichier, jamais une valeur lue. Même règle que
+#  la vigie des échecs (cf. hector-privacy-backtests).
+# ─────────────────────────────────────────────────────────────────────────────
+CHAMPS_ATTENDUS = ("employeur", "date", "nombre", "salaire_brut")
+
+
+def completude(resultats: list) -> dict:
+    """Ce que le scan a su lire, champ par champ, sur l'ensemble des AEM trouvées.
+
+    Renvoie un dict prêt à être journalisé : total d'entrées, nombre d'entrées
+    complètes, et la liste des champs manquants avec leur compte.
+    """
+    resultats = resultats or []
+    manquants = {}
+    completes = 0
+    for r in resultats:
+        trous = []
+        for champ in CHAMPS_ATTENDUS:
+            v = (r or {}).get(champ)
+            vide = v is None or v == "" or (champ in ("nombre", "salaire_brut") and not v)
+            if vide:
+                trous.append(champ)
+        if trous:
+            for c in trous:
+                manquants[c] = manquants.get(c, 0) + 1
+        else:
+            completes += 1
+    return {
+        "entrees": len(resultats),
+        "completes": completes,
+        "incompletes": len(resultats) - completes,
+        "manquants": manquants,
+    }
