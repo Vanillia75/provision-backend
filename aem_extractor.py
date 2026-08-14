@@ -53,7 +53,7 @@ Réponds STRICTEMENT en JSON, sans aucun texte autour, sans balises Markdown. Le
 Règles importantes :
 - Une attestation = un bloc avec son propre numéro d'attestation et sa propre période. S'il y a 2 numéros d'attestation différents, renvoie 2 objets. S'il y en a 3, renvoie 3 objets.
 - "date" : c'est TOUJOURS la date de début / d'embauche (le premier jour travaillé). Elle est presque toujours présente.
-- "date_fin" : c'est le dernier jour travaillé / date de fin de contrat. Si le contrat est sur un seul jour, date_fin peut être égale à date. Si elle n'est pas indiquée, mets null. Ne confonds JAMAIS début et fin : si tu n'as qu'une date, mets-la dans "date" et mets "date_fin" à null.
+- "date_fin" : c'est le dernier jour travaillé / date de fin de contrat. ⚠️ SI ELLE EST ÉCRITE SUR LE DOCUMENT, TU DOIS TOUJOURS LA RENVOYER, MÊME SI ELLE EST IDENTIQUE À LA DATE DE DÉBUT. Un contrat d'une seule journée porte la même date des deux côtés : recopie-la, ne mets PAS null. Ne mets null QUE si aucune date de fin ne figure nulle part sur le document. Ne confonds JAMAIS début et fin : si tu n'as qu'une seule date, mets-la dans "date" et mets "date_fin" à null.
 - "type_activite" : si l'AEM mentionne des CACHETS, utilise "cachet_isole" (cas le plus courant) ou "cachet_groupe" si explicitement groupés. Si elle est en HEURES réelles (technicien, annexe 8), utilise "heures".
 - "nombre" : si ce sont des cachets, mets le NOMBRE DE CACHETS. Si ce sont des heures, mets le NOMBRE D'HEURES. Ne convertis pas toi-même.
 - "metier" : regarde l'EMPLOI OCCUPÉ écrit sur l'attestation. Métiers techniques (monteur, régisseur,
