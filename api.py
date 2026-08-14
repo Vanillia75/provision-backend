@@ -1570,12 +1570,37 @@ class InvoiceStatusRequest(BaseModel):
     statut: str
 
 
-def _verifier_et_incrementer_quota_ia(db: Session, user_id: str, type_appel: str, limite: int):
+#  Poids d'un appel dans le quota. Un document photographié en plusieurs pages
+#  déclenche plusieurs appels, mais ça reste UN SEUL document scanné : chaque
+#  appel du lot ne pèse donc qu'une fraction. Plancher volontaire à un quart :
+#  au delà, un envoi de douze photos coûterait presque rien alors qu'il coûte
+#  cher à lire, et le garde-fou anti-abus perdrait son sens.
+POIDS_MINIMUM_APPEL = 0.25
+
+
+def poids_dans_le_lot(pages: int) -> float:
+    """1 pour un document ordinaire ; une fraction pour une page d'un lot.
+
+    Un lot de N photos fait N appels page par page, plus au maximum un appel de
+    rattrapage groupé, soit N+1. Chacun pèse 1/(N+1), donc le document entier
+    coûte un scan et un seul, ce que le code promettait déjà par écrit.
+    """
+    if not pages or pages < 2:
+        return 1.0
+    return max(POIDS_MINIMUM_APPEL, 1.0 / (pages + 1))
+
+
+def _verifier_et_incrementer_quota_ia(db: Session, user_id: str, type_appel: str, limite: int,
+                                      poids: float = 1.0):
     """
     Vérifie le quota IA du jour pour cet utilisateur et ce type d'appel.
     - Si la limite est atteinte : lève une HTTPException 429 (message Totor chaleureux).
     - Sinon : incrémente le compteur du jour et laisse passer.
     Borne le coût Anthropic. La ligne (user, jour, type) est créée à la volée.
+
+    ⚠️ Le compteur est un NOMBRE À VIRGULE depuis le 14/08/2026 : il tronquait à
+    l'entier, ce qui aurait avalé en silence le poids fractionné d'un lot de
+    photos (quatre quarts de scan auraient compté zéro).
     """
     aujourdhui = date.today()
     usage = (
@@ -1583,7 +1608,7 @@ def _verifier_et_incrementer_quota_ia(db: Session, user_id: str, type_appel: str
         .filter(AIUsage.user_id == user_id, AIUsage.jour == aujourdhui, AIUsage.type_appel == type_appel)
         .first()
     )
-    deja = int(usage.count) if usage else 0
+    deja = float(usage.count) if usage else 0.0
     if deja >= limite:
         if type_appel == "aem_scan":
             msg = ("Tu as scanné beaucoup d'AEM aujourd'hui, je fais une petite pause pour rester raisonnable. "
@@ -1594,14 +1619,16 @@ def _verifier_et_incrementer_quota_ia(db: Session, user_id: str, type_appel: str
         raise HTTPException(status_code=429, detail=msg)
 
     if usage:
-        usage.count = deja + 1
+        usage.count = round(deja + poids, 4)
         usage.updated_at = datetime.utcnow()
     else:
-        db.add(AIUsage(user_id=user_id, jour=aujourdhui, type_appel=type_appel, count=1))
+        db.add(AIUsage(user_id=user_id, jour=aujourdhui, type_appel=type_appel,
+                       count=round(poids, 4)))
     db.commit()
 
 
-def _consommer_quota(db: Session, user: User, type_appel: str, limite_jour: int):
+def _consommer_quota(db: Session, user: User, type_appel: str, limite_jour: int,
+                     poids: float = 1.0):
     """Applique le quota freemium d'une fonction IA/scan.
 
     - Premium (is_premium == True) : seul le garde-fou anti-abus JOURNALIER s'applique.
@@ -1627,7 +1654,7 @@ def _consommer_quota(db: Session, user: User, type_appel: str, limite_jour: int)
                                    "Passe en Premium pour la débloquer.",
                     },
                 )
-    _verifier_et_incrementer_quota_ia(db, user.id, type_appel, limite_jour)
+    _verifier_et_incrementer_quota_ia(db, user.id, type_appel, limite_jour, poids)
 
 
 def _montant_lignes(lignes: list) -> float:
@@ -5122,6 +5149,7 @@ def add_intermittent_activite(
 @app.post("/intermittent/aem/extract")
 async def extract_aem(
     file: UploadFile = File(...),
+    lot_pages: int = Form(0),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -5135,7 +5163,11 @@ async def extract_aem(
         raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
 
     # Quota freemium (mensuel pour les gratuits) + garde-fou anti-abus journalier.
-    _consommer_quota(db, user, "aem_scan", AI_AEM_DAILY_LIMIT)
+    # « lot_pages » : le front annonce qu'il envoie les N pages d'UN document
+    # photographie. Chaque page ne pese alors qu'une fraction de scan, pour que
+    # le document entier en coute UN et un seul (14/08/2026).
+    _consommer_quota(db, user, "aem_scan", AI_AEM_DAILY_LIMIT,
+                     poids=poids_dans_le_lot(lot_pages))
 
     tmp_dir = tempfile.mkdtemp()
     file_path = os.path.join(tmp_dir, os.path.basename(file.filename))
@@ -5152,8 +5184,9 @@ async def extract_aem(
                 if taille > AEM_MAX_BYTES:
                     raise HTTPException(
                         status_code=413,
-                        detail=f"Fichier trop volumineux (max {AEM_MAX_BYTES // (1024*1024)} Mo). "
-                               "Réduis la taille de la photo et réessaie.",
+                        detail=f"Ce fichier est trop lourd pour moi (plus de {AEM_MAX_BYTES // (1024*1024)} Mo). "
+                               "Si c'est une photo, reprends-la de moins près, ou envoie le PDF "
+                               "si tu l'as reçu par mail.",
                     )
                 f.write(chunk)
 
@@ -5252,7 +5285,10 @@ async def extract_aem_pages(
             raise HTTPException(status_code=400, detail="Format non supporte (PDF, JPG, PNG).")
 
     # UN SEUL scan decompte : c'est un seul document, meme s'il tient en 3 photos.
-    _consommer_quota(db, user, "aem_scan", AI_AEM_DAILY_LIMIT)
+    # La promesse est desormais TENUE : avec les appels page par page qui
+    # precedent, le total du lot fait bien un scan (voir poids_dans_le_lot).
+    _consommer_quota(db, user, "aem_scan", AI_AEM_DAILY_LIMIT,
+                     poids=poids_dans_le_lot(len(fichiers)))
 
     tmp_dir = tempfile.mkdtemp()
     chemins = []
@@ -5614,8 +5650,9 @@ async def signaler_document_illisible(
                 if taille > AEM_MAX_BYTES:
                     raise HTTPException(
                         status_code=413,
-                        detail=f"Fichier trop volumineux (max {AEM_MAX_BYTES // (1024*1024)} Mo). "
-                               "Réduis la taille de la photo et réessaie.",
+                        detail=f"Ce fichier est trop lourd pour moi (plus de {AEM_MAX_BYTES // (1024*1024)} Mo). "
+                               "Si c'est une photo, reprends-la de moins près, ou envoie le PDF "
+                               "si tu l'as reçu par mail.",
                     )
                 f.write(chunk)
         try:
@@ -5683,8 +5720,9 @@ async def extract_are(
                 if taille > AEM_MAX_BYTES:
                     raise HTTPException(
                         status_code=413,
-                        detail=f"Fichier trop volumineux (max {AEM_MAX_BYTES // (1024*1024)} Mo). "
-                               "Réduis la taille de la photo et réessaie.",
+                        detail=f"Ce fichier est trop lourd pour moi (plus de {AEM_MAX_BYTES // (1024*1024)} Mo). "
+                               "Si c'est une photo, reprends-la de moins près, ou envoie le PDF "
+                               "si tu l'as reçu par mail.",
                     )
                 f.write(chunk)
 
