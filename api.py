@@ -1417,7 +1417,10 @@ async def extract_invoice(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
+    # « .heic »/« .heif » : le format de l'appareil photo iPhone. Sans eux, la
+    # photo etait refusee ICI, avant meme d'atteindre la conversion (14/08/2026).
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp",
+                   ".heic", ".heif")
     if not file.filename.lower().endswith(allowed_ext):
         raise HTTPException(status_code=400, detail="Format de fichier non supporte")
 
@@ -3620,7 +3623,10 @@ async def extract_expense(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
+    # « .heic »/« .heif » : le format de l'appareil photo iPhone. Sans eux, la
+    # photo etait refusee ICI, avant meme d'atteindre la conversion (14/08/2026).
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp",
+                   ".heic", ".heif")
     if not file.filename.lower().endswith(allowed_ext):
         raise HTTPException(status_code=400, detail="Format de fichier non supporte")
 
@@ -5122,7 +5128,9 @@ async def extract_aem(
     """Lit une AEM (photo ou PDF) via Claude Vision et renvoie les champs détectés.
     Ne crée rien : le front affiche le résultat pour vérification, puis appelle
     /intermittent/activite avec les valeurs validées par l'utilisateur."""
-    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+    # « .heic »/« .heif » : le format de l'appareil photo iPhone. Sans eux, la
+    # photo etait refusee ICI, avant meme d'atteindre la conversion (14/08/2026).
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif")
     if not file.filename or not file.filename.lower().endswith(allowed_ext):
         raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
 
@@ -5233,7 +5241,9 @@ async def extract_aem_pages(
     db: Session = Depends(get_db),
 ):
     """Lit plusieurs images/PDF comme les pages successives d'UNE attestation."""
-    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+    # « .heic »/« .heif » : le format de l'appareil photo iPhone. Sans eux, la
+    # photo etait refusee ICI, avant meme d'atteindre la conversion (14/08/2026).
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif")
     fichiers = [f for f in (files or []) if f and f.filename]
     if not fichiers:
         raise HTTPException(status_code=400, detail="Aucun fichier recu.")
@@ -5247,8 +5257,18 @@ async def extract_aem_pages(
     tmp_dir = tempfile.mkdtemp()
     chemins = []
     try:
-        for f in fichiers:
-            chemin = os.path.join(tmp_dir, os.path.basename(f.filename))
+        for i, f in enumerate(fichiers):
+            # ⚠️ CORRIGE LE 14/08/2026 — LES PHOTOS DE MEME NOM.
+            #  On ecrivait chaque page sous SON nom d'origine. Or quand on
+            #  choisit plusieurs photos d'un coup depuis la photothèque d'un
+            #  iPhone, iOS les livre TOUTES sous le meme nom (« image.jpg »).
+            #  Les pages s'ecrasaient donc les unes les autres dans le dossier
+            #  temporaire, et la lecture groupee relisait N fois la DERNIERE
+            #  photo en croyant lire N pages differentes. C'est exactement le
+            #  cas signale par Mac : un document envoye en 3 photos.
+            #  On prefixe par le rang, ce qui garantit aussi l'ordre des pages.
+            base = os.path.basename(f.filename or f"page-{i + 1}")
+            chemin = os.path.join(tmp_dir, f"{i + 1:02d}-{base}")
             taille = 0
             with open(chemin, "wb") as sortie:
                 while True:
@@ -5352,7 +5372,9 @@ async def extract_releve(
     """Lit un relevé de situation France Travail. Ne crée RIEN : le front affiche
     les périodes lues pour vérification, puis appelle /intermittent/releve/verifier
     avec les valeurs validées par l'utilisateur (même règle que les AEM)."""
-    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+    # « .heic »/« .heif » : le format de l'appareil photo iPhone. Sans eux, la
+    # photo etait refusee ICI, avant meme d'atteindre la conversion (14/08/2026).
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif")
     if not file.filename or not file.filename.lower().endswith(allowed_ext):
         raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
 
@@ -5568,7 +5590,9 @@ async def signaler_document_illisible(
     lecture humaine. Le fichier part dans le coffre R2 sous le préfixe de l'utilisateur
     (donc couvert par la suppression RGPD, comme ses AEM) et un email prévient l'équipe
     avec un lien signé temporaire — le contenu du document ne transite jamais par l'email."""
-    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+    # « .heic »/« .heif » : le format de l'appareil photo iPhone. Sans eux, la
+    # photo etait refusee ICI, avant meme d'atteindre la conversion (14/08/2026).
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif")
     if not file.filename or not file.filename.lower().endswith(allowed_ext):
         raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
     if not r2_storage.R2_ENABLED:
@@ -5638,7 +5662,9 @@ async def extract_are(
     montant journalier. Ne stocke rien — le front affiche pour vérification, puis confirme
     via /profile/date-anniversaire. Action ponctuelle → simple garde-fou anti-abus journalier
     (pas de quota freemium, pour ne pas pénaliser l'inscription)."""
-    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+    # « .heic »/« .heif » : le format de l'appareil photo iPhone. Sans eux, la
+    # photo etait refusee ICI, avant meme d'atteindre la conversion (14/08/2026).
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif")
     if not file.filename or not file.filename.lower().endswith(allowed_ext):
         raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
 
@@ -5839,7 +5865,9 @@ async def deposer_document(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+    # « .heic »/« .heif » : le format de l'appareil photo iPhone. Sans eux, la
+    # photo etait refusee ICI, avant meme d'atteindre la conversion (14/08/2026).
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif")
     if not file.filename or not file.filename.lower().endswith(allowed_ext):
         raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
     if type_document not in TYPES_DOCUMENT:
