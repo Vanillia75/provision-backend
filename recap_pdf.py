@@ -80,8 +80,11 @@ def generate_recap_pdf(recap: dict, prenom: str = "", nom: str = "",
         author="TOTOR",
     )
     base = getSampleStyleSheet()
+    # ⚠️ leading ET spaceAfter explicites : sans eux, les jambages du titre
+    #  mordaient sur le sous-titre (chevauchement vu par le Mac le 14/08/2026 sur
+    #  les 6 PDF). Un titre de 16 pt a besoin d'environ 20 pt d'interligne.
     st_titre = ParagraphStyle("t", parent=base["Normal"], fontName="Helvetica-Bold",
-                              fontSize=16, textColor=INK, spaceAfter=2)
+                              fontSize=16, leading=20, textColor=INK, spaceAfter=7)
     st_sous = ParagraphStyle("s", parent=base["Normal"], fontName="Helvetica",
                              fontSize=9.5, textColor=GREY, spaceAfter=14)
     st_norm = ParagraphStyle("n", parent=base["Normal"], fontName="Helvetica",
