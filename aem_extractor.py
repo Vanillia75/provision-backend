@@ -511,11 +511,14 @@ def extract_aem_data(file_path: str) -> dict:
         # Image, ou PDF court sans formulaire : un seul appel, comme avant.
         data = _appeler_modele_aem(_build_source_blocks(file_path))
 
-    fname = os.path.basename(file_path)
+    return _finaliser(data, os.path.basename(file_path))
 
+
+def _finaliser(data, fname: str) -> list:
+    """Garde-fous, normalisation et dédoublonnage, communs à toutes les entrées."""
     # Garde-fou : document reconnu comme N'ÉTANT PAS une attestation employeur (fiche de paie,
     # contrat, courrier…) → on le dit honnêtement au lieu d'extraire des données fausses en silence.
-    items = [item for item in data if isinstance(item, dict)]
+    items = [item for item in (data or []) if isinstance(item, dict)]
     if items and all(item.get("type_document") == "inconnu" for item in items):
         raise RuntimeError(
             "Je ne sais pas encore lire ce type de document — ça ne ressemble pas à une attestation "
@@ -538,6 +541,47 @@ def extract_aem_data(file_path: str) -> dict:
     if not resultats:
         raise RuntimeError("Je n'ai rien trouvé d'exploitable sur ce document. Essaie une photo plus nette, ou saisis à la main.")
     return resultats
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PLUSIEURS FICHIERS = LES PAGES D'UN SEUL DOCUMENT (14/08/2026)
+#
+#  Une FCTU de 3 pages photographiée page par page donnait, page par page :
+#    page 1 → « je n'ai rien trouvé d'exploitable »
+#    page 2 → le contrat lu, mais EMPLOYEUR VIDE et MÉTIER INCONNU
+#    page 3 → « je ne sais pas lire ce type de document »
+#  Reproduit à l'identique sur une vraie FCTU TF1. La raison est simple : le nom
+#  de l'employeur et l'emploi occupé sont écrits sur la PAGE 1. En traitant les
+#  images une par une, on coupe l'information en deux et l'utilisateur doit
+#  ressaisir à la main ce que le document contient.
+#
+#  Cette fonction envoie toutes les pages EN UNE SEULE FOIS au lecteur, dans
+#  l'ordre. Il voit alors l'attestation entière, comme un humain qui tourne les
+#  pages. C'est la même cause que les points 2 et 3 du rapport du Mac.
+# ─────────────────────────────────────────────────────────────────────────────
+_MAX_FICHIERS_GROUPES = 12
+
+
+def extract_aem_data_pages(file_paths: list) -> list:
+    """Lit PLUSIEURS fichiers comme les pages successives d'UN SEUL document."""
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("Lecture d'AEM indisponible : clé API non configurée.")
+    chemins = [p for p in (file_paths or []) if p]
+    if not chemins:
+        raise RuntimeError("Aucun fichier reçu.")
+    if len(chemins) == 1:
+        return extract_aem_data(chemins[0])
+    if len(chemins) > _MAX_FICHIERS_GROUPES:
+        raise RuntimeError(
+            f"Ça fait {len(chemins)} pages pour un seul document, c'est beaucoup "
+            f"(maximum {_MAX_FICHIERS_GROUPES}). Envoie-les en deux fois."
+        )
+
+    blocks = []
+    for p in chemins:
+        blocks.extend(_build_source_blocks(p))
+    data = _appeler_modele_aem(blocks)
+    return _finaliser(data, os.path.basename(chemins[0]))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

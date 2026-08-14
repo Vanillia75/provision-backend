@@ -69,14 +69,17 @@ def generate_recap_pdf(recap: dict, prenom: str = "", nom: str = "",
     """
     recap = recap or {}
     lignes = recap.get("lignes") or []
-    nom_complet = " ".join(x for x in [(prenom or "").strip(), (nom or "").strip()] if x) or "—"
+    # ⚠️ Pas de tiret de remplacement quand le nom est absent : la ligne devenait
+    #  « — — intermittent du spectacle » (double tiret vu par le Mac le 14/08/2026).
+    #  Sans nom, on écrit simplement la qualité, ce qui se lit très bien.
+    nom_complet = " ".join(x for x in [(prenom or "").strip(), (nom or "").strip()] if x)
 
     tampon = io.BytesIO()
     doc = SimpleDocTemplate(
         tampon, pagesize=A4,
         leftMargin=18 * mm, rightMargin=18 * mm,
         topMargin=16 * mm, bottomMargin=16 * mm,
-        title=f"Recapitulatif de revenus - {nom_complet}",
+        title=("Recapitulatif de revenus - " + nom_complet) if nom_complet else "Recapitulatif de revenus",
         author="TOTOR",
     )
     base = getSampleStyleSheet()
@@ -119,7 +122,9 @@ def generate_recap_pdf(recap: dict, prenom: str = "", nom: str = "",
     flux.append(Paragraph(recap.get("periodeLabel") or "Sur les 12 derniers mois", st_sous))
 
     # ── Qui ──
-    qui = Table([[Paragraph(f"<b>{nom_complet}</b> — intermittent du spectacle", st_norm)]],
+    ligne_qui = (f"<b>{nom_complet}</b> — intermittent du spectacle"
+                 if nom_complet else "Intermittent du spectacle")
+    qui = Table([[Paragraph(ligne_qui, st_norm)]],
                 colWidths=[174 * mm])
     qui.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), LIGHT),

@@ -13,7 +13,7 @@ import shutil
 import tempfile
 import requests as http_requests
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request, Body, Form
 from fastapi.responses import Response, HTMLResponse, RedirectResponse, FileResponse
@@ -5206,6 +5206,93 @@ async def extract_aem(
 
 # Adresse qui reçoit les documents signalés illisibles (lecture humaine).
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "vanilliabusiness@gmail.com")
+
+
+#  LIRE PLUSIEURS FICHIERS COMME UN SEUL DOCUMENT (14/08/2026)
+#
+#  Une FCTU de 3 pages photographiee page par page etait traitee page par page :
+#  la page 2 donnait le contrat mais SANS employeur ni metier (ils sont ecrits
+#  sur la page 1), et les pages 1 et 3 etaient declarees illisibles. L'utilisateur
+#  devait ressaisir a la main ce que le document contenait.
+#
+#  Ici, toutes les pages partent ensemble au lecteur, dans l'ordre. UN SEUL scan
+#  est decompte du quota, ce qui est juste : c'est un seul document.
+@app.post("/intermittent/aem/extract-pages")
+async def extract_aem_pages(
+    files: List[UploadFile] = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Lit plusieurs images/PDF comme les pages successives d'UNE attestation."""
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+    fichiers = [f for f in (files or []) if f and f.filename]
+    if not fichiers:
+        raise HTTPException(status_code=400, detail="Aucun fichier recu.")
+    for f in fichiers:
+        if not f.filename.lower().endswith(allowed_ext):
+            raise HTTPException(status_code=400, detail="Format non supporte (PDF, JPG, PNG).")
+
+    # UN SEUL scan decompte : c'est un seul document, meme s'il tient en 3 photos.
+    _consommer_quota(db, user, "aem_scan", AI_AEM_DAILY_LIMIT)
+
+    tmp_dir = tempfile.mkdtemp()
+    chemins = []
+    try:
+        for f in fichiers:
+            chemin = os.path.join(tmp_dir, os.path.basename(f.filename))
+            taille = 0
+            with open(chemin, "wb") as sortie:
+                while True:
+                    chunk = await f.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    taille += len(chunk)
+                    if taille > AEM_MAX_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"Fichier trop volumineux (max {AEM_MAX_BYTES // (1024*1024)} Mo).",
+                        )
+                    sortie.write(chunk)
+            chemins.append(chemin)
+
+        try:
+            aems = aem_extractor.extract_aem_data_pages(chemins)
+        except HTTPException:
+            raise
+        except Exception as e:
+            try:
+                sentry_sdk.capture_message(
+                    f"Scan AEM groupe en echec ({len(chemins)} pages) : {billing.redact_secrets(str(e))}",
+                    level="warning",
+                )
+            except Exception:
+                pass
+            raise HTTPException(status_code=422, detail=billing.redact_secrets(str(e)) or "Impossible de lire ces pages.")
+
+        # Meme vigie des lectures partielles que le scan simple.
+        try:
+            bilan = aem_extractor.completude(aems)
+            if bilan["incompletes"] > 0:
+                trous = ", ".join(f"{c}x{n}" for c, n in sorted(bilan["manquants"].items()))
+                sentry_sdk.capture_message(
+                    f"Scan AEM groupe incomplet ({len(chemins)} pages) : "
+                    f"{bilan['incompletes']}/{bilan['entrees']} entrees trouees - {trous}",
+                    level="warning",
+                )
+        except Exception:
+            pass
+
+        r2_key = None
+        if r2_storage.R2_ENABLED:
+            try:
+                r2_key = r2_storage.upload_aem(chemins[0], str(user.id), fichiers[0].filename)
+            except Exception:
+                r2_key = None
+        for a in aems:
+            a["aem_r2_key"] = r2_key
+        return {"aems": aems}
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @app.post("/intermittent/aem/signalement")
