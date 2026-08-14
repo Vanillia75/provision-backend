@@ -24,7 +24,7 @@ from datetime import datetime
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()  # .strip() : cf api.py (Railway ajoute un \n en fin de valeur)
 MODEL = "claude-sonnet-4-6"
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"}
 
 # Instruction donnée à Claude. On lui demande UNIQUEMENT du JSON, rien d'autre,
 # pour pouvoir le parser directement.
@@ -193,8 +193,17 @@ def _render_pdf_form_pages(raw: bytes, indices=None) -> list:
     import io
     import pypdfium2 as pdfium
 
+    # ⚠️ CORRIGÉ LE 14/08/2026 : la fonction annonçait « liste vide si échec »
+    #  mais ne rattrapait rien. Un PDF abîmé (téléchargement interrompu sur un
+    #  téléphone, fichier renommé en .pdf, PDF protégé par mot de passe) faisait
+    #  remonter une erreur brute jusqu'à l'utilisateur au lieu du message de
+    #  repli. On tient la promesse : en cas d'échec on renvoie [], et l'appelant
+    #  retombe proprement sur le PDF natif.
     blocks = []
-    doc = pdfium.PdfDocument(raw)
+    try:
+        doc = pdfium.PdfDocument(raw)
+    except Exception:
+        return []
     try:
         doc.init_forms()  # nécessaire pour que le rendu dessine les champs remplis
         if indices is None:
@@ -207,6 +216,10 @@ def _render_pdf_form_pages(raw: bytes, indices=None) -> list:
             pil.save(buf, format="PNG")
             data = base64.standard_b64encode(buf.getvalue()).decode("utf-8")
             blocks.append({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}})
+    except Exception:
+        # Une page illisible ne doit pas emporter les précédentes : on garde ce
+        # qui a été rendu, et le lecteur travaille avec.
+        pass
     finally:
         doc.close()
     return blocks
@@ -295,9 +308,77 @@ def _build_source_blocks(file_path: str) -> list:
         b64 = base64.standard_b64encode(raw).decode("utf-8")
         return [{"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}]
 
-    b64 = base64.standard_b64encode(raw).decode("utf-8")
-    media_type = mimetypes.guess_type(file_path)[0] or "image/jpeg"
-    return [{"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}}]
+    # ⚠️ AJOUTÉ LE 14/08/2026 — LE SCAN DEPUIS UN IPHONE.
+    #  Avant, la photo partait TELLE QUELLE. Sur un ordinateur on dépose un PDF
+    #  léger et bien orienté, donc tout marchait. Sur un téléphone on prend une
+    #  photo, et trois choses cassaient la lecture, chacune côté Apple :
+    #    · le format HEIC (celui de l'appareil photo iPhone par défaut) n'est pas
+    #      lisible par le modèle : il répondait « je ne peux pas traiter cette
+    #      image », donc « lecture impossible » pour l'utilisateur ;
+    #    · le poids : une photo d'iPhone dépasse souvent 5 Mo une fois encodée,
+    #      au-delà de ce que l'API accepte, même quand notre propre limite de
+    #      10 Mo était respectée ;
+    #    · l'ORIENTATION : une photo prise en portrait est enregistrée à plat
+    #      avec une consigne de rotation dans ses métadonnées. Le modèle voyait
+    #      l'attestation couchée sur le côté et lisait de travers.
+    #  On normalise donc toute image ici, une seule fois, pour les trois scans
+    #  qui passent par cette fonction (AEM, relevé de situation, facture AE).
+    return [_bloc_image(raw, file_path)]
+
+
+#  Taille cible : le modèle ramène de toute façon les images à 1568 px sur le
+#  grand côté, inutile de payer le transport de plus. On garde un peu de marge
+#  pour les petits caractères des attestations.
+_IMG_COTE_MAX = 2200
+_IMG_OCTETS_MAX = 4_400_000  # marge sous la limite de 5 Mo de l'API (base64 compris)
+
+
+def _bloc_image(raw: bytes, file_path: str) -> dict:
+    """Un bloc image prêt pour l'API : redressé, redimensionné, en JPEG.
+
+    Ne lève JAMAIS : si quoi que ce soit échoue, on renvoie l'image d'origine
+    plutôt que rien. Une lecture dégradée vaut mieux qu'un scan mort.
+    """
+    try:
+        from io import BytesIO
+
+        from PIL import Image, ImageOps
+
+        try:  # HEIC / HEIF : le format natif de l'appareil photo iPhone.
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+        except Exception:
+            pass
+
+        img = Image.open(BytesIO(raw))
+        img = ImageOps.exif_transpose(img)   # remet la photo d'aplomb
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+
+        cote = max(img.size)
+        if cote > _IMG_COTE_MAX:
+            ratio = _IMG_COTE_MAX / float(cote)
+            img = img.resize((max(1, int(img.width * ratio)),
+                              max(1, int(img.height * ratio))), Image.LANCZOS)
+
+        # On descend la qualité par paliers jusqu'à tenir sous la limite. Un
+        # document texte reste parfaitement lisible à 70.
+        for qualite in (88, 80, 70, 60):
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=qualite, optimize=True)
+            sortie = buf.getvalue()
+            if len(sortie) * 4 // 3 <= _IMG_OCTETS_MAX:
+                break
+        b64 = base64.standard_b64encode(sortie).decode("utf-8")
+        return {"type": "image",
+                "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}}
+    except Exception:
+        b64 = base64.standard_b64encode(raw).decode("utf-8")
+        media_type = mimetypes.guess_type(file_path)[0] or "image/jpeg"
+        if media_type not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+            media_type = "image/jpeg"   # jamais un type que l'API refuse d'office
+        return {"type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": b64}}
 
 
 def _clean_json(text: str) -> str:

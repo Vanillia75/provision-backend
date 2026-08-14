@@ -8,7 +8,8 @@ from datetime import datetime
 from typing import Optional
 
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp",
+                    ".heic", ".heif"}  # HEIC : l'appareil photo iPhone (14/08/2026)
 
 AMOUNT_PATTERNS = [
     r"montant\s+(?:prélevé|à payer|net\s+à\s+payer|ttc)\b[^\n€$]{0,50}?(\d{1,3}(?:[\s.]\d{3})*[.,]\d{2})",
