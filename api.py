@@ -32,6 +32,7 @@ from auth import (
 )
 from emailing import send_reset_password_email, send_verification_email, send_invoice_email, send_email, send_founder_signup_alert, send_founder_trial_ending_alert, PIONNIER_PLACES
 from invoice_pdf import generate_invoice_pdf
+from recap_pdf import generate_recap_pdf
 from legal_mentions import (
     get_franchise_vat_mention, append_ei_mention, resolve_fiscal_settings,
     compute_invoice_totals, format_vat_rate, get_b2b_late_fee_mention,
@@ -2069,6 +2070,49 @@ def get_invoice_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+#  RÉCAPITULATIF DE REVENUS EN PDF (13/08/2026)
+#
+#  ⚠️ Créé après le signalement d'une abonnée depuis son iPhone : « Le pdf ne
+#  fonctionne pas ». L'écran fabriquait le document en demandant au navigateur
+#  d'IMPRIMER (window.print). Cette commande n'existe pas sur iOS dans une
+#  application : le bouton ne faisait donc RIEN sur iPhone, en silence, et ce
+#  depuis sa création. On produit maintenant un vrai fichier PDF, qui s'ouvre
+#  partout, exactement comme les factures.
+#
+#  L'application ENVOIE le récapitulatif déjà calculé : le serveur ne recalcule
+#  rien. La source de vérité reste unique, côté application. Dupliquer ce calcul
+#  ici serait le meilleur moyen de le faire diverger.
+@app.post("/intermittent/recap-revenus/pdf")
+def post_recap_revenus_pdf(
+    payload: dict = Body(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    recap = payload.get("recap") if isinstance(payload, dict) else None
+    if not isinstance(recap, dict):
+        raise HTTPException(status_code=400, detail="Recapitulatif manquant")
+
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    prenom = (profile.prenom or "") if profile else ""
+    nom = (profile.nom or "") if profile else ""
+
+    mois = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+            "août", "septembre", "octobre", "novembre", "décembre"]
+    d = date.today()
+    genere_le = f"{d.day} {mois[d.month - 1]} {d.year}"
+
+    try:
+        pdf_bytes = generate_recap_pdf(recap, prenom=prenom, nom=nom, genere_le=genere_le)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la generation du PDF : {e}")
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="recapitulatif-revenus.pdf"'},
     )
 
 
