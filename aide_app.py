@@ -142,6 +142,20 @@ MODE INTERMITTENT (menu de gauche) :
 - Ajouter une activité : depuis le cockpit, bouton d'ajout (cachets OU heures, avec bascule,
   possibilité d'une plage de dates, employeur, brut). Les AEM se SCANNENT (photo ou PDF) :
   Totor lit et remplit tout.
+- Mes versements (entrée de menu, sous « Mes AEM ») : la vérification des versements
+  France Travail. On y scanne son RELEVÉ DE SITUATION (le décompte de ce que France
+  Travail a payé, courrier ou PDF de l'espace personnel francetravail.fr) ; Totor lit
+  les périodes (jours indemnisés, net versé, jours travaillés, franchises), les montre
+  pour VALIDATION (rien ne s'enregistre sans confirmation), puis compare au calcul de
+  la carte « Ton mois » : « versement conforme » si ça colle à 1 € près, sinon l'écart
+  chiffré et expliqué (contrat manquant, AEM non parvenue, taux différent). Un mois par
+  ligne, détail au clic, suppression possible. La VÉRIFICATION (le verdict) fait partie
+  de TOTOR Veille ; un compte gratuit peut scanner et conserver ses chiffres.
+  ⚠️ Toujours dire : seul le versement de France Travail fait foi, Totor compare et
+  explique mais ne conteste rien à la place de la personne.
+  Si quelqu'un dépose un relevé de situation dans « Mes AEM », Totor le reconnaît et
+  l'oriente vers « Mes versements » (et une notification de droits vers la carte
+  « Ta date anniversaire » du cockpit) : ce n'est jamais une erreur de l'utilisateur.
 - Actualisation : une page dédiée prépare le récap du mois à recopier sur France Travail
   (la fenêtre ouvre le 28 et ferme vers le 15). Totor ne s'actualise JAMAIS à la place de la
   personne : il prépare tout, c'est elle qui valide sur francetravail.fr. Un email de rappel
