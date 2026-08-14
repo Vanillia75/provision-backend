@@ -25,7 +25,7 @@ from google.auth.transport import requests as google_requests
 
 from apple_auth import verifier_identity_token as verifier_apple_identity_token, AppleTokenInvalide
 from database import Base, engine, get_db, SessionLocal
-from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt, FiscalSettings, Subscription, ChatMessage as ChatMessageDB, DocumentPerso
+from models import User, Profile, IncomeEntry, ClientInvoice, Expense, Contact, Quote, IntermittentActivity, AIUsage, LoginAttempt, FiscalSettings, Subscription, ChatMessage as ChatMessageDB, DocumentPerso, ReleveSituation
 from auth import (
     hash_password, verify_password, create_token, get_current_user,
     create_purpose_token, verify_purpose_token,
@@ -45,6 +45,7 @@ from paie_engine import calculer_paie
 from aide_app import prompt_aide
 from invoice_extractor import extract_invoice_data
 import aem_extractor
+import releve_extractor
 from aem_extractor import extract_aem_data, extract_are_data
 import r2_storage
 import sauvegarde
@@ -5309,6 +5310,252 @@ async def extract_aem_pages(
         return {"aems": aems}
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+#  LE RELEVÉ DE SITUATION, LU POUR DE VRAI (14/08/2026, décision Camille).
+#
+#  Quatre routes, dans l'ordre du parcours utilisateur :
+#    1. extract  : le document devient des chiffres, que la personne VALIDE ;
+#    2. verifier : les chiffres validés sont comparés au calcul TOTOR, verdict
+#       « versement conforme » ou « écart de X €, voici pourquoi » ;
+#    3. liste    : les mois vérifiés, pour l'écran « Mes versements » ;
+#    4. suppression : la personne reste maîtresse de ses données.
+#
+#  La vérification (l'intelligence) est TOTOR Veille, comme la carte « Ton
+#  mois » : un compte gratuit peut scanner et conserver, le verdict est verrouillé.
+def _aj_pour_verification(profile, rows):
+    """L'AJ nette et l'annexe, EXACTEMENT comme la carte « Ton mois ».
+
+    Même logique que /intermittent/estimation-mois : d'abord le calcul complet
+    si le dossier le permet, sinon le taux OFFICIEL importé de l'attestation.
+    Renvoie (res_aj, annexe, raison_indisponible)."""
+    alloc = _allocation_pour_profil(profile)
+    if alloc is not None:
+        if not alloc["affichable"]:
+            return None, None, alloc["raison_non_affichable"]
+        res_aj = ae.calculer_aj(profile.annexe_allocation, profile.salaire_reference, profile.heures_reference)
+        return res_aj, profile.annexe_allocation, None
+    if profile is None or profile.montant_journalier is None:
+        return None, None, "allocation_manquante"
+    annexe = profile.annexe_allocation or _annexe_depuis_activites(rows)
+    if annexe is None:
+        return None, None, "annexe_manquante"
+    return {"aj_brute": profile.montant_journalier, "aj_nette": profile.montant_journalier}, annexe, None
+
+
+@app.post("/intermittent/releve/extract")
+async def extract_releve(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Lit un relevé de situation France Travail. Ne crée RIEN : le front affiche
+    les périodes lues pour vérification, puis appelle /intermittent/releve/verifier
+    avec les valeurs validées par l'utilisateur (même règle que les AEM)."""
+    allowed_ext = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+    if not file.filename or not file.filename.lower().endswith(allowed_ext):
+        raise HTTPException(status_code=400, detail="Format non supporté (PDF, JPG, PNG).")
+
+    # Même quota que le scan d'AEM : c'est le même genre de lecture coûteuse.
+    _consommer_quota(db, user, "aem_scan", AI_AEM_DAILY_LIMIT)
+
+    tmp_dir = tempfile.mkdtemp()
+    file_path = os.path.join(tmp_dir, os.path.basename(file.filename))
+    try:
+        taille = 0
+        with open(file_path, "wb") as f_out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                taille += len(chunk)
+                if taille > AEM_MAX_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Fichier trop volumineux (max {AEM_MAX_BYTES // (1024*1024)} Mo).",
+                    )
+                f_out.write(chunk)
+
+        try:
+            resultat = releve_extractor.extract_releve_data(file_path)
+        except HTTPException:
+            raise
+        except Exception as e:
+            try:
+                sentry_sdk.capture_message(
+                    f"Lecture de relevé en échec ({os.path.splitext(file.filename)[1].lower()}) : "
+                    f"{billing.redact_secrets(str(e))}", level="warning")
+            except Exception:
+                pass
+            raise HTTPException(status_code=422, detail=billing.redact_secrets(str(e)) or "Impossible de lire ce relevé.")
+
+        # Le document rejoint le coffre R2 sous le préfixe de l'utilisateur
+        # (couvert par la suppression RGPD, comme les AEM).
+        r2_key = None
+        if r2_storage.R2_ENABLED:
+            try:
+                r2_key = r2_storage.upload_aem(file_path, str(user.id), file.filename)
+            except Exception:
+                r2_key = None
+        resultat["releve_r2_key"] = r2_key
+        return resultat
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.post("/intermittent/releve/verifier")
+def verifier_releve(
+    payload: dict = Body(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enregistre UN mois validé par l'utilisateur et rend le verdict.
+
+    Verdict « ok » si le net versé colle au calcul TOTOR à 1 € près ; sinon
+    « ecart » avec une explication en français : jours qui manquent (croisement
+    avec les AEM saisies) ou taux différent. Compte gratuit : les chiffres sont
+    conservés, le verdict est « verrou » (la vérification est TOTOR Veille)."""
+    def _num(cle, maxi):
+        v = payload.get(cle)
+        if v is None or v == "":
+            return None
+        try:
+            f = float(str(v).replace(",", "."))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Valeur illisible pour {cle}.")
+        if f != f or f < 0 or f > maxi:
+            raise HTTPException(status_code=400, detail=f"Valeur hors limites pour {cle}.")
+        return round(f, 2)
+
+    try:
+        annee = int(payload.get("annee"))
+        mois = int(payload.get("mois"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Mois invalide.")
+    if not (2000 <= annee <= 2100 and 1 <= mois <= 12):
+        raise HTTPException(status_code=400, detail="Mois invalide.")
+
+    aj_nombre = _num("aj_nombre", 31)
+    net_verse = _num("net_verse", 20000)
+    jours_travail = _num("jours_travail", 31)
+    jours_cp = _num("jours_franchise_cp", 31)
+    jours_sal = _num("jours_franchise_salaires", 31)
+    if net_verse is None:
+        raise HTTPException(status_code=400, detail="Le montant net versé est obligatoire.")
+
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    rows = db.query(IntermittentActivity).filter(IntermittentActivity.user_id == user.id).all()
+
+    verdict, ecart, attendu_net, attendu_jours, explication = "indeterminable", None, None, None, None
+    if not billing.is_premium(db, user):
+        verdict = "verrou"
+        explication = "La vérification du versement fait partie de TOTOR Veille."
+    else:
+        res_aj, annexe, raison = _aj_pour_verification(profile, rows)
+        if res_aj is None:
+            explication = ("Renseigne d'abord ton allocation journalière (carte « Ton allocation » "
+                           "ou import de ton attestation) pour que je puisse vérifier ce versement."
+                           if raison == "allocation_manquante" else
+                           "Je ne connais pas encore ton annexe (artiste ou technicien) : "
+                           "précise ton métier dans tes activités et je pourrai vérifier.")
+        else:
+            activites = [
+                {"date": r.date, "type_activite": r.type_activite, "nombre": r.nombre,
+                 "salaire_brut": r.salaire_brut, "metier": getattr(r, "metier", None)}
+                for r in rows
+            ]
+            est = ae.estimer_mois_civil(annexe, res_aj, activites, annee, mois,
+                                        franchise_cp_jours=jours_cp,
+                                        franchise_salaires_jours=jours_sal)
+            attendu_net = est["net_estime"]
+            attendu_jours = float(est["jours_indemnisables"])
+            ecart = round(net_verse - attendu_net, 2)
+            if abs(ecart) <= 1.0:
+                verdict = "ok"
+                explication = "Le versement colle à mon calcul, à l'euro près."
+            else:
+                verdict = "ecart"
+                morceaux = []
+                if aj_nombre is not None and abs(aj_nombre - attendu_jours) >= 1:
+                    morceaux.append(
+                        f"France Travail a indemnisé {aj_nombre:.0f} jour(s), mon calcul en "
+                        f"attendait {attendu_jours:.0f} d'après tes activités saisies.")
+                    if jours_travail is not None and abs(jours_travail - est["jours_non_indemnisables"]) >= 1:
+                        morceaux.append(
+                            f"Le relevé compte {jours_travail:.0f} jour(s) travaillé(s), tes saisies "
+                            f"du mois en donnent {est['jours_non_indemnisables']:.0f} : il manque "
+                            "peut-être un contrat ou une AEM dans ton dossier.")
+                taux_lu = round(net_verse / aj_nombre, 2) if aj_nombre else None
+                if taux_lu and abs(taux_lu - res_aj["aj_nette"]) > 0.05:
+                    morceaux.append(
+                        f"Ton taux réel est de {taux_lu:.2f} € par jour, je comptais "
+                        f"{res_aj['aj_nette']:.2f} €. Importe ta notification France Travail "
+                        "et j'utiliserai ton taux officiel.")
+                if not morceaux:
+                    morceaux.append("Je ne vois pas d'explication simple : vérifie qu'aucune "
+                                    "régularisation d'un autre mois ne s'est glissée dans ce montant.")
+                if est.get("approximatif"):
+                    morceaux.append("Mon calcul de ce mois comporte une part d'estimation, "
+                                    "l'écart peut venir de là.")
+                sens = "en dessous de" if ecart < 0 else "au-dessus de"
+                explication = (f"Écart de {abs(ecart):.2f} € ({sens} mon calcul). " + " ".join(morceaux))
+
+    row = (db.query(ReleveSituation)
+           .filter(ReleveSituation.user_id == user.id,
+                   ReleveSituation.annee == annee,
+                   ReleveSituation.mois == mois).first())
+    if not row:
+        row = ReleveSituation(user_id=user.id, annee=annee, mois=mois)
+        db.add(row)
+    row.aj_nombre = aj_nombre
+    row.net_verse = net_verse
+    row.taux_net_jour = round(net_verse / aj_nombre, 2) if aj_nombre else None
+    row.jours_travail = jours_travail
+    row.jours_franchise_cp = jours_cp
+    row.jours_franchise_salaires = jours_sal
+    row.verdict = verdict
+    row.ecart = ecart
+    row.attendu_net = attendu_net
+    row.attendu_jours = attendu_jours
+    row.explication = explication
+    if payload.get("releve_r2_key"):
+        row.releve_r2_key = str(payload["releve_r2_key"])[:512]
+    db.commit()
+    db.refresh(row)
+    return _releve_to_dict(row)
+
+
+def _releve_to_dict(r):
+    return {
+        "id": r.id, "annee": r.annee, "mois": r.mois,
+        "aj_nombre": r.aj_nombre, "net_verse": r.net_verse, "taux_net_jour": r.taux_net_jour,
+        "jours_travail": r.jours_travail,
+        "jours_franchise_cp": r.jours_franchise_cp,
+        "jours_franchise_salaires": r.jours_franchise_salaires,
+        "verdict": r.verdict, "ecart": r.ecart,
+        "attendu_net": r.attendu_net, "attendu_jours": r.attendu_jours,
+        "explication": r.explication,
+    }
+
+
+@app.get("/intermittent/releves")
+def lister_releves(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (db.query(ReleveSituation)
+            .filter(ReleveSituation.user_id == user.id)
+            .order_by(ReleveSituation.annee.desc(), ReleveSituation.mois.desc())
+            .all())
+    return {"releves": [_releve_to_dict(r) for r in rows]}
+
+
+@app.delete("/intermittent/releves/{releve_id}")
+def supprimer_releve(releve_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = (db.query(ReleveSituation)
+           .filter(ReleveSituation.id == releve_id, ReleveSituation.user_id == user.id).first())
+    if not row:
+        raise HTTPException(status_code=404, detail="Relevé introuvable")
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/intermittent/aem/signalement")

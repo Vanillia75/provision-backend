@@ -553,6 +553,49 @@ class Subscription(Base):
 #  - kind="influencer" : réduction appliquée VIA Stripe (stripe_coupon_id).
 #  - kind="tester"     : premium offert DIRECTEMENT, sans carte ni Stripe.
 # ============================================================================
+class ReleveSituation(Base):
+    """Un MOIS de versement France Travail, tel que lu sur un relevé de situation
+    et VALIDÉ par l'utilisateur (jamais enregistré sans sa confirmation).
+
+    Créée le 14/08/2026 (décision Camille : vérifier les versements au centime).
+    ⚠️ Volontairement AUCUNE donnée personnelle : ni nom, ni NIR, ni adresse.
+    Que des jours et des montants. Le document lui-même vit dans le coffre R2,
+    sous le préfixe de l'utilisateur (donc couvert par la suppression RGPD).
+
+    verdict : "ok" (versement conforme au calcul TOTOR, à 1 € près),
+              "ecart" (différence expliquée dans `explication`),
+              "indeterminable" (TOTOR n'a pas de quoi calculer ce mois),
+              "verrou" (compte gratuit : la vérification est TOTOR Veille).
+    """
+    __tablename__ = "releves_situation"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    annee = Column(Integer, nullable=False)
+    mois = Column(Integer, nullable=False)               # 1..12
+
+    aj_nombre = Column(Float, nullable=True)             # jours indemnisés du mois
+    net_verse = Column(Float, nullable=True)             # net dû/versé pour le mois
+    taux_net_jour = Column(Float, nullable=True)         # net / jours (lu, jamais recalculé)
+    jours_travail = Column(Float, nullable=True)         # jours non indemnisés : travail
+    jours_franchise_cp = Column(Float, nullable=True)
+    jours_franchise_salaires = Column(Float, nullable=True)
+
+    verdict = Column(String, nullable=True)
+    ecart = Column(Float, nullable=True)                 # net_verse - attendu (négatif = il manque)
+    attendu_net = Column(Float, nullable=True)
+    attendu_jours = Column(Float, nullable=True)
+    explication = Column(String, nullable=True)
+
+    releve_r2_key = Column(String, nullable=True)        # le document, dans le coffre
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User")
+
+
 class PromoCode(Base):
     __tablename__ = "promo_codes"
 
