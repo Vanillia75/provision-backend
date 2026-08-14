@@ -97,3 +97,47 @@ def test_une_vraie_periode_est_conservee():
     r = _normalise({"employeur": "X", "date": "2026-07-10", "date_fin": "2026-07-12",
                     "type_activite": "cachet_isole", "nombre": 3, "salaire_brut": 1260}, "a.pdf")
     assert r["date"] == "2026-07-10" and r["date_fin"] == "2026-07-12"
+
+
+# ── Le pile ou face des polices corrompues (14/08/2026) ─────────────────
+#
+#  Beaucoup d'AEM Unédic sont des PDF SANS formulaire dont la couche de texte
+#  est encodée « maison » : des codes de contrôle, pas des lettres. Mesuré sur
+#  une AEM réelle : 35 % de caractères exploitables.
+#  On envoyait ce charabia au lecteur EN MÊME TEMPS que la page. Il s'en sortait
+#  souvent en regardant l'image, mais pas toujours : même document, même code,
+#  tantôt lu, tantôt « je n'ai rien trouvé d'exploitable ». C'est ce qui a fait
+#  échouer le test du Mac pendant que le même fichier passait ici.
+
+def test_du_charabia_n_est_pas_un_texte_exploitable():
+    """La couche texte d'une AEM a police corrompue, reproduite a l'identique."""
+    from aem_extractor import _texte_pdf_exploitable
+    import io
+    from reportlab.pdfgen import canvas
+    tampon = io.BytesIO()
+    c = canvas.Canvas(tampon)
+    # Beaucoup de caracteres de controle, comme une police mal encodee.
+    c.drawString(40, 700, "".join(chr(1 + (i % 26)) for i in range(400)))
+    c.showPage(); c.save()
+    assert _texte_pdf_exploitable(tampon.getvalue()) is False
+
+
+def test_un_vrai_texte_francais_reste_exploitable():
+    from aem_extractor import _texte_pdf_exploitable
+    import io
+    from reportlab.pdfgen import canvas
+    tampon = io.BytesIO()
+    c = canvas.Canvas(tampon)
+    y = 780
+    for _ in range(14):
+        c.drawString(40, y, "Attestation employeur mensuelle, periode du 10 au 12 juillet 2026.")
+        y -= 18
+    c.showPage(); c.save()
+    assert _texte_pdf_exploitable(tampon.getvalue()) is True
+
+
+def test_un_pdf_illisible_bascule_en_images_plutot_que_d_echouer():
+    """Prudence volontaire : au moindre doute, on rend les pages."""
+    from aem_extractor import _texte_pdf_exploitable
+    assert _texte_pdf_exploitable(b"pas du tout un pdf") is False
+    assert _texte_pdf_exploitable(b"") is False

@@ -190,6 +190,39 @@ def _render_pdf_form_pages(raw: bytes, indices=None) -> list:
     return blocks
 
 
+#  Un texte de PDF est « exploitable » s'il ressemble à du français. Une police
+#  corrompue produit des codes de contrôle, pas des lettres : c'est ce qu'on
+#  détecte ici, pour décider s'il faut rendre les pages en images.
+_SEUIL_TEXTE_LISIBLE = 0.65      # en dessous, le texte n'est pas de la langue
+_MINIMUM_CARACTERES = 120        # trop court = page vide ou scan pur
+
+
+def _texte_pdf_exploitable(raw: bytes) -> bool:
+    """Vrai si la couche de texte du PDF est lisible par une machine.
+
+    Prudence volontaire : au moindre doute (lecture impossible, texte trop
+    court, trop de caractères bizarres) on répond FAUX, ce qui déclenche le
+    rendu en images. Se tromper dans ce sens coûte quelques jetons ; se tromper
+    dans l'autre coûte une attestation illisible pour l'utilisateur.
+    """
+    try:
+        import pypdfium2 as pdfium
+        doc = pdfium.PdfDocument(raw)
+        try:
+            texte = "".join(
+                doc[i].get_textpage().get_text_range() for i in range(min(len(doc), 5))
+            )
+        finally:
+            doc.close()
+    except Exception:
+        return False
+
+    if len(texte) < _MINIMUM_CARACTERES:
+        return False
+    lisibles = sum(1 for c in texte if c.isalnum() or c in " .,;:/()-€%'\n\r\t")
+    return (lisibles / len(texte)) >= _SEUIL_TEXTE_LISIBLE
+
+
 def _build_source_blocks(file_path: str) -> list:
     """
     Prépare les blocs de contenu (image / document) à envoyer à l'IA pour ce fichier.
@@ -218,6 +251,25 @@ def _build_source_blocks(file_path: str) -> list:
                     return blocks
         except Exception:
             pass  # repli sur le document natif ci-dessous
+
+        # ⚠️ AJOUTÉ LE 14/08/2026 — LE PILE OU FACE DES POLICES CORROMPUES.
+        #  Beaucoup d'AEM Unédic sont des PDF SANS formulaire dont la couche de
+        #  texte est encodée « maison » : elle ne contient pas des lettres mais
+        #  des codes de contrôle. Mesuré sur une AEM réelle : 35 % de caractères
+        #  exploitables, le reste du charabia.
+        #  En envoyant le PDF brut, on transmettait ce charabia EN MÊME TEMPS que
+        #  la page. Le lecteur s'en sortait souvent en regardant l'image, mais pas
+        #  toujours : même document, même code, tantôt lu, tantôt « je n'ai rien
+        #  trouvé d'exploitable ». C'est ce qui a fait échouer le test du Mac
+        #  pendant que le même fichier passait ici.
+        #  On supprime le hasard : quand le texte est inexploitable, on rend nous
+        #  mêmes les pages en images. Le lecteur ne voit alors QUE l'attestation,
+        #  comme un humain. Vérifié : la même AEM en image se lit sans faute.
+        if not _texte_pdf_exploitable(raw):
+            blocks = _render_pdf_form_pages(raw)
+            if blocks:
+                return blocks
+
         b64 = base64.standard_b64encode(raw).decode("utf-8")
         return [{"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}]
 
