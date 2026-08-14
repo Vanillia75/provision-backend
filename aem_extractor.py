@@ -279,9 +279,16 @@ def _normalise(data: dict, filename: str) -> dict:
     # Si la fin est avant le début (lecture inversée), on l'ignore plutôt que d'afficher une absurdité.
     if date_iso and date_fin_iso and date_fin_iso < date_iso:
         date_fin_iso = None
-    # Si la fin égale le début (contrat d'un jour), pas besoin de l'afficher comme une période.
-    if date_fin_iso and date_iso and date_fin_iso == date_iso:
-        date_fin_iso = None
+    # ⚠️ ICI SE TROUVAIT UNE LIGNE QUI EFFAÇAIT LA DATE DE FIN quand elle égalait
+    #  le début (« pas besoin de l'afficher comme une période »). Retirée le
+    #  14/08/2026 : elle confondait AFFICHER et CONSERVER. Sur les trois
+    #  attestations réelles testées ce jour-là, toutes des contrats d'une journée,
+    #  la date de fin figurait noir sur blanc sur le document et repartait vide.
+    #  Ce n'est pas cosmétique : la DATE ANNIVERSAIRE se calcule 12 mois après la
+    #  fin du contrat qui ouvre les droits. Sans elle, l'app ne peut jamais la
+    #  déduire des AEM, et 16 intermittents sur 26 n'en ont pas.
+    #  L'affichage, lui, gérait déjà le cas tout seul : formatPeriode() ne montre
+    #  « du X au Y » que si les deux dates diffèrent. On garde donc la donnée.
 
     # métier : uniquement les deux valeurs connues (sinon None — jamais de devinette).
     metier = data.get("metier")
