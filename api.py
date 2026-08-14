@@ -5152,6 +5152,14 @@ async def extract_aem(
             aems = extract_aem_data(file_path)
         except HTTPException:
             raise
+        except aem_extractor.DocumentAOrienter as e:
+            # Document France Travail LEGITIME depose au mauvais endroit : ce n'est
+            # PAS un echec de lecture. On renvoie 422 avec un code que le front lit
+            # pour proposer le bon geste, et on ne remonte rien a Sentry.
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "document_a_orienter", "kind": e.kind, "message": str(e)},
+            )
         except Exception as e:
             # Vigie fondateur (23/07/2026, « plus jamais ce bug ») : chaque échec
             # DÉFINITIF de scan (après les 3 tentatives) remonte à Sentry — motif et
@@ -5259,6 +5267,14 @@ async def extract_aem_pages(
             aems = aem_extractor.extract_aem_data_pages(chemins)
         except HTTPException:
             raise
+        except aem_extractor.DocumentAOrienter as e:
+            # Document France Travail LEGITIME depose au mauvais endroit : ce n'est
+            # PAS un echec de lecture. On renvoie 422 avec un code que le front lit
+            # pour proposer le bon geste, et on ne remonte rien a Sentry.
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "document_a_orienter", "kind": e.kind, "message": str(e)},
+            )
         except Exception as e:
             try:
                 sentry_sdk.capture_message(
@@ -5403,6 +5419,14 @@ async def extract_are(
             data = extract_are_data(file_path)
         except HTTPException:
             raise
+        except aem_extractor.DocumentAOrienter as e:
+            # Document France Travail LEGITIME depose au mauvais endroit : ce n'est
+            # PAS un echec de lecture. On renvoie 422 avec un code que le front lit
+            # pour proposer le bon geste, et on ne remonte rien a Sentry.
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "document_a_orienter", "kind": e.kind, "message": str(e)},
+            )
         except Exception as e:
             # Repli PDF -> image : certains PDF d'ARE (scannés/atypiques) passent mieux
             # en image. Ne s'exécute QU'APRÈS l'échec du chemin normal (donc jamais de

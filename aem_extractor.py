@@ -66,12 +66,34 @@ Règles importantes :
 - "type_document" : identifie le FORMULAIRE. « Attestation employeur pour les activités relevant des
   annexes 8 et 10 » (AEM/FCTU spectacle) → "aem". Attestation GUSO → "guso". « Attestation employeur
   ayant conclu des contrats à durée déterminée d'usage » (formulaire Unédic AE-DSN / DAJ 1260,
-  art. D.1242-1 — hors spectacle : pub, mannequinat…) → "cddu_usage". Tout AUTRE document (fiche de
-  paie, contrat de travail, courrier, notification de droits…) → renvoie UNIQUEMENT
+  art. D.1242-1 — hors spectacle : pub, mannequinat…) → "cddu_usage".
+  ⚠️ RELEVÉ DE SITUATION France Travail (titre « RELEVE DE SITUATION DU … AU … », tableaux
+  « Allocations déjà versées » / « Allocations dues », lignes « Allocation d'Aide au Retour à
+  l'Emploi », « DECOMPTE GENERAL », « REGLEMENT DU … ») → renvoie UNIQUEMENT
+  [{"type_document": "releve_situation"}] et aucun autre champ. Ce n'est PAS une attestation
+  d'employeur : c'est le décompte de ce que France Travail a versé. Ne tente pas d'en tirer des
+  cachets ou des heures.
+  NOTIFICATION D'OUVERTURE OU DE REPRISE DE DROITS (« notification d'admission », « reprise de
+  paiement », montant journalier de l'allocation, date anniversaire) → renvoie UNIQUEMENT
+  [{"type_document": "notification_are"}] et aucun autre champ.
+  Tout AUTRE document (fiche de paie, contrat de travail, courrier…) → renvoie UNIQUEMENT
   [{"type_document": "inconnu"}] et aucun autre champ.
 - Si une information est absente ou illisible, mets null (sauf "nombre" : mets 0 si introuvable).
 - Ne devine jamais un SIRET ou un montant : si tu n'es pas sûr, mets null.
 - Réponds en JSON pur (une liste []), rien d'autre."""
+
+
+class DocumentAOrienter(RuntimeError):
+    """Un document France Travail LÉGITIME, mais déposé au mauvais endroit.
+
+    Décision de Camille du 14/08/2026 : plus jamais de « je ne sais pas lire »
+    sec sur un document officiel. On dit ce que c'est et où ça va. Le front peut
+    lire `.kind` pour proposer le bon geste plutôt qu'un simple message.
+    """
+
+    def __init__(self, kind: str, message: str):
+        super().__init__(message)
+        self.kind = kind
 
 
 PROMPT_ARE = """Tu lis une attestation/notification France Travail (ARE — Allocation de Retour à l'Emploi) d'un intermittent du spectacle français.
@@ -519,6 +541,28 @@ def _finaliser(data, fname: str) -> list:
     # Garde-fou : document reconnu comme N'ÉTANT PAS une attestation employeur (fiche de paie,
     # contrat, courrier…) → on le dit honnêtement au lieu d'extraire des données fausses en silence.
     items = [item for item in (data or []) if isinstance(item, dict)]
+
+    # ── ORIENTATION PLUTÔT QUE REJET (14/08/2026, décision Camille) ──
+    #  Un document France Travail parfaitement légitime ne doit JAMAIS recevoir un
+    #  « je ne sais pas lire » sec. Un relevé de situation ou une notification de
+    #  droits déposés dans « Mes AEM », c'est une erreur d'aiguillage, pas une
+    #  erreur de l'utilisateur : on lui dit ce qu'il a déposé et où ça ira.
+    if items and all(item.get("type_document") == "releve_situation" for item in items):
+        raise DocumentAOrienter(
+            "releve_situation",
+            "Ça, c'est ton relevé de situation France Travail : le décompte de ce qu'ils t'ont "
+            "versé. Ce n'est pas une attestation d'employeur, donc il n'a pas sa place ici. "
+            "Je saurai bientôt le lire pour vérifier tes versements au centime. En attendant, "
+            "range-le dans « Mes documents », il y est en sécurité.",
+        )
+    if items and all(item.get("type_document") == "notification_are" for item in items):
+        raise DocumentAOrienter(
+            "notification_are",
+            "Ça, c'est ta notification de droits France Travail. Elle a sa place sur ton cockpit, "
+            "pas dans tes AEM : dépose-la depuis la carte « Ta date anniversaire », et j'y lirai "
+            "ta date de renouvellement et ton allocation journalière d'un coup.",
+        )
+
     if items and all(item.get("type_document") == "inconnu" for item in items):
         raise RuntimeError(
             "Je ne sais pas encore lire ce type de document — ça ne ressemble pas à une attestation "
