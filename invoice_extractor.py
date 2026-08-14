@@ -11,14 +11,30 @@ from typing import Optional
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp",
                     ".heic", ".heif"}  # HEIC : l'appareil photo iPhone (14/08/2026)
 
+# ⚠️ CORRIGÉ LE 14/08/2026 — LES MILLIERS D'UNE FACTURE.
+#  L'ancienne écriture d'un montant était « \d{1,3} » suivi de groupes de trois
+#  chiffres. Elle ne décrivait donc QUE les montants à séparateur de milliers, et
+#  se cassait sur le format le plus courant, celui SANS séparateur : sur
+#  « Total TTC : 1250,00 », elle ne pouvait pas accrocher « 1250 » (quatre
+#  chiffres), donc elle démarrait plus loin et lisait « 250,00 ». Une facture de
+#  1 250 € était enregistrée à 250 €, sans le moindre avertissement.
+#  Et quand le séparateur de milliers était un POINT (« 12.500,00 », fréquent sur
+#  les factures étrangères et sur certains logiciels), le nettoyage produisait
+#  « 12.500.00 », que Python refuse de lire : le montant était perdu tout court.
+#
+#  Un montant, c'est : des chiffres, éventuellement coupés par des séparateurs de
+#  milliers (espace, espace insécable ou point), puis les centimes. Jamais de
+#  saut de ligne au milieu, sinon on recolle un numéro de ligne au montant.
+_MONTANT = r"\d+(?:[ \t  .]\d{3})*[.,]\d{2}"
+
 AMOUNT_PATTERNS = [
-    r"montant\s+(?:prélevé|à payer|net\s+à\s+payer|ttc)\b[^\n€$]{0,50}?(\d{1,3}(?:[\s.]\d{3})*[.,]\d{2})",
-    r"total\s+(?:ttc|à payer|général)\b[^\n€$]{0,50}?(\d{1,3}(?:[\s.]\d{3})*[.,]\d{2})",
-    r"total\b[^\n€$]{0,50}?(\d{1,3}(?:[\s.]\d{3})*[.,]\d{2})",
-    r"([\d\s]+[.,]\d{2})\s*€",
-    r"€\s*([\d\s]+[.,]\d{2})",
-    r"\$\s*([\d\s]+[.,]\d{2})",
-    r"([\d\s]+[.,]\d{2})\s*\$",
+    rf"montant\s+(?:prélevé|à payer|net\s+à\s+payer|ttc)\b[^\n€$]{{0,50}}?({_MONTANT})",
+    rf"total\s+(?:ttc|à payer|général)\b[^\n€$]{{0,50}}?({_MONTANT})",
+    rf"total\b[^\n€$]{{0,50}}?({_MONTANT})",
+    rf"({_MONTANT})\s*(?:€|eur\b|euros?\b)",
+    rf"(?:€|eur\b)\s*({_MONTANT})",
+    rf"\$\s*({_MONTANT})",
+    rf"({_MONTANT})\s*\$",
 ]
 
 DATE_PATTERNS = [
@@ -259,18 +275,37 @@ def _find_tva(text: str) -> Optional[float]:
     return None
 
 
+def _montant_en_nombre(brut: str) -> Optional[float]:
+    """Convertit un montant écrit par un humain en nombre.
+
+    On ne devine pas : le séparateur DÉCIMAL est le dernier point ou la dernière
+    virgule suivi(e) de deux chiffres, et tout le reste n'est que du séparateur
+    de milliers, quel que soit le pays. « 12.500,00 », « 12 500,00 » et
+    « 12,500.00 » donnent donc tous les trois 12500.0.
+    """
+    if not brut:
+        return None
+    s = re.sub(r"[^\d.,]", "", brut.strip())
+    if not s:
+        return None
+    m = re.search(r"[.,](\d{2})$", s)
+    entier, centimes = (s[: m.start()], m.group(1)) if m else (s, "")
+    entier = entier.replace(".", "").replace(",", "")
+    if not entier.isdigit():
+        return None
+    try:
+        return float(entier + ("." + centimes if centimes else ""))
+    except ValueError:
+        return None
+
+
 def _find_amount(text: str) -> Optional[float]:
     text_lower = text.lower()
     for pattern in AMOUNT_PATTERNS:
-        matches = re.findall(pattern, text_lower)
-        for m in matches:
-            clean = m.replace(" ", "").replace(",", ".")
-            try:
-                val = float(clean)
-                if val > 0:
-                    return val
-            except ValueError:
-                continue
+        for m in re.findall(pattern, text_lower):
+            val = _montant_en_nombre(m)
+            if val is not None and val > 0:
+                return val
     return None
 
 
