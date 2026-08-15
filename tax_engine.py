@@ -75,13 +75,39 @@ ACRE_EXONERATION_APRES = 0.25
 def acre_part_a_payer(date_creation: Optional[date]) -> float:
     """Part des cotisations qui reste DUE quand l'ACRE s'applique (0,50 ou 0,75).
 
-    Date de creation inconnue : on garde 0,50, le cas majoritaire des beneficiaires
-    actuels (l'ACRE dure 12 mois, donc la plupart ont cree avant juillet 2026).
-    ⚠️ A REVOIR courant 2027, quand les creations d'apres la bascule domineront.
+    ⚠️ CORRIGE LE 15/08/2026, apres verification a la source. Le repli quand la
+    date est inconnue etait 0,50, « le cas majoritaire ». Deux problemes :
+
+    1. La date de creation n'etait JAMAIS demandee par l'application (aucun ecran
+       ne la remplissait). La branche « creation apres le 1er juillet 2026 » etait
+       donc morte, et 100 % des beneficiaires de l'ACRE etaient calcules a 50 %
+       d'exoneration, y compris ceux qui viennent de creer et n'y ont pas droit.
+    2. Se tromper dans CE sens est le pire des deux. Sous-estimer l'URSSAF, c'est
+       exactement la mauvaise surprise que TOTOR existe pour eviter : la personne
+       met de cote la moitie de ce qu'elle doit, et decouvre le trou a l'echeance.
+
+    On bascule donc le repli du cote PRUDENT : sans date, on suppose le taux le
+    moins favorable (25 % d'exoneration, donc 75 % des cotisations dues). Mettre
+    trop de cote se rattrape ; ne pas assez mettre de cote, non.
+
+    La vraie reponse reste de DEMANDER la date : l'ecran des reglages la propose
+    desormais, et des qu'elle est renseignee le calcul redevient exact dans les
+    deux sens.
     """
-    if date_creation and date_creation >= ACRE_BASCULE:
+    if date_creation is None:
+        return 1.0 - ACRE_EXONERATION_APRES  # 0,75 : le repli prudent
+    if date_creation >= ACRE_BASCULE:
         return 1.0 - ACRE_EXONERATION_APRES  # 0,75
     return 1.0 - ACRE_EXONERATION_AVANT      # 0,50
+
+
+def acre_date_manquante(acre_actif: bool, date_creation: Optional[date]) -> bool:
+    """Vrai quand on calcule l'ACRE au jugé faute de date de creation.
+
+    Sert a l'ecran : tant que c'est vrai, on demande la date a la personne
+    plutot que de lui laisser croire que le chiffre est exact.
+    """
+    return bool(acre_actif) and date_creation is None
 STATUTS_DISPONIBLES = ["auto_entrepreneur"]
 STATUTS_A_VENIR = ["sarl", "sas"]
 

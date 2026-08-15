@@ -111,12 +111,17 @@ def test_F_exclusions():
 
 
 def test_G_acre_bnc():
-    # bnc + ACRE : taux = 0.256×0.5 + 0.002 = 0.13
+    # ⚠️ CHIFFRE CHANGÉ LE 15/08/2026, et c'est voulu.
+    #  Sans date de création connue, l'ACRE se calcule désormais au taux le moins
+    #  favorable (25 % d'exonération, décret n° 2026-69 du 06/02/2026), et non
+    #  plus 50 %. Avant, l'application ne demandait la date NULLE PART : tout le
+    #  monde était calculé à 50 % et provisionnait la MOITIÉ de ce qu'il doit.
+    #  bnc + ACRE : taux = 0.256 × 0.75 + 0.002 = 0.194
     p = projeter_tresorerie(**base(solde=0, activite="bnc", acre=True,
                                    factures=[facture(1000)]))
-    # charges = 1000 × 0.13 = 130 ; plancher = 0 + 1000 − 0 − 130 = 870
-    assert eq(p.charges, 130.0), p.charges
-    assert eq(p.plancher, 870.0), p.plancher
+    # charges = 1000 × 0.194 = 194 (contre 130 avant) ; plancher = 1000 − 194 = 806
+    assert eq(p.charges, 194.0), p.charges
+    assert eq(p.plancher, 806.0), p.plancher
     print(f"✓ G. ACRE/BNC : taux appliqué correct (charges={p.charges})")
 
 

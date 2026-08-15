@@ -1952,10 +1952,22 @@ def _build_emitter_info(profile: Optional[Profile]) -> dict:
     nom = profile.entreprise or profile.raison_sociale or f"{profile.prenom or ''} {profile.nom or ''}".strip() or None
     # Mention légale « EI » obligatoire pour les entrepreneurs individuels (auto-entrepreneurs).
     nom = append_ei_mention(nom, profile.statut)
-    mention = (
-        "Auto-entrepreneur, dispensé d'immatriculation au RCS et au RM"
-        if profile.statut == "auto_entrepreneur" else None
-    )
+    # ⚠️ MENTION RETIRÉE LE 15/08/2026, elle était FAUSSE et imprimée sur toutes
+    #  les factures et devis des auto-entrepreneurs, donc envoyée à leurs clients.
+    #  On écrivait « dispensé d'immatriculation au RCS et au RM ». Cette dispense
+    #  n'existe plus : depuis le 1er janvier 2023 le Registre national des
+    #  entreprises (RNE) est le registre unique, et l'immatriculation est
+    #  OBLIGATOIRE pour tout micro-entrepreneur. Service-public le dit noir sur
+    #  blanc (« Non, le micro-entrepreneur n'est pas dispensé d'immatriculation »,
+    #  entreprendre.service-public.gouv.fr/vosdroits/F36746, vérifié le
+    #  15/08/2026). Le répertoire des métiers a lui-même disparu.
+    #  On n'écrit RIEN plutôt qu'une contre-vérité : une facture qui affirme une
+    #  dispense inexistante est attaquable.
+    #  ⏳ À FAIRE (décision produit, hors de portée d'une correction) : un
+    #  commerçant immatriculé au RCS doit porter « RCS <ville du greffe> » sur ses
+    #  factures (article R123-237 du code de commerce). On ne connaît ni sa
+    #  catégorie ni son greffe : il faudra le lui demander dans son profil.
+    mention = None
     return {"nom": nom, "adresse": profile.adresse, "siret": profile.siret, "mention": mention}
 
 

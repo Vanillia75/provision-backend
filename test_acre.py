@@ -43,10 +43,19 @@ def test_part_de_cotisations_encore_due(creation, part_due, commentaire):
     assert acre_part_a_payer(creation) == pytest.approx(part_due), commentaire
 
 
-def test_date_de_creation_inconnue_garde_l_ancien_taux():
-    """Choix assumé : sans date, on garde 50 %, le cas majoritaire des
-    bénéficiaires actuels (l'ACRE dure 12 mois). À revoir courant 2027."""
-    assert acre_part_a_payer(None) == pytest.approx(0.50)
+def test_date_de_creation_inconnue_se_trompe_du_cote_PRUDENT():
+    """⚠️ CHOIX INVERSÉ LE 15/08/2026, après l'audit à la source.
+
+    On gardait 50 % « le cas majoritaire ». Deux raisons de changer :
+    l'application ne demandait la date de création NULLE PART, donc la branche
+    d'après la bascule était morte et TOUT LE MONDE était calculé à 50 %, y
+    compris les créations récentes qui n'y ont pas droit ; et se tromper dans ce
+    sens fait SOUS-PROVISIONNER l'URSSAF, exactement la mauvaise surprise que
+    TOTOR existe pour éviter.
+
+    Sans date, on suppose donc le taux le moins favorable. Mettre trop de côté
+    se rattrape ; ne pas assez en mettre, non."""
+    assert acre_part_a_payer(None) == pytest.approx(0.75)
 
 
 # ── L'effet réel sur ce que l'utilisateur doit provisionner ─────────────

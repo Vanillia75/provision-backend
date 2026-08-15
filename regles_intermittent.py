@@ -245,18 +245,29 @@ REGLES = {
         "source": "MESURÉ le 2026-07-27 sur le simulateur officiel France Travail "
                   "(simucalcul.pole-emploi-services.fr) : l'allocation reste bloquée à 155,77 € "
                   "pour un salaire de référence de 320 000, 350 000, 500 000 et 1 000 000 €, "
-                  "annexe 8 comme annexe 10.",
-        "version": "2026.07",
+                  "annexe 8 comme annexe 10. ⚠️ CE N'EST PAS UN CHIFFRE PUBLIÉ : aucun texte "
+                  "officiel ne donne 155,77 €. Voir le commentaire.",
+        "version": "2026.08",
         "dateAppli": "2026",
-        "verifie": True,
-        "commentaire": "⚠️ VALEUR CORRIGÉE le 27/07/2026. On avait 174,80 € (guide France Travail "
-                       "p.11, daté du 01/01/2024) : ce chiffre est PÉRIMÉ ou ne concerne pas les "
-                       "annexes 8/10. Le simulateur officiel plafonne à 155,77 €, et notre formule "
-                       "colle au centime jusqu'à 300 000 € de salaire de référence (153,70 contre "
-                       "153,71). Sans cette correction, un artiste très bien payé (au-delà d'environ "
-                       "306 500 € sur la période) aurait vu une allocation SUPÉRIEURE à la réalité : "
-                       "exactement ce que la Loi X interdit. Revalorisé périodiquement : revérifier "
-                       "sur le simulateur au rituel de janvier.",
+        "verifie": False,
+        "commentaire": "⚠️ VALEUR NON RÉSOLUE, RELUE À LA SOURCE LE 15/08/2026. Il existe DEUX "
+                       "chiffres officiels, et aucun ne vaut 155,77 € : l'Unédic publie « ARE "
+                       "Annexes VIII et X : 181,18 € — maximum théorique du 1er janvier au "
+                       "31 décembre 2026 » (Paramètres utiles, avril 2026, page 23, PDF lu "
+                       "directement) ; et le guide France Travail « Intermittents du spectacle » "
+                       "p.11 écrit 174,80 € depuis le 01/01/2024. Le commentaire précédent "
+                       "affirmait que 174,80 € était « périmé » : c'était une déduction, pas un "
+                       "fait, et elle est fausse pour 2026 puisque l'Unédic publie plus haut "
+                       "encore. NOTRE 155,77 € vient d'une MESURE sur le simulateur, pas d'un "
+                       "texte, d'où verifie=False. "
+                       "ON LE CONSERVE QUAND MÊME, et c'est un choix assumé : c'est la valeur la "
+                       "plus BASSE des trois, donc la seule qui ne risque pas de promettre plus "
+                       "que ce qui sera versé (Loi X). Monter à 181,18 € ferait afficher à un "
+                       "artiste très bien payé une allocation supérieure à ce que le simulateur "
+                       "officiel calcule. "
+                       "À TRANCHER sur un vrai relevé d'un allocataire au plafond : c'est la seule "
+                       "preuve qui départagera. D'ici là, le chat ne doit PAS présenter ce montant "
+                       "comme un plafond officiel, et le rituel de janvier doit rejouer la mesure.",
     },
     "allocationRetenueRetraiteComp": {
         "valeur": {"taux": 0.0093, "seuilExoneration": 31.96, "seuilCsg": 60.0},
@@ -304,14 +315,14 @@ REGLES = {
                        "ÉVOLUE AVEC LE SMIC : à revérifier au rituel de janvier, sur le simulateur.",
     },
     "pmssMensuel": {
-        "valeur": {"montant": 3925.0, "annee": 2025, "coefPlafondCumul": 1.18},
+        "valeur": {"montant": 4005.0, "annee": 2026, "coefPlafondCumul": 1.18},
         "libelle": "Plafond mensuel de la sécurité sociale (pour le plafond de cumul ARE + salaires)",
-        "source": "Unédic — Paramètres utiles avril 2025 (PMSS 2025 = 3 925 €) ; guide FT p.17 (cumul ≤ 118 % du PMSS)",
+        "source": "Unédic — Paramètres utiles AVRIL 2026, tableau des plafonds : PMSS 2026 = 4 005 € (LU À LA SOURCE le 15/08/2026 ; arrêté du 22/12/2025, PASS 2026 = 48 060 € = 4 005 × 12) ; guide FT p.17 (cumul ≤ 118 % du PMSS)",
         "version": "2026.07",
         "dateAppli": "2025-01-01",
         "verifie": True,
         "commentaire": "Cumul mensuel ARE + rémunérations brutes plafonné à 118 % du PMSS. "
-                       "Valeur 2025 — à réviser chaque 1er janvier (l'exemple 12 du guide utilise "
+                       "⚠️ La valeur 2025 (3 925 €) était encore en place le 15/08/2026, soit sept mois de retard : à réviser chaque 1er janvier, sans faute. À réviser (l'exemple 12 du guide utilise "
                        "le PMSS 2024 = 3 864 € → plafond 4 559,52 €, vérifié).",
     },
     "franchiseCongesParJours": {
