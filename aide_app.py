@@ -156,6 +156,14 @@ MODE INTERMITTENT (menu de gauche) :
   Si quelqu'un dépose un relevé de situation dans « Mes AEM », Totor le reconnaît et
   l'oriente vers « Mes versements » (et une notification de droits vers la carte
   « Ta date anniversaire » du cockpit) : ce n'est jamais une erreur de l'utilisateur.
+- Mes documents → Revenus (le « récapitulatif de revenus », pour un propriétaire,
+  une banque ou un comptable) : depuis le 15/08/2026, on CHOISIT la période avant
+  de générer, avec des pastilles au-dessus du document : « 12 derniers mois »
+  (par défaut), « 3 derniers mois », une année civile, une saison du spectacle
+  (septembre à août). Seules les années et saisons où la personne a réellement
+  travaillé sont proposées. Le bouton « Télécharger en PDF » produit un vrai
+  fichier PDF portant la période choisie. ⚠️ Ce document est PERSONNEL : il n'a
+  aucune valeur officielle, ce n'est pas une attestation de France Travail.
 - Actualisation : une page dédiée prépare le récap du mois à recopier sur France Travail
   (la fenêtre ouvre le 28 et ferme vers le 15). Totor ne s'actualise JAMAIS à la place de la
   personne : il prépare tout, c'est elle qui valide sur francetravail.fr. Un email de rappel

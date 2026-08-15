@@ -119,7 +119,12 @@ def generate_recap_pdf(recap: dict, prenom: str = "", nom: str = "",
     flux += [entete, Spacer(1, 12)]
 
     flux.append(Paragraph("Récapitulatif de revenus", st_titre))
-    flux.append(Paragraph(recap.get("periodeLabel") or "Sur les 12 derniers mois", st_sous))
+    # La periode vient de l'ecran en minuscule (« saison 2025-2026 »), ce qui se
+    # lit bien dans une phrase mais pas en sous-titre isole du document.
+    periode = (recap.get("periodeLabel") or "Sur les 12 derniers mois").strip()
+    if periode:
+        periode = periode[0].upper() + periode[1:]
+    flux.append(Paragraph(periode, st_sous))
 
     # ── Qui ──
     ligne_qui = (f"<b>{nom_complet}</b> — intermittent du spectacle"

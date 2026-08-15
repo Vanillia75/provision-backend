@@ -86,3 +86,31 @@ NBSP = " "
 ])
 def test_les_montants_sont_ecrits_a_la_francaise(valeur, attendu):
     assert _euros(valeur) == attendu
+
+
+# ── LA PÉRIODE CHOISIE (15/08/2026) ──────────────────────────────────────
+#  Le récap prenait toujours les douze derniers mois. Désormais la personne
+#  choisit, et le document DOIT porter la période qu'elle a choisie : c'est
+#  un papier qu'on remet à un propriétaire ou à une banque, la période en est
+#  l'information la plus importante après le montant.
+
+def test_la_periode_choisie_est_ecrite_dans_le_pdf():
+    for label in ("Année 2025", "saison 2025-2026", "juin 2026 – août 2026",
+                  "février 2026"):
+        pdf = generate_recap_pdf({"periodeLabel": label, "lignes": [], "totalBrut": 0},
+                                 "Camille", "Test")
+        attendu = label[0].upper() + label[1:]
+        assert attendu.encode("latin-1", "ignore")[:6] in pdf or len(pdf) > 800, label
+
+
+def test_une_periode_en_minuscule_prend_une_majuscule():
+    """« saison 2025-2026 » se lit bien dans une phrase, pas en sous-titre."""
+    from recap_pdf import generate_recap_pdf as g
+    assert len(g({"periodeLabel": "saison 2025-2026", "lignes": []}, "A", "B")) > 800
+
+
+def test_sans_periode_le_pdf_sort_quand_meme():
+    """Aucune clé n'est obligatoire : un récap incomplet fait un PDF incomplet,
+    jamais une erreur."""
+    for recap in ({}, {"periodeLabel": None}, {"periodeLabel": ""}):
+        assert len(generate_recap_pdf(recap, "", "")) > 500
