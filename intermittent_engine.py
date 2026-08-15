@@ -61,6 +61,24 @@ PLAFOND_ENSEIGNEMENT = valeur_de("enseignementPlafond")  # 70
 # Types du mécanisme A (assimilation en heures) uniquement — la maladie ordinaire hors
 # contrat et la paternité (mécanisme B, neutralisation) NE sont PAS ici : hors périmètre V1.
 HEURES_ARRET_PAR_JOUR = valeur_de("assimilationArretParJour")  # 5
+
+# ─── PLAFOND MENSUEL DU TRAVAIL RETENU (ajouté le 15/08/2026) ────────────────
+#  Trouvé par l'audit à la source. Le moteur additionnait les heures ligne à
+#  ligne SANS AUCUN plafond mensuel : un mois à 400 heures comptait 400 heures.
+#  Guide France Travail « Intermittents du spectacle » : « Le nombre d'heures de
+#  travail retenu par mois civil ne peut pas dépasser un plafond : 208 heures
+#  pour les ouvriers et techniciens (majoré à 250 heures en cas d'employeurs
+#  différents sur le mois, 260 sur dérogation de la DREETS) ; 28 cachets pour
+#  les artistes. »
+#  Sans ce plafond, quelqu'un pouvait se croire au-dessus des 507 heures alors
+#  que France Travail ne lui en retenait qu'une partie : exactement le sens
+#  d'erreur que la Loi X interdit (ne jamais annoncer mieux que la réalité).
+PLAFOND_MENSUEL_HEURES = 208.0          # annexe 8, un seul employeur sur le mois
+PLAFOND_MENSUEL_HEURES_MULTI = 250.0    # annexe 8, employeurs différents
+PLAFOND_MENSUEL_CACHETS = 28.0          # annexe 10
+#  Le guide proratise quand la fenêtre ne couvre qu'une PARTIE d'un mois civil :
+#  plafond / 20,8 x jours calendaires couverts.
+JOURS_MOIS_REFERENCE = 20.8
 TYPES_ARRET_ASSIMILE = ("arret_maternite", "arret_accident", "arret_ald", "arret_suspension")
 
 # Arrêts NEUTRALISÉS (mécanisme B, le « fractionnement ») : maladie ordinaire hors
@@ -309,8 +327,96 @@ def _compter_sur_fenetre(activites: list, fin: date) -> tuple:
             "nombre": a.nombre,
             "heures": h,
             "regle": regle_ligne,
+            # On garde de quoi appliquer le plafond MENSUEL juste après : il ne
+            # peut pas se calculer ligne à ligne, il porte sur le mois entier.
+            # getattr : le moteur est appelé avec plusieurs formes d'activité
+            # (dataclass interne, ligne de base, dict) et toutes ne portent pas
+            # l'employeur. Sans lui, on applique simplement le plafond simple.
+            "_employeur": (getattr(a, "employeur", None) or "").strip().lower() or None,
         })
-    return round(total, 2), detail, jours_allonges
+
+    # ─── PLAFOND MENSUEL (15/08/2026) ───────────────────────────────────────
+    #  Appliqué APRÈS la boucle, parce qu'il porte sur le mois civil et non sur
+    #  la ligne. On ne touche qu'au TRAVAIL (cachets et heures) : les arrêts
+    #  assimilés, la formation et l'enseignement ont leurs propres règles.
+    retire = _appliquer_plafond_mensuel(detail, borne_basse, fin)
+    total -= retire
+
+    for d in detail:
+        d.pop("_employeur", None)
+    return round(max(0.0, total), 2), detail, jours_allonges
+
+
+def _mois_couvert(annee: int, mois: int, borne_basse: date, fin: date) -> int:
+    """Nombre de jours de ce mois civil réellement couverts par la fenêtre."""
+    premier = date(annee, mois, 1)
+    dernier = date(annee + (mois == 12), (mois % 12) + 1, 1) - timedelta(days=1)
+    debut = max(premier, borne_basse)
+    bout = min(dernier, fin)
+    return max(0, (bout - debut).days + 1)
+
+
+def _appliquer_plafond_mensuel(detail: list, borne_basse: date, fin: date) -> float:
+    """Rabote les lignes de TRAVAIL qui dépassent le plafond du mois civil.
+
+    Renvoie le nombre d'heures retirées, et annote les lignes concernées pour
+    que la personne comprenne pourquoi son total n'est pas la somme brute.
+
+    Règle (guide France Travail) : 208 h par mois civil pour les heures
+    (250 h si plusieurs employeurs différents dans le mois), 28 cachets pour les
+    artistes. Quand la fenêtre ne couvre qu'une partie du mois, le plafond est
+    proratisé : plafond / 20,8 x jours calendaires couverts.
+    """
+    retire_total = 0.0
+    par_mois = {}
+    for d in detail:
+        if d["type"] not in ("cachet_isole", "cachet_groupe", "cachet", "heures"):
+            continue
+        j = date.fromisoformat(d["date"])
+        par_mois.setdefault((j.year, j.month), []).append(d)
+
+    for (annee, mois), lignes in par_mois.items():
+        jours = _mois_couvert(annee, mois, borne_basse, fin)
+        if jours <= 0:
+            continue
+        complet = jours >= 28  # mois civil entier dans la fenêtre
+
+        cachets = [d for d in lignes if d["type"] != "heures"]
+        heures = [d for d in lignes if d["type"] == "heures"]
+
+        # Annexe 10 : 28 cachets par mois, soit 28 x 12 h.
+        if cachets:
+            plafond = PLAFOND_MENSUEL_CACHETS if complet else PLAFOND_MENSUEL_CACHETS / JOURS_MOIS_REFERENCE * jours
+            retire_total += _raboter(cachets, plafond * HEURES_CACHET,
+                                     f"Plafond mensuel de {plafond:.0f} cachets")
+
+        # Annexe 8 : 208 h, ou 250 h si plusieurs employeurs différents ce mois.
+        if heures:
+            employeurs = {d.get("_employeur") for d in heures if d.get("_employeur")}
+            base = PLAFOND_MENSUEL_HEURES_MULTI if len(employeurs) >= 2 else PLAFOND_MENSUEL_HEURES
+            plafond = base if complet else base / JOURS_MOIS_REFERENCE * jours
+            retire_total += _raboter(heures, plafond, f"Plafond mensuel de {plafond:.0f} h")
+    return retire_total
+
+
+def _raboter(lignes: list, plafond: float, libelle: str) -> float:
+    """Ramène le total d'un groupe de lignes sous un plafond, en rabotant les
+    dernières. Renvoie le nombre d'heures retirées."""
+    total = sum(d["heures"] for d in lignes)
+    if total <= plafond + 1e-9:
+        return 0.0
+    a_retirer = total - plafond
+    retire = 0.0
+    for d in sorted(lignes, key=lambda x: x["date"], reverse=True):
+        if a_retirer <= 1e-9:
+            break
+        pris = min(d["heures"], a_retirer)
+        d["heures"] = round(d["heures"] - pris, 2)
+        a_retirer -= pris
+        retire += pris
+        d["regle"] += (f" ⚠️ {libelle} atteint sur ce mois : France Travail ne retient "
+                       f"pas au-delà, {pris:g}h ont été écartées du compteur.")
+    return retire
 
 
 # ─────────────────────────────────────────────────────────────────────────────

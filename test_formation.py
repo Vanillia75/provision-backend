@@ -83,7 +83,12 @@ def test_melange_heures_et_formation_plafonnee():
 def test_le_travail_ne_consomme_pas_le_plafond_formation():
     # 507h de travail réel + 50h de formation : tout compte (557h), le plafond
     # ne concerne QUE les heures de formation entre elles.
-    r = calculer([A(90, "heures", 507), A(30, "formation", 50)], aujourdhui=AUJOURDHUI)
+    # ⚠️ TRAVAIL RÉPARTI SUR TROIS MOIS depuis le 15/08/2026 : France Travail ne
+    #  retient pas plus de 208 h par mois civil, et le moteur applique désormais
+    #  ce plafond. 507 h dans un seul mois n'existent pas (le mois n'en compte
+    #  pas autant d'ouvrables).
+    r = calculer([A(90, "heures", 169), A(150, "heures", 169), A(210, "heures", 169),
+                  A(30, "formation", 50)], aujourdhui=AUJOURDHUI)
     assert r.total_heures == 557.0
     assert r.droits_securises is True
 

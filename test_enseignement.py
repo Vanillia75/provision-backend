@@ -57,7 +57,11 @@ def test_enseignement_seul_ne_peut_ouvrir_droits():
 # ── Mélange avec du travail réel ─────────────────────────────────────────────
 def test_enseignement_avec_cachets():
     # 40 cachets (480h) + 60h enseignement (sous les 2 plafonds) = 540h → droits ouverts.
-    r = calculer([A(90, "cachet_isole", 40), A(30, "enseignement", 60)], aujourdhui=AUJOURDHUI)
+    # ⚠️ RÉPARTIS SUR DEUX MOIS depuis le 15/08/2026 : France Travail ne retient
+    #  pas plus de 28 cachets par mois civil, et le moteur applique désormais ce
+    #  plafond. 40 cachets le même jour n'existent pas dans la vraie vie.
+    r = calculer([A(90, "cachet_isole", 20), A(150, "cachet_isole", 20),
+                  A(30, "enseignement", 60)], aujourdhui=AUJOURDHUI)
     assert r.total_heures == 540.0
     assert r.droits_securises is True
 
