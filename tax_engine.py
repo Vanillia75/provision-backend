@@ -41,7 +41,16 @@ AUTO_ENTREPRENEUR_RATES = {
     },
     "services": {
         "cotisations": 0.212,   # 21,2 %
-        "cfp": 0.002,           # 0,2 %
+        # ⚠️ CORRIGE LE 15/08/2026 (audit a la source). Il n'existe PAS de taux
+        #  0,2 % pour les prestations de services BIC : service-public.fr donne
+        #  0,1 % pour une activite COMMERCIALE et 0,3 % pour une activite
+        #  ARTISANALE. Or l'application ne demande nulle part laquelle des deux.
+        #  On retient donc 0,3 %, le plus eleve : sur-provisionner la formation
+        #  professionnelle coute quelques dizaines d'euros et se rattrape ;
+        #  sous-provisionner produit la mauvaise surprise que TOTOR evite.
+        #  ⏳ A FAIRE (decision produit) : demander « artisanale ou commerciale ? »
+        #  dans le profil, et le taux redeviendra exact dans les deux sens.
+        "cfp": 0.003,           # 0,3 % (artisanal, repli prudent)
         "liberatoire": 0.017,   # 1,7 %
         "plafond": 83600,
         "seuil_tva": 37500,

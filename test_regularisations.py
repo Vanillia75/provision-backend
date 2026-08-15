@@ -10,7 +10,12 @@ from datetime import date
 from tax_engine import estimate_auto_entrepreneur
 
 TODAY = date(2026, 6, 15)          # juin → période courante = juin (mensuel) / T2 (trim.)
-TAUX = 0.214                        # services : 21,2 % cotisations + 0,2 % CFP, sans ACRE ni libératoire
+# Le taux est DÉRIVÉ du référentiel, jamais recopié : figé à 0,214, ce test
+# est tombé le 15/08/2026 quand la CFP des services est passée de 0,2 % à
+# 0,3 % (audit à la source). Un test qui recopie une valeur ne protège plus
+# de rien, il prétend seulement que rien n'a bougé.
+from tax_engine import AUTO_ENTREPRENEUR_RATES as _R
+TAUX = _R["services"]["cotisations"] + _R["services"]["cfp"]   # services, sans ACRE ni libératoire
 
 
 def est(incomes, today=TODAY, periodicite="mensuelle", activite="services"):

@@ -47,10 +47,12 @@ def test_fenetre():
 def test_A_confortable():
     p = projeter_tresorerie(**base(solde=3000, depenses_mensuelles=800,
                                    factures=[facture(2000)]))
-    # train = 800×2 = 1600 ; charges = 2000×0.214 = 428
-    # plancher = 3000 + 2000 − 1600 − 428 = 2972
-    assert eq(p.plancher, 2972.0), p.plancher
-    assert eq(p.optimiste, 2972.0), p.optimiste
+    # ⚠️ 15/08/2026 : la CFP des services passe de 0,2 % à 0,3 % (audit à la
+    #  source, service-public.fr), donc le taux global passe de 0,214 à 0,215.
+    # train = 800×2 = 1600 ; charges = 2000×0.215 = 430
+    # plancher = 3000 + 2000 − 1600 − 430 = 2970
+    assert eq(p.plancher, 2970.0), p.plancher
+    assert eq(p.optimiste, 2970.0), p.optimiste
     assert p.ton == "serein", p.ton
     print(f"✓ A. Confortable : plancher={p.plancher} optimiste={p.optimiste} ton={p.ton}")
 
@@ -58,11 +60,11 @@ def test_A_confortable():
 def test_B_juste():
     p = projeter_tresorerie(**base(solde=1000, depenses_mensuelles=1500,
                                    factures=[facture(1000)], devis=[devis(2500)]))
-    # train = 3000 ; charges_plancher = 1000×0.214 = 214 ; charges_opt = 3500×0.214 = 749
-    # plancher = 1000 + 1000 − 3000 − 214 = −1214
-    # optimiste = 1000 + 1000 + 2500 − 3000 − 749 = 751
-    assert eq(p.plancher, -1214.0), p.plancher
-    assert eq(p.optimiste, 751.0), p.optimiste
+    # train = 3000 ; charges_plancher = 1000×0.215 = 215 ; charges_opt = 3500×0.215 = 752,5
+    # plancher = 1000 + 1000 − 3000 − 215 = −1215
+    # optimiste = 1000 + 1000 + 2500 − 3000 − 752,5 = 747,5
+    assert eq(p.plancher, -1215.0), p.plancher
+    assert eq(p.optimiste, 747.5), p.optimiste
     assert p.ton == "vigilant", p.ton
     assert p.devis_count == 1 and eq(p.devis_montant, 2500)
     print(f"✓ B. Juste : plancher={p.plancher} optimiste={p.optimiste} ton={p.ton}")
