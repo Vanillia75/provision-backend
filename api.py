@@ -4296,6 +4296,11 @@ class AssistantRequest(BaseModel):
     # retrouvé d'un jour à l'autre. Les autres appels (aide, « Que se passe-t-il si »,
     # anciennes versions de l'app qui n'envoient pas le champ) restent éphémères.
     canal: Optional[str] = None
+    # suggeree : la question vient d'une pastille proposée par Totor, elle n'a
+    # PAS été écrite par la personne. Sans cette distinction, le radar UX faisait
+    # passer une curiosité pour quelqu'un de perdu (15/08/2026). Les anciennes
+    # versions de l'app n'envoient pas ce champ : absent = on ne sait pas.
+    suggeree: Optional[bool] = None
 
 
 @app.post("/vapi/tools")
@@ -4915,7 +4920,20 @@ def assistant_chat(
                 f"<p><strong>Écran :</strong> {html.escape(req.ecran or 'inconnu')}</p>"
                 f"<p><strong>Depuis :</strong> {html.escape(_plateforme_lisible(request.headers.get('user-agent', '')))}</p>"
                 f"<p><strong>Question :</strong> {html.escape(question[:500])}</p>"
-                f"<p style='color:#6B7A8D;font-size:12px'>Radar UX de l'Aide vivante — aucune donnée de compte.</p></div>",
+                + (
+                    "<p style='color:#8A6D1F;background:#FFF7E0;border-radius:6px;"
+                    "padding:8px 10px;font-size:12.5px'>⚠️ Question <strong>proposée par "
+                    "Totor</strong> sur cet écran, simplement tapée. Elle n'a pas été "
+                    "écrite par la personne : ce n'est pas forcément quelqu'un de "
+                    "perdu.</p>"
+                    if req.suggeree
+                    else "<p style='color:#1F6B4A;background:#E8F7F0;border-radius:6px;"
+                         "padding:8px 10px;font-size:12.5px'>✍️ Question <strong>écrite</strong> "
+                         "par la personne.</p>"
+                    if req.suggeree is False
+                    else ""
+                )
+                + f"<p style='color:#6B7A8D;font-size:12px'>Radar UX de l'Aide vivante — aucune donnée de compte.</p></div>",
             )
         except Exception:
             pass
