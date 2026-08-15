@@ -100,7 +100,27 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()  # .strip() 
 # servent qu'à couper une boucle anormale ou un abus, pas à gêner un vrai user.
 # Surchageables par variable d'environnement sans toucher au code.
 AI_CHAT_DAILY_LIMIT = int(os.environ.get("AI_CHAT_DAILY_LIMIT", "40"))
-AI_AEM_DAILY_LIMIT = int(os.environ.get("AI_AEM_DAILY_LIMIT", "15"))
+# ⚠️ DEFAUT PORTE DE 15 A 40 LE 15/08/2026. Railway reglait deja 40, mais le
+#  code, lui, disait 15 : si la variable d'environnement venait a disparaitre,
+#  l'arrivee dans l'app serait bloquee sans que personne comprenne pourquoi.
+#  Stephanie a scanne 21 attestations d'affilee le soir de son inscription pour
+#  rattraper son historique, et s'est abonnee une heure et demie plus tard : ce
+#  geste doit passer, meme sans configuration. La ceinture contre l'abus est
+#  desormais le plafond MENSUEL ci-dessous, pas la journee.
+AI_AEM_DAILY_LIMIT = int(os.environ.get("AI_AEM_DAILY_LIMIT", "40"))
+# ─── PLAFOND MENSUEL DES ABONNES (15/08/2026) ────────────────────────────────
+#  Jusqu'ici, un abonne n'avait QUE le garde-fou journalier. A 40 scans par jour,
+#  quelqu'un pouvait theoriquement en faire 1 200 dans le mois, soit environ
+#  13 EUR de lecture pour un abonnement Pionnier a 3,19 EUR nets mensuels : le
+#  seul scenario ou un utilisateur coute plus cher qu'il ne rapporte.
+#  ⚠️ On ne BAISSE PAS le plafond journalier pour autant : Stephanie a scanne
+#  21 attestations d'affilee le soir de son inscription pour rattraper son
+#  historique, et s'est abonnee une heure et demie plus tard. C'est exactement
+#  le geste qu'on veut rendre possible. Un plafond journalier plus bas l'aurait
+#  bloquee.
+#  On plafonne donc le MOIS, tres haut : le plus gros utilisateur reel en a fait
+#  38 en 42 jours. 150 ne gene personne et ferme la porte a l'abus.
+AI_AEM_MONTHLY_LIMIT = int(os.environ.get("AI_AEM_MONTHLY_LIMIT", "150"))
 # Garde-fou anti-abus journalier des scans de justificatifs AE (OCR local, peu coûteux).
 AI_DOC_SCAN_DAILY_LIMIT = int(os.environ.get("AI_DOC_SCAN_DAILY_LIMIT", "30"))
 
@@ -1639,6 +1659,19 @@ def _consommer_quota(db: Session, user: User, type_appel: str, limite_jour: int,
     Le compteur de MESSAGES du jour reste incrémenté (suivi de coût + anti-abus).
     is_premium() reste la SEULE source de vérité.
     """
+    if billing.is_premium(db, user) and type_appel in ("aem_scan", "doc_scan"):
+        # Plafond MENSUEL de l'abonne : genereux, il ne vise que l'abus.
+        deja_ce_mois = billing.usage_this_month(db, user.id, type_appel)
+        if deja_ce_mois >= AI_AEM_MONTHLY_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=("Tu as scanné énormément de documents ce mois-ci, bien plus que "
+                        "tout le monde. Je fais une pause jusqu'au mois prochain pour "
+                        "rester raisonnable. Si tu as un vrai besoin derrière, écris à "
+                        "bonjour@montotor.fr : Camille répond en personne et on trouvera "
+                        "une solution."),
+            )
+
     if not billing.is_premium(db, user):
         if type_appel == "chat":
             quotas_freemium.consommer_fil_chat(db, user)
