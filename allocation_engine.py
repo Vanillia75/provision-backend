@@ -18,7 +18,8 @@ allocation_engine.py — Moteur de l'allocation journalière (ARE annexes 8 et 1
 """
 import math
 
-from regles_intermittent import valeur_de, plancher_net_csg
+from regles_intermittent import valeur_de, plancher_net_csg, smic_horaire
+from datetime import date
 
 AJ_MIN = valeur_de("ajMinimale")                       # 31,96 €
 PLAFOND_AJ = valeur_de("allocationPlafondAJ")          # 174,80 €
@@ -463,12 +464,21 @@ def estimer_mois_civil(annexe: str, res_aj: dict, activites: list, annee: int, m
             else:
                 bruts += float(a["salaire_brut"])
         elif t == "autre_salaire" and a.get("salaire_brut") is not None:
-            # Compté pour le plafond de cumul. En revanche, France Travail
-            # convertit AUSSI ces salaires en heures (÷ SMIC) pour le décalage :
-            # le SMIC horaire n'est pas dans le référentiel sourcé, donc on ne
-            # convertit PAS (pas de constante inventée) — on SIGNALE à la place
-            # que le versement réel sera un peu plus bas (sens honnête).
-            bruts += float(a["salaire_brut"])
+            # ⚠️ CORRIGÉ LE 15/08/2026. On comptait ce brut pour le plafond de
+            #  cumul, mais on ne le convertissait PAS en heures, faute d'un SMIC
+            #  horaire sourcé. Le choix était honnête, mais il faisait
+            #  sous-estimer le décalage : ces revenus décalent bel et bien des
+            #  jours d'indemnisation.
+            #  Guide France Travail « Intermittents du spectacle », page 16 :
+            #  « Heures de travail mensuelles pour les activités non quantifiées
+            #  en heures (piges, activités non salariées...) : nombre d'heures =
+            #  rémunération mensuelle brute / SMIC horaire ». Le SMIC horaire est
+            #  désormais dans le référentiel, historisé par date.
+            brut_autre = float(a["salaire_brut"])
+            bruts += brut_autre
+            smic_h = smic_horaire(date(annee, mois, 1))
+            if smic_h > 0:
+                heures += brut_autre / smic_h
             autre_salaire_mois = True
 
     f_cp = max(0.0, float(franchise_cp_jours or 0))

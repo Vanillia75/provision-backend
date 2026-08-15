@@ -373,6 +373,50 @@ def valeur_de(cle: str):
 #  Pour ajouter une entrée : SMIC brut mensuel ÷ 30, arrondi à l'euro, puis la
 #  confronter au simulateur officiel avant de la marquer vérifiée.
 # ─────────────────────────────────────────────────────────────────────────────
+# ─── LE SMIC HORAIRE BRUT, HISTORISÉ (ajouté le 15/08/2026) ─────────────────
+#  Il sert à convertir en heures les rémunérations qui ne sont PAS quantifiées en
+#  heures (piges, auto-entreprise, emploi hors spectacle). Guide France Travail
+#  « Intermittents du spectacle », page 16 : « Nombre d'heures = rémunération
+#  mensuelle brute / SMIC horaire ». Ces heures comptent pour le seuil de
+#  non-indemnisation ET pour les jours non indemnisables.
+#  Jusqu'ici le moteur refusait de convertir, faute d'une valeur SOURCÉE : le
+#  choix était honnête, mais il sous-estimait le décalage de jours. On a la
+#  source maintenant.
+#  ⚠️ Même règle que le plancher CSG : la valeur DÉPEND DE LA DATE. Pour un mois
+#  passé, appeler smic_horaire(date), jamais lire la première entrée.
+SMIC_HORAIRE_HISTORIQUE = [
+    {
+        "depuis": "2026-06-01",
+        "valeur": 12.31,
+        "verifie": True,
+        "source": "Arrêté du 22 mai 2026 (revalorisation du 01/06/2026). Recoupé avec "
+                  "notre propre référentiel : SMIC mensuel 1 867,02 € ÷ 151,67 h = "
+                  "12,309 €, déjà vérifié pour le plancher CSG de 62,00 €.",
+    },
+    {
+        "depuis": "2026-01-01",
+        "valeur": 12.02,
+        "verifie": True,
+        "source": "Unédic, « Paramètres utiles » avril 2026, page 24 : « SMIC au "
+                  "01/01/2026, Métropole et DROM — Taux horaire : 12,02 € ». PDF lu "
+                  "directement à la source le 15/08/2026. Cohérent avec le taux mensuel "
+                  "1 823,03 € de la même page (÷ 151,67 = 12,02).",
+    },
+]
+
+
+def smic_horaire(le=None) -> float:
+    """Le SMIC horaire brut applicable à une date donnée (défaut : aujourd'hui)."""
+    from datetime import date as _d
+    jour = le or _d.today()
+    if isinstance(jour, str):
+        jour = _d.fromisoformat(jour[:10])
+    for entree in SMIC_HORAIRE_HISTORIQUE:      # du plus récent au plus ancien
+        if jour >= _d.fromisoformat(entree["depuis"]):
+            return float(entree["valeur"])
+    return float(SMIC_HORAIRE_HISTORIQUE[-1]["valeur"])
+
+
 PLANCHER_NET_CSG_HISTORIQUE = [
     {
         "depuis": "2026-06-01",

@@ -72,18 +72,34 @@ def test_formation_exclue_du_decalage():
     assert r["bruts_manquants"] is False  # la formation n'a pas de brut à réclamer
 
 
-def test_autre_salaire_zero_heure_mais_compte_au_plafond():
-    # Un gros salaire hors spectacle ne touche PAS le décalage (0 h) mais sature
-    # le plafond mensuel de cumul : l'ARE du mois tombe à zéro. Sens prudent.
+def test_autre_salaire_est_converti_en_heures_et_decale():
+    """⚠️ COMPORTEMENT CHANGÉ LE 15/08/2026, après l'audit à la source.
+
+    Avant, un salaire hors spectacle comptait pour le plafond de cumul mais ne
+    décalait AUCUN jour, faute d'un SMIC horaire sourcé dans le référentiel. Le
+    choix était honnête mais il sous-estimait le décalage.
+
+    Guide France Travail p.16 : « nombre d'heures = rémunération mensuelle brute
+    / SMIC horaire ». Le SMIC est désormais au référentiel, historisé par date
+    (12,31 €/h depuis le 01/06/2026)."""
     acts = [{"date": date(2026, 7, 3), "type_activite": "autre_salaire", "nombre": 1, "salaire_brut": 50000.0}]
     r = estimer_mois_civil("annexe10", RES_AJ, acts, 2026, 7)
-    assert r["heures_mois"] == 0.0
-    assert r["plafond_cumul_applique"] is True
+    assert r["heures_mois"] > 0.0, "le salaire hors spectacle doit désormais compter des heures"
+    assert abs(r["heures_mois"] - 50000.0 / 12.31) < 1.0
+    # L'allocation tombe a zero, comme avant. Mais la RAISON a change, et c'est
+    # plus juste : ce ne sont plus les euros qui saturent le plafond de cumul,
+    # ce sont les HEURES equivalentes qui ne laissent aucun jour indemnisable.
+    # C'est exactement ce que fait France Travail.
     assert r["are_versee"] == 0.0
     assert r["net_estime"] == 0.0
-    # Et le décalage non converti (SMIC absent du référentiel) est SIGNALÉ.
-    assert r["autre_salaire_non_decale"] is True
     assert r["approximatif"] is True
+
+
+def test_petit_salaire_hors_spectacle_decale_a_proportion():
+    """1 231 € bruts au SMIC horaire = 100 heures, donc du décalage réel."""
+    acts = [{"date": date(2026, 7, 3), "type_activite": "autre_salaire", "nombre": 1, "salaire_brut": 1231.0}]
+    r = estimer_mois_civil("annexe10", RES_AJ, acts, 2026, 7)
+    assert abs(r["heures_mois"] - 100.0) < 0.5, r["heures_mois"]
 
 
 def test_brut_manquant_leve_le_drapeau():
