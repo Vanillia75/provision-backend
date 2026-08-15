@@ -568,6 +568,20 @@ def _cle_dedup(item: dict):
     )
 
 
+def _compte_exploitable(data, fname: str) -> int:
+    """Combien d'attestations SURVIVENT au nettoyage ?
+
+    Le lecteur peut rendre une ligne vide (ni date ni volume) : notre garde-fou
+    la jette, et le total baisse sans que personne ne le voie. Pour savoir s'il
+    manque quelque chose, il faut donc compter APRÈS nettoyage, pas avant.
+    Ne lève jamais : une lecture inexploitable compte simplement pour zéro.
+    """
+    try:
+        return len(_finaliser(list(data or []), fname))
+    except Exception:
+        return 0
+
+
 def attestations_attendues(raw_pdf: bytes) -> int:
     """Combien d'attestations le document contient-il, d'après SON PROPRE texte ?
 
@@ -656,18 +670,25 @@ def extract_aem_data(file_path: str) -> dict:
         data = _appeler_modele_aem(blocks)
 
         # ── FILET ANTI-OUBLI (15/08/2026) ──────────────────────────────────
-        #  Le lecteur est non déterministe : sur un document à 6 attestations,
-        #  il en rendait 5 une fois sur cinq. On compare donc à ce que le
-        #  DOCUMENT lui-même annonce, et on recommence s'il en manque.
-        #  Deux essais suffisent à ramener le risque de 20 % à moins de 1 %.
+        #  Sur un document à 6 attestations, il en ressortait 5 une fois sur
+        #  trois. Diagnostic fait à la source : le lecteur rend TOUJOURS ses
+        #  6 lignes, mais l'une d'elles est parfois VIDE (ni date ni volume), et
+        #  notre garde-fou la jette — à juste titre, une ligne vide n'est pas une
+        #  attestation. Le résultat final tombe donc à 5, en silence.
+        #  ⚠️ On compare donc le nombre d'attestations RÉELLEMENT EXPLOITABLES,
+        #  après nettoyage, et pas le nombre de lignes rendues : la première
+        #  version de ce filet comparait le brut, voyait 6, et ne se déclenchait
+        #  jamais. Deux essais ramènent le risque bien en dessous du pour cent.
         if ext == ".pdf":
             attendu = attestations_attendues(raw_pdf)
-            for _ in range(2):
-                if attendu <= 0 or len(data) >= attendu:
-                    break
-                relu = _appeler_modele_aem(blocks)
-                if len(relu) > len(data):
-                    data = relu
+            if attendu > 0:
+                fname = os.path.basename(file_path)
+                for _ in range(2):
+                    if _compte_exploitable(data, fname) >= attendu:
+                        break
+                    relu = _appeler_modele_aem(blocks)
+                    if _compte_exploitable(relu, fname) > _compte_exploitable(data, fname):
+                        data = relu
 
     return _finaliser(data, os.path.basename(file_path))
 
