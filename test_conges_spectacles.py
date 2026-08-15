@@ -79,3 +79,58 @@ def test_arrets_formation_ne_comptent_pas():
 def test_toujours_estimation():
     r = calculer([A("2024-05-01", 500.0)], date(2024, 4, 1), date(2025, 3, 31))
     assert r["estimation"] is True
+
+
+# ── PLAFOND CONVENTIONNEL DE L'ASSIETTE (ajouté le 15/08/2026) ──────────────
+#  Trouvé par l'audit à la source. On sommait le brut INTÉGRAL, sans plafond,
+#  alors que l'assiette de la cotisation Congés Spectacles est plafonnée par
+#  jour (article D.7121-37, fiche Audiens). On surestimait donc l'indemnité des
+#  artistes très bien payés, c'est-à-dire qu'on leur annonçait de l'argent qui
+#  n'arriverait pas.
+
+from conges_spectacles import PLAFOND_JOURNALIER_GENERAL
+
+
+class _Act:
+    def __init__(self, jour, type_activite, nombre, salaire_brut):
+        self.date = jour
+        self.type_activite = type_activite
+        self.nombre = nombre
+        self.salaire_brut = salaire_brut
+
+
+_DEBUT, _FIN = date(2026, 4, 1), date(2027, 3, 31)
+
+
+def test_un_cachet_ordinaire_n_est_pas_plafonne():
+    """Le cas de tout le monde : le plafond ne mord pas, et le calcul
+    backtesté au centime sur deux bordereaux Audiens réels reste intact."""
+    # 3 cachets a 250 EUR = 750 EUR : sous le plafond de 272 EUR/jour.
+    r = calculer([_Act(date(2026, 5, 10), "cachet_isole", 3, 750.0)], _DEBUT, _FIN)
+    assert r["assiette"] == 750.0
+    assert r["icp_brut"] == 75.0
+    assert r["plafond_journalier_applique"] is False
+
+
+def test_un_cachet_tres_bien_paye_est_plafonne_a_272_par_jour():
+    # 2 cachets à 500 € = 1 000 €, mais l'assiette est plafonnée à 272 €/jour.
+    r = calculer([_Act(date(2026, 5, 10), "cachet_isole", 2, 1000.0)], _DEBUT, _FIN)
+    assert r["assiette"] == PLAFOND_JOURNALIER_GENERAL * 2
+    assert r["plafond_journalier_applique"] is True
+    assert r["brut_ecarte_par_plafond"] == 1000.0 - PLAFOND_JOURNALIER_GENERAL * 2
+
+
+def test_le_plafond_ne_touche_pas_les_heures():
+    """On ne sait pas déduire un montant PAR JOUR depuis des heures : on ne
+    plafonne donc pas, plutôt que de supposer."""
+    r = calculer([_Act(date(2026, 5, 10), "heures", 100, 5000.0)], _DEBUT, _FIN)
+    assert r["assiette"] == 5000.0
+    assert r["plafond_journalier_applique"] is False
+
+
+def test_l_ecart_est_dit_pour_que_l_ecran_puisse_le_nuancer():
+    """Le plafond dépend de la catégorie (272 / 375 / 860 €) et on ne la
+    connaît pas : quand il mord, la personne doit pouvoir le savoir."""
+    r = calculer([_Act(date(2026, 5, 10), "cachet_isole", 1, 900.0)], _DEBUT, _FIN)
+    assert r["plafond_journalier_applique"] is True
+    assert r["brut_ecarte_par_plafond"] > 0

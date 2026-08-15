@@ -98,9 +98,20 @@ def generate_invoice_pdf(invoice: dict, emitter: dict, fiscal: dict = None, kind
             meta += f" — Valable jusqu'au {date_validite.strftime('%d/%m/%Y')}"
     else:
         meta = f"Émise le {date_emission.strftime('%d/%m/%Y')}" if date_emission else ""
+        # ⚠️ MENTION OBLIGATOIRE (ajouté le 15/08/2026). La date à laquelle le
+        #  règlement doit intervenir, ou le délai de paiement, est une mention
+        #  obligatoire de la facture (article L441-9 du code de commerce et
+        #  article 242 nonies A du CGI), au même titre que les pénalités de
+        #  retard. On l'imprimait UNIQUEMENT quand elle était renseignée, et elle
+        #  était vide par défaut : la plupart des factures partaient donc
+        #  incomplètes. À défaut de date choisie, on écrit le délai légal
+        #  supplétif de 30 jours, ce qui rend la facture conforme sans rien
+        #  décider à la place de la personne.
         date_echeance = invoice.get("date_echeance")
         if date_echeance:
             meta += f" — Échéance le {date_echeance.strftime('%d/%m/%Y')}"
+        else:
+            meta += " — Paiement à 30 jours (délai légal, à défaut de mention contraire)"
     story.append(Paragraph(meta, label_style))
     story.append(Spacer(1, 6 * mm))
 
