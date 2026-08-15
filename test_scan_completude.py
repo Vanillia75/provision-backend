@@ -141,3 +141,61 @@ def test_un_pdf_illisible_bascule_en_images_plutot_que_d_echouer():
     from aem_extractor import _texte_pdf_exploitable
     assert _texte_pdf_exploitable(b"pas du tout un pdf") is False
     assert _texte_pdf_exploitable(b"") is False
+
+
+# ── LE FILET ANTI-OUBLI (15/08/2026) ────────────────────────────────────────
+#  Le lecteur est NON DÉTERMINISTE. Mesuré ce jour-là sur le spécimen à
+#  6 attestations : cinq essais, un seul en a rendu 5 au lieu de 6. Une
+#  attestation perdue en silence, c'est un contrat qui disparaît du compteur des
+#  507 heures sans que personne ne s'en aperçoive.
+#  On compte donc les repères DANS LE TEXTE du document, et on recommence la
+#  lecture s'il en manque.
+
+import io as _io
+import os as _os
+
+from aem_extractor import attestations_attendues
+
+
+def _pdf_avec(nb: int) -> bytes:
+    """Un PDF qui contient nb fois les repères d'une attestation."""
+    from reportlab.pdfgen import canvas
+    buf = _io.BytesIO()
+    c = canvas.Canvas(buf)
+    y = 800
+    for i in range(nb):
+        c.drawString(60, y, f"ATTESTATION EMPLOYEUR n {i + 1}")
+        c.drawString(60, y - 14, "Periode d'emploi du 01/03/2026 au 03/03/2026")
+        c.drawString(60, y - 28, "Salaire brut : 1 260,00 EUR")
+        y -= 60
+        if y < 100:
+            c.showPage()
+            y = 800
+    c.save()
+    return buf.getvalue()
+
+
+def test_on_compte_bien_les_attestations_du_document():
+    for nb in (1, 3, 6):
+        assert attestations_attendues(_pdf_avec(nb)) == nb, nb
+
+
+def test_on_prend_le_compte_le_PLUS_PETIT():
+    """Mieux vaut sous-estimer que réclamer une attestation qui n'existe pas :
+    sur-estimer ferait relire le document pour rien, en boucle."""
+    from reportlab.pdfgen import canvas
+    buf = _io.BytesIO()
+    c = canvas.Canvas(buf)
+    # 3 « attestation employeur » mais un seul « salaire brut » : on retient 1.
+    for i in range(3):
+        c.drawString(60, 800 - i * 20, "ATTESTATION EMPLOYEUR")
+    c.drawString(60, 700, "Salaire brut : 500,00 EUR")
+    c.save()
+    assert attestations_attendues(buf.getvalue()) == 1
+
+
+def test_un_document_illisible_ne_reclame_rien():
+    """Renvoyer 0 veut dire « je ne sais pas » : l'appelant ne fait rien."""
+    assert attestations_attendues(b"") == 0
+    assert attestations_attendues(b"pas un pdf") == 0
+    assert attestations_attendues(_pdf_avec(0)) == 0

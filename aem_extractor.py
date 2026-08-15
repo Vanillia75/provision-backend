@@ -568,6 +568,46 @@ def _cle_dedup(item: dict):
     )
 
 
+def attestations_attendues(raw_pdf: bytes) -> int:
+    """Combien d'attestations le document contient-il, d'après SON PROPRE texte ?
+
+    Ajouté le 15/08/2026. Le lecteur est non déterministe : mesuré ce jour-là,
+    un document à 6 attestations en rendait 5 une fois sur cinq. Une attestation
+    perdue en silence, c'est un contrat qui disparaît du compteur des 507 heures
+    sans que personne ne s'en aperçoive.
+
+    On compte donc des repères DANS LE TEXTE du document, et on garde le plus
+    PETIT des comptes : mieux vaut sous-estimer (et ne rien faire) que réclamer
+    une attestation qui n'existe pas et boucler pour rien.
+
+    Renvoie 0 quand on ne sait pas (texte illisible, aucun repère) : dans ce cas
+    l'appelant ne fait rien de particulier.
+    """
+    try:
+        import re
+        import pypdfium2 as pdfium
+        doc = pdfium.PdfDocument(raw_pdf)
+        try:
+            txt = "".join(doc[i].get_textpage().get_text_range()
+                          for i in range(min(len(doc), _MAX_PAGES_DOCUMENT)))
+        finally:
+            doc.close()
+    except Exception:
+        return 0
+    # Seuil bas volontairement : une attestation courte tient en ~90 caractères,
+    # et un seuil à 120 la faisait passer pour un document illisible (trouvé par
+    # le test). On ne veut écarter que le vrai vide.
+    if len(txt) < 40:
+        return 0
+    comptes = [len(re.findall(m, txt)) for m in (
+        r"(?i)attestation\s+employeur",
+        r"(?i)p[ée]riode\s+d.emploi",
+        r"(?i)salaire\s+brut",
+    )]
+    comptes = [c for c in comptes if c > 0]
+    return min(comptes) if comptes else 0
+
+
 def extract_aem_data(file_path: str) -> dict:
     if not ANTHROPIC_API_KEY:
         raise RuntimeError("Lecture d'AEM indisponible : clé API non configurée.")
@@ -612,7 +652,22 @@ def extract_aem_data(file_path: str) -> dict:
 
     if data is None:
         # Image, ou PDF court sans formulaire : un seul appel, comme avant.
-        data = _appeler_modele_aem(_build_source_blocks(file_path))
+        blocks = _build_source_blocks(file_path)
+        data = _appeler_modele_aem(blocks)
+
+        # ── FILET ANTI-OUBLI (15/08/2026) ──────────────────────────────────
+        #  Le lecteur est non déterministe : sur un document à 6 attestations,
+        #  il en rendait 5 une fois sur cinq. On compare donc à ce que le
+        #  DOCUMENT lui-même annonce, et on recommence s'il en manque.
+        #  Deux essais suffisent à ramener le risque de 20 % à moins de 1 %.
+        if ext == ".pdf":
+            attendu = attestations_attendues(raw_pdf)
+            for _ in range(2):
+                if attendu <= 0 or len(data) >= attendu:
+                    break
+                relu = _appeler_modele_aem(blocks)
+                if len(relu) > len(data):
+                    data = relu
 
     return _finaliser(data, os.path.basename(file_path))
 
