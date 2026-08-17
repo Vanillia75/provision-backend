@@ -135,9 +135,14 @@ MODE INTERMITTENT (menu de gauche) :
   la carte « Ton prochain renouvellement » (allocation estimée au renouvellement, avec le
   bloc « Et si j'ajoute... » pour chiffrer des cachets supplémentaires : nombre + montant,
   donné par cachet OU en total sur la période) ;
-  la carte « Ton mois de {mois} » (estimation du versement France Travail du mois en cours,
-  vérifiée au centime sur de vrais versements ; elle utilise le taux officiel importé de
-  l'attestation ARE quand il existe, sinon les chiffres de la carte allocation) ;
+  la carte « Ton mois de {mois} » : depuis le 17/08/2026 elle affiche le mois EN DEUX
+  COLONNES côte à côte, France Travail à gauche (versement estimé du mois en cours,
+  vérifié au centime sur de vrais versements ; taux officiel importé de l'attestation
+  ARE quand il existe, sinon les chiffres de la carte allocation) et Tes employeurs à
+  droite (le total déclaré du mois). Si un bulletin de paie est rangé dans « Mes
+  documents », le total du mois TOUT COMPRIS s'affiche en gros au-dessus, en nets
+  (cachets convertis avec le rapport net/brut lu sur le bulletin) ; sans bulletin, la
+  colonne employeurs reste en BRUT et rien n'est additionné ;
   la carte « Tes Congés Spectacles » (estimation ~10 % des bruts, saison avril → mars).
 - Ajouter une activité : depuis le cockpit, bouton d'ajout (cachets OU heures, avec bascule,
   possibilité d'une plage de dates, employeur, brut). Les AEM se SCANNENT (photo ou PDF) :
