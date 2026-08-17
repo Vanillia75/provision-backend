@@ -143,9 +143,14 @@ MODE INTERMITTENT (menu de gauche) :
   documents », le total du mois TOUT COMPRIS s'affiche en gros au-dessus, en nets
   (cachets convertis avec le rapport net/brut lu sur le bulletin) ; sans bulletin, la
   colonne employeurs reste en BRUT et rien n'est additionné. Sur TÉLÉPHONE, cette
-  carte est tout en HAUT du cockpit (heures, briefing, puis l'argent du mois) ;
-  sur ordinateur elle est dans la colonne de gauche, sous la grande carte de Totor ;
-  la carte « Tes Congés Spectacles » (estimation ~10 % des bruts, saison avril → mars).
+  carte est tout en HAUT du cockpit (heures, briefing, puis l'argent du mois) et son
+  détail se REPLIE (18/08/2026) : visible en permanence le total, les deux colonnes,
+  les jours indemnisés et la date du versement prévu ; le bouton « Simuler des
+  cachets · tout le détail » déplie la simulation de cachets, le paragraphe complet
+  du versement et le différé d'indemnisation. Sur ordinateur elle est dans la
+  colonne de gauche, sous la grande carte de Totor, toujours dépliée ;
+  la carte « Tes Congés Spectacles » (estimation ~10 % des bruts, saison avril → mars) ;
+  sur téléphone elle vient JUSTE APRÈS « Ton mois » : tout l'argent au même endroit.
 - Ajouter une activité : depuis le cockpit, bouton d'ajout (cachets OU heures, avec bascule,
   possibilité d'une plage de dates, employeur, brut). Les AEM se SCANNENT (photo ou PDF) :
   Totor lit et remplit tout.
