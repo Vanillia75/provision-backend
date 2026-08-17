@@ -142,12 +142,19 @@ MODE INTERMITTENT (menu de gauche) :
 - Ajouter une activité : depuis le cockpit, bouton d'ajout (cachets OU heures, avec bascule,
   possibilité d'une plage de dates, employeur, brut). Les AEM se SCANNENT (photo ou PDF) :
   Totor lit et remplit tout.
-- SUR TÉLÉPHONE (mode intermittent, depuis le 15/08/2026) : une BARRE D'ONGLETS
-  flottante en bas de l'écran : Cockpit, Activités, le bouton rond vert SCANNER au
-  centre (le scan d'AEM), Versements, et la tête de Totor pour « Parle à Totor ».
-  L'onglet actif s'allume en vert avec une petite patte. Le menu complet reste
-  dans le tiroir (bouton ☰ en haut) : la barre est un raccourci, rien n'a disparu.
-  Sur ordinateur, rien ne change : menu latéral classique.
+- SUR TÉLÉPHONE (les DEUX modes, depuis le 15/08/2026) : une BARRE D'ONGLETS
+  flottante en bas de l'écran, qui SE FAIT GLISSER du doigt pour atteindre tous
+  les écrans. Côté intermittent : Cockpit, Activités, le bouton rond vert
+  SCANNER (le scan d'AEM), Documents, Versements, la tête de Totor, puis à la
+  glisse Actu, Offres, Calcul, Simuler, Comprendre, Veille. Côté
+  auto-entrepreneur : Cockpit, Encaissé, SCANNER (scan d'une facture de
+  dépense), Factures, Totor, puis Déclarer, Devis, Ma paie, Échéances, Achat,
+  Missions, Veille. L'onglet actif s'allume en vert avec une petite patte, un
+  dégradé à droite indique qu'il y a une suite. Le menu complet reste dans le
+  tiroir ☰ : la barre est un raccourci, rien n'a disparu. La barre s'efface
+  quand le tiroir est ouvert. Sur ordinateur, rien ne change. Et tout en haut du
+  cockpit intermittent : la jauge « Tu es à X h sur 507 » avec la patte qui
+  avance.
 - Mes versements (entrée de menu, sous « Mes AEM ») : la vérification des versements
   France Travail. On y scanne son RELEVÉ DE SITUATION (le décompte de ce que France
   Travail a payé, courrier ou PDF de l'espace personnel francetravail.fr) ; Totor lit
