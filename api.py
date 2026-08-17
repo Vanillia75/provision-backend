@@ -6412,7 +6412,12 @@ def get_intermittent_offres(
 
 
 @app.get("/intermittent/estimation-mois")
-def estimation_mois_intermittent(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def estimation_mois_intermittent(
+    cachets_sup: float = 0,
+    brut_cachet: float = 0,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Estimation du versement France Travail pour le MOIS CIVIL EN COURS, à partir
     de l'AJ de la carte allocation (validée au centime, backtest n°1) et des
     activités saisies dans le mois (moteur du mois calé sur le guide officiel).
@@ -6462,7 +6467,45 @@ def estimation_mois_intermittent(user: User = Depends(get_current_user), db: Ses
         franchise_cp_jours=profile.franchise_cp_jours,
         franchise_salaires_jours=profile.franchise_salaires_jours,
     )
+    # ─── SIMULATION « ET SI J'AJOUTE DES CACHETS ? » (15/08/2026) ─────────
+    #  Demande de Lucile, mot pour mot : « je suis pas tout a fait sure de Pole
+    #  emploi puisque j'ai encore trois cachets a faire, mais c'est possible
+    #  qu'on les annule. Donc pour l'instant, moi je les ai pas notes. Ce que
+    #  j'aimerais, c'est savoir : si je rajoute encore trois cachets, combien je
+    #  vais toucher de Pole emploi, combien je vais toucher en salaire ? »
+    #  On ne touche a RIEN en base : les cachets simules n'existent que le temps
+    #  du calcul. Elle n'a pas a saisir des contrats dont elle n'est pas sure.
+    simulation = None
+    n_sup = max(0.0, min(float(cachets_sup or 0), 28.0))   # 28 : le plafond mensuel
+    if n_sup > 0:
+        prix = max(0.0, float(brut_cachet or 0))
+        acts_sim = activites + [{
+            "date": auj, "type_activite": "cachet_isole",
+            "nombre": n_sup, "salaire_brut": prix * n_sup if prix else None,
+        }]
+        sim = ae.estimer_mois_civil(
+            annexe, res_aj, acts_sim, auj.year, auj.month,
+            franchise_cp_jours=profile.franchise_cp_jours,
+            franchise_salaires_jours=profile.franchise_salaires_jours,
+        )
+        salaire_sup_brut = round(prix * n_sup, 2) if prix else None
+        simulation = {
+            "cachets_sup": n_sup,
+            "brut_cachet": prix or None,
+            "net_estime": sim["net_estime"],
+            "jours_indemnisables": sim["jours_indemnisables"],
+            "remunerations_brutes": sim["remunerations_brutes"],
+            "salaire_sup_brut": salaire_sup_brut,
+            "salaire_sup_net": (round(salaire_sup_brut * profile.ratio_net_brut, 2)
+                                if salaire_sup_brut and profile.ratio_net_brut else None),
+            "salaires_nets_estimes": (round(sim["remunerations_brutes"] * profile.ratio_net_brut, 2)
+                                      if profile.ratio_net_brut and sim["remunerations_brutes"] else None),
+            # Ce que ca CHANGE par rapport a aujourd'hui : c'est ca qu'elle veut voir.
+            "ecart_allocation": round(sim["net_estime"] - out["net_estime"], 2),
+        }
+
     out.update({
+        "simulation": simulation,
         "verrou": False,
         "ok": True,
         "aj_brute": res_aj["aj_brute"],
