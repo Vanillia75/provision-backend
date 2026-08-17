@@ -45,6 +45,7 @@ from paie_engine import calculer_paie
 from aide_app import prompt_aide
 from invoice_extractor import extract_invoice_data
 import aem_extractor
+import bulletin_extractor
 import releve_extractor
 from aem_extractor import extract_aem_data, extract_are_data
 import r2_storage
@@ -6068,7 +6069,36 @@ async def deposer_document(
     db.add(row)
     db.commit()
     db.refresh(row)
-    return _document_vers_dict(row)
+
+    # ─── ON APPREND LE RAPPORT NET / BRUT (15/08/2026) ────────────────────
+    #  Demande de Lucile : prevoir son mois suppose de savoir ce qui va ARRIVER
+    #  sur son compte. On connait le net de l'allocation mais seulement le BRUT
+    #  des cachets. Plutot que de lui poser une question de plus, on l'apprend du
+    #  bulletin qu'elle vient de ranger : il porte le brut et le net a payer.
+    #  Jamais bloquant : un bulletin illisible n'est pas une erreur, elle a juste
+    #  range un document. On ne retient un ratio que s'il est plausible.
+    ratio_appris = None
+    if type_document == "bulletin":
+        try:
+            lu = bulletin_extractor.lire_bulletin(file_path)
+            if lu.get("ratio"):
+                profil = db.query(Profile).filter(Profile.user_id == user.id).first()
+                if profil is not None:
+                    # Le bulletin le PLUS RECENT gagne : un ratio evolue (change
+                    # de convention, de tranche, d'employeur).
+                    ref = d_doc or date.today()
+                    if profil.ratio_net_brut is None or profil.ratio_net_brut_maj_le is None                             or ref >= profil.ratio_net_brut_maj_le:
+                        profil.ratio_net_brut = lu["ratio"]
+                        profil.ratio_net_brut_maj_le = ref
+                        db.commit()
+                        ratio_appris = lu["ratio"]
+        except Exception:
+            pass
+
+    out = _document_vers_dict(row)
+    if ratio_appris:
+        out["ratio_net_brut_appris"] = ratio_appris
+    return out
 
 
 def _document_vers_dict(row) -> dict:
@@ -6443,6 +6473,16 @@ def estimation_mois_intermittent(user: User = Depends(get_current_user), db: Ses
         "franchise_cp_jours": profile.franchise_cp_jours,
         "franchise_salaires_jours": profile.franchise_salaires_jours,
         "franchise_maj_le": profile.franchise_maj_le.isoformat() if profile.franchise_maj_le else None,
+        # ─── LE NET DES CACHETS, quand on SAIT (15/08/2026) ────────────────
+        #  On n'estime jamais un net a partir d'un taux moyen. Mais si un
+        #  bulletin de paie a ete range dans le classeur, on connait le rapport
+        #  net/brut REEL de la personne, et on peut alors donner un total qui
+        #  veut dire quelque chose. Sinon : null, et l'ecran n'affiche que le
+        #  brut, comme avant.
+        "ratio_net_brut": profile.ratio_net_brut,
+        "ratio_net_brut_maj_le": profile.ratio_net_brut_maj_le.isoformat() if profile.ratio_net_brut_maj_le else None,
+        "salaires_nets_estimes": (round(out.get("remunerations_brutes", 0) * profile.ratio_net_brut, 2)
+                                  if profile.ratio_net_brut and out.get("remunerations_brutes") else None),
     })
     return out
 

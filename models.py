@@ -100,6 +100,18 @@ class Profile(Base):
     franchise_cp_jours = Column(Float, nullable=True)        # différé congés payés restant (jours)
     franchise_salaires_jours = Column(Float, nullable=True)  # différé salaires restant (jours)
     franchise_maj_le = Column(Date, nullable=True)           # date de la saisie (affichée : « d'après ta saisie du … »)
+    # ─── RATIO NET / BRUT DES SALAIRES (15/08/2026) ───────────────────────
+    #  Demande de Lucile : elle veut prévoir son mois, donc savoir ce qui va
+    #  ARRIVER sur son compte. On connaît le net de son allocation mais seulement
+    #  le BRUT de ses cachets, et on refuse d'inventer le net.
+    #  Plutôt que de lui poser une question de plus, on l'APPREND de ses bulletins
+    #  de paie, qu'elle dépose déjà dans son classeur : un bulletin porte le brut
+    #  et le net à payer, écrits noir sur blanc.
+    #  Reste nul tant qu'aucun bulletin n'a été lu : dans ce cas on continue de
+    #  n'afficher que le brut, sans jamais estimer.
+    #  ALTER TABLE exécuté sur Railway le 15/08/2026 AVANT ce commit.
+    ratio_net_brut = Column(Float, nullable=True)            # ex. 0.78 = le net vaut 78 % du brut
+    ratio_net_brut_maj_le = Column(Date, nullable=True)      # date du bulletin qui l'a appris
     onboarding_complete = Column(Boolean, default=False)
     # Visite guidee deja vue. En base et pas en local : le navigateur oublie a
     # chaque reinstallation de l'app ou changement de telephone, et la personne
