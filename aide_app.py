@@ -142,7 +142,9 @@ MODE INTERMITTENT (menu de gauche) :
   droite (le total déclaré du mois). Si un bulletin de paie est rangé dans « Mes
   documents », le total du mois TOUT COMPRIS s'affiche en gros au-dessus, en nets
   (cachets convertis avec le rapport net/brut lu sur le bulletin) ; sans bulletin, la
-  colonne employeurs reste en BRUT et rien n'est additionné ;
+  colonne employeurs reste en BRUT et rien n'est additionné. Sur TÉLÉPHONE, cette
+  carte est tout en HAUT du cockpit (heures, briefing, puis l'argent du mois) ;
+  sur ordinateur elle est dans la colonne de gauche, sous la grande carte de Totor ;
   la carte « Tes Congés Spectacles » (estimation ~10 % des bruts, saison avril → mars).
 - Ajouter une activité : depuis le cockpit, bouton d'ajout (cachets OU heures, avec bascule,
   possibilité d'une plage de dates, employeur, brut). Les AEM se SCANNENT (photo ou PDF) :
