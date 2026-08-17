@@ -160,8 +160,16 @@ MODE INTERMITTENT (menu de gauche) :
   dégradé à droite indique qu'il y a une suite. Le menu complet reste dans le
   tiroir ☰ : la barre est un raccourci, rien n'a disparu. La barre s'efface
   quand le tiroir est ouvert. Sur ordinateur, rien ne change. Et tout en haut du
-  cockpit intermittent : la jauge « Tu es à X h sur 507 » avec la patte qui
-  avance.
+  cockpit intermittent, LE gros chiffre c'est les heures : « Tu es à X h sur
+  507 » en très gros, la jauge avec la patte, puis l'état de Totor en une petite
+  ligne (18/08/2026). La carte du haut reste bleu nuit même quand la situation
+  se tend (seule la petite ligne 🔴/🟡 change) ; elle ne passe entière en vert
+  que quand les droits sont sécurisés. Depuis le 18/08/2026, « Mes activités »
+  sur téléphone : compteur en accroche (« X h au compteur · N contrats »), jauge
+  « Vers les 507 h », chaque contrat dans sa CASE (icône selon le type, employeur,
+  brut, heures gagnées « +X h », badges AEM / Estimé / À venir, crayon pour
+  modifier), et en bas de la liste deux boutons en pointillés : « Ajouter un
+  contrat » et « Scanner une AEM ».
 - Mes versements (entrée de menu, sous « Mes AEM ») : la vérification des versements
   France Travail. On y scanne son RELEVÉ DE SITUATION (le décompte de ce que France
   Travail a payé, courrier ou PDF de l'espace personnel francetravail.fr) ; Totor lit
