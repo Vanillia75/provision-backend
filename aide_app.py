@@ -159,9 +159,10 @@ MODE INTERMITTENT (menu de gauche) :
   les écrans. Côté intermittent : Cockpit, Activités, le bouton rond vert
   SCANNER (le scan d'AEM), Documents, Versements, la tête de Totor, puis à la
   glisse Actu, Offres, Calcul, Simuler, Comprendre, Veille. Côté
-  auto-entrepreneur : Cockpit, Encaissé, SCANNER (scan d'une facture de
-  dépense), Factures, Totor, puis Déclarer, Devis, Ma paie, Échéances, Achat,
-  Missions, Veille. L'onglet actif s'allume en vert avec une petite patte, un
+  auto-entrepreneur : Cockpit, Encaissé, le bouton rond vert FACTURER (un appui
+  ouvre directement une NOUVELLE FACTURE ; changé le 18/08/2026, le scan était
+  moins utile côté AE), Factures, Totor, puis Déclarer, Frais (le scan d'une
+  facture de dépense), Devis, Ma paie, Échéances, Achat, Missions, Veille. L'onglet actif s'allume en vert avec une petite patte, un
   dégradé à droite indique qu'il y a une suite. Le menu complet reste dans le
   tiroir ☰ : la barre est un raccourci, rien n'a disparu. La barre s'efface
   quand le tiroir est ouvert. Sur ordinateur, rien ne change. Et tout en haut du
