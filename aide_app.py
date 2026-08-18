@@ -168,7 +168,9 @@ MODE INTERMITTENT (menu de gauche) :
   quand le tiroir est ouvert. Sur ordinateur, rien ne change. Et tout en haut du
   cockpit intermittent, LE gros chiffre c'est les heures : « Tu es à X h sur
   507 » en très gros, la jauge avec la patte, puis l'état de Totor en une petite
-  ligne (18/08/2026). La carte du haut reste bleu nuit même quand la situation
+  ligne (18/08/2026). Sur un compte encore VIDE, le héros « Faisons
+  connaissance » porte directement les deux premiers gestes : « Scanner une
+  AEM » (bouton vert) et « Ajouter un cachet » (ouvre le formulaire). La carte du haut reste bleu nuit même quand la situation
   se tend (seule la petite ligne 🔴/🟡 change) ; elle ne passe entière en vert
   que quand les droits sont sécurisés. Depuis le 18/08/2026, « Mes activités »
   sur téléphone : compteur en accroche (« X h au compteur · N contrats »), jauge
