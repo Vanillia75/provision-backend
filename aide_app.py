@@ -147,8 +147,9 @@ MODE INTERMITTENT (menu de gauche) :
   détail se REPLIE (18/08/2026) : visible en permanence le total, les deux colonnes,
   les jours indemnisés et la date du versement prévu ; le bouton « Simuler des
   cachets · tout le détail » déplie la simulation de cachets, le paragraphe complet
-  du versement et le différé d'indemnisation. Sur ordinateur elle est dans la
-  colonne de gauche, sous la grande carte de Totor, toujours dépliée ;
+  du versement et le différé d'indemnisation. Sur ordinateur elle est EN TÊTE de
+  la colonne de gauche, AU-DESSUS de la grande carte de Totor (remontée le
+  18/08/2026), toujours dépliée ;
   la carte « Tes Congés Spectacles » (estimation ~10 % des bruts, saison avril → mars) ;
   sur téléphone elle vient JUSTE APRÈS « Ton mois » : tout l'argent au même endroit.
 - Ajouter une activité : depuis le cockpit, bouton d'ajout (cachets OU heures, avec bascule,
