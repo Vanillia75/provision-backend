@@ -21,7 +21,7 @@ import stripe
 from sqlalchemy import extract
 from sqlalchemy.orm import Session
 
-from models import Subscription, PromoCode, StripeEvent, User, AIUsage
+from models import Subscription, PromoCode, StripeEvent, User, AIUsage, SolidaireCode
 
 # ── Configuration (100 % variables d'environnement) ──
 # .strip() OBLIGATOIRE : certains hébergeurs (Railway) conservent un espace ou un
@@ -391,6 +391,88 @@ def create_checkout_session(db: Session, user: User, promo_code: str | None = No
 
     session = stripe.checkout.Session.create(**params)
     return session.url
+
+
+# ════════════════════════════════════════════════════════════════════════
+#  TARIF SOLIDAIRE (19/08/2026) — 4,99 €/mois pendant 12 mois, sur l'honneur.
+#  Web : coupon Stripe de 5 € pendant 12 mois sur le mensuel (retour au tarif
+#  normal automatique). Stores : un code de réduction pioché dans la réserve
+#  (table solidaire_codes), un par personne. Aucun justificatif : par principe.
+# ════════════════════════════════════════════════════════════════════════
+SOLIDAIRE_COUPON_ID = "SOLIDAIRE-499"
+SOLIDAIRE_LIEN_APPLE = "https://apps.apple.com/redeem?ctx=offercodes&id=6789915732&code={code}"
+SOLIDAIRE_LIEN_GOOGLE = "https://play.google.com/redeem?code={code}"
+
+
+def _ensure_solidaire_coupon() -> str:
+    """Le coupon Stripe du tarif solidaire, créé une fois pour toutes (idempotent).
+    5 € de moins pendant 12 mois sur le mensuel : 9,99 → 4,99, puis retour seul
+    au tarif normal. Si quelqu'un l'applique sur l'annuel, Stripe le refusera de
+    lui-même (on ne l'attache qu'au checkout mensuel, jamais ailleurs)."""
+    try:
+        stripe.Coupon.retrieve(SOLIDAIRE_COUPON_ID)
+    except stripe.error.InvalidRequestError:
+        stripe.Coupon.create(
+            id=SOLIDAIRE_COUPON_ID,
+            name="Tarif solidaire",
+            amount_off=500, currency="eur",
+            duration="repeating", duration_in_months=12,
+        )
+    return SOLIDAIRE_COUPON_ID
+
+
+def create_solidaire_checkout(db: Session, user: User, app_mode: str | None = None,
+                              origin: str | None = None) -> str:
+    """Checkout du tarif solidaire : le MENSUEL avec le coupon de 5 € sur 12 mois.
+    Même circuit que le checkout normal (activation au webhook, jamais avant)."""
+    sub = get_or_create_subscription(db, user)
+    base = _safe_return_base(origin)
+    mode_q = f"&mode={app_mode}" if app_mode else ""
+    params = {
+        "mode": "subscription",
+        "line_items": [{"price": STRIPE_PRICE_PREMIUM, "quantity": 1}],
+        "client_reference_id": user.id,
+        "success_url": f"{base}/?billing=success{mode_q}",
+        "cancel_url": f"{base}/?billing=cancel",
+        "metadata": {"user_id": user.id, "solidaire": "1"},
+        "discounts": [{"coupon": _ensure_solidaire_coupon()}],
+        "subscription_data": {"metadata": {"user_id": user.id, "plan_demande": "mensuel", "solidaire": "1"}},
+    }
+    if sub.stripe_customer_id:
+        params["customer"] = sub.stripe_customer_id
+    else:
+        params["customer_email"] = user.email
+    session = stripe.checkout.Session.create(**params)
+    return session.url
+
+
+def obtenir_code_solidaire(db: Session, user: User, plateforme: str) -> dict | None:
+    """Un code solidaire de la réserve pour cette personne, UN seul à la fois.
+    Si elle en a déjà reçu un il y a moins de 11 mois, on lui REDONNE le même
+    (un code Apple/Google est à usage unique : le sien reste le sien). Passé
+    11 mois, l'ancien code a expiré chez le store : on en attribue un neuf,
+    c'est la reconduction annuelle « c'est toujours dur ? ». Renvoie None si
+    la réserve de cette plateforme est vide."""
+    if plateforme not in ("apple", "google"):
+        return None
+    lien = SOLIDAIRE_LIEN_APPLE if plateforme == "apple" else SOLIDAIRE_LIEN_GOOGLE
+
+    deja = (db.query(SolidaireCode)
+              .filter(SolidaireCode.attribue_a == user.id, SolidaireCode.plateforme == plateforme)
+              .order_by(SolidaireCode.attribue_le.desc())
+              .first())
+    if deja and deja.attribue_le and (datetime.utcnow() - deja.attribue_le) < timedelta(days=335):
+        return {"code": deja.code, "lien": lien.format(code=deja.code)}
+
+    libre = (db.query(SolidaireCode)
+               .filter(SolidaireCode.attribue_a.is_(None), SolidaireCode.plateforme == plateforme)
+               .first())
+    if not libre:
+        return None
+    libre.attribue_a = user.id
+    libre.attribue_le = datetime.utcnow()
+    db.commit()
+    return {"code": libre.code, "lien": lien.format(code=libre.code)}
 
 
 def create_portal_session(db: Session, user: User) -> str:

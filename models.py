@@ -634,3 +634,22 @@ class StripeEvent(Base):
     event_id = Column(String, primary_key=True)          # "evt_..."
     type = Column(String, nullable=True)
     received_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================================
+#  TARIF SOLIDAIRE (19/08/2026) — la réserve de codes de réduction des stores.
+#  « Les fins de mois sont dures ? Dis-le-moi, c'est 4,99 €. Sur l'honneur. »
+#  Les codes sont générés dans App Store Connect / Play Console (4,99 €/mois
+#  pendant 12 mois puis retour au tarif normal), importés ici, et distribués
+#  UN par personne. Côté web, pas de code : un coupon Stripe fait le même
+#  travail au moment du paiement. Aucun justificatif demandé, par principe.
+# ============================================================================
+class SolidaireCode(Base):
+    __tablename__ = "solidaire_codes"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    plateforme = Column(String, nullable=False)           # "apple" | "google"
+    code = Column(String, unique=True, nullable=False, index=True)
+    attribue_a = Column(String, ForeignKey("users.id"), nullable=True, index=True)
+    attribue_le = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

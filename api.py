@@ -6743,6 +6743,37 @@ def billing_create_checkout(
     return {"url": url}
 
 
+class SolidaireRequest(BaseModel):
+    plateforme: Optional[str] = None   # "web" | "apple" | "google"
+    mode: Optional[str] = None
+    origin: Optional[str] = None
+
+
+@app.post("/billing/solidaire")
+def billing_solidaire(
+    req: SolidaireRequest = Body(default=SolidaireRequest()),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Le tarif solidaire (19/08/2026) : 4,99 €/mois pendant 12 mois, sur l'honneur.
+    Aucun justificatif demandé, c'est un principe : la personne DIT que c'est dur,
+    on la croit. Web → checkout Stripe avec le coupon. Stores → un code de
+    réduction de la réserve (un par personne, le même redonné pendant 11 mois).
+    Réserve vide → réponse « bientôt » honnête, jamais une erreur brute."""
+    plateforme = (req.plateforme or "web").lower()
+    if plateforme in ("apple", "google"):
+        resultat = billing.obtenir_code_solidaire(db, user, plateforme)
+        if not resultat:
+            return {"type": "bientot"}
+        return {"type": "code", "plateforme": plateforme, **resultat}
+    try:
+        url = billing.create_solidaire_checkout(db, user, app_mode=req.mode, origin=req.origin)
+    except Exception as e:
+        print(f"[SOLIDAIRE ERROR] {type(e).__name__}: {billing.redact_secrets(e)}", flush=True)
+        raise HTTPException(status_code=400, detail="Le paiement n'a pas pu démarrer. Réessaie dans un instant.")
+    return {"type": "stripe", "url": url}
+
+
 @app.get("/billing/offres")
 def billing_offres(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """État des offres pour la page d'abonnement : places Pionnier RÉELLES restantes.
