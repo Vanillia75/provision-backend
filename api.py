@@ -1691,6 +1691,26 @@ def _consommer_quota(db: Session, user: User, type_appel: str, limite_jour: int,
     _verifier_et_incrementer_quota_ia(db, user.id, type_appel, limite_jour, poids)
 
 
+def _rembourser_quota_chat(db: Session, user_id: str, fil_aussi: bool):
+    """Rend ce qui a été compté quand le moteur n'a PAS répondu (20/08/2026) :
+    la personne n'a rien reçu, elle ne paie ni le message ni la conversation.
+    Best effort : un remboursement qui échoue ne doit jamais masquer la vraie
+    erreur, on le signale à Sentry et on continue."""
+    try:
+        types = ["chat"] + (["chat_fil"] if fil_aussi else [])
+        aujourdhui = date.today()
+        for t in types:
+            usage = (db.query(AIUsage)
+                       .filter(AIUsage.user_id == user_id, AIUsage.jour == aujourdhui,
+                               AIUsage.type_appel == t)
+                       .first())
+            if usage and float(usage.count) > 0:
+                usage.count = max(0.0, float(usage.count) - 1.0)
+        db.commit()
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+
+
 def _montant_lignes(lignes: list) -> float:
     total = 0.0
     for l in lignes or []:
@@ -4438,14 +4458,17 @@ def _espace_chat(profile) -> str:
 def enregistrer_echange_chat(db: Session, user_id: str, espace: str, question: str, reponse: str):
     """Historique « Parle à Totor » : garde la question et la réponse pour que la
     conversation se retrouve d'un jour à l'autre (demande testeuse du 24/07).
-    JAMAIS bloquant : si l'enregistrement échoue, la réponse part quand même."""
+    JAMAIS bloquant : si l'enregistrement échoue, la réponse part quand même.
+    (20/08/2026) Mais plus jamais en silence : un historique qui se perd doit
+    se voir dans Sentry, sinon l'angle mort dure des semaines."""
     try:
         if question:
             db.add(ChatMessageDB(user_id=user_id, espace=espace, role="user", content=question[:8000]))
         db.add(ChatMessageDB(user_id=user_id, espace=espace, role="assistant", content=(reponse or "")[:8000]))
         db.commit()
-    except Exception:
+    except Exception as e:
         db.rollback()
+        sentry_sdk.capture_exception(e)
 
 
 @app.get("/assistant/chat/historique")
@@ -4528,9 +4551,14 @@ def assistant_chat(
     # Le mode "aide" (mode d'emploi de l'app) ne consomme PAS le quota chat : le quota
     # protège l'expertise métier, pas le droit de comprendre l'app. Garde-fou séparé.
     mode_aide = req.mode == "aide"
+    nouveau_fil = False
     if mode_aide:
         _verifier_et_incrementer_quota_ia(db, user.id, "aide", 30)
     else:
+        # Pour pouvoir REMBOURSER si le moteur échoue : on note AVANT de consommer
+        # si ce message ouvre un nouveau fil (les gratuits comptent par conversation).
+        nouveau_fil = (not billing.is_premium(db, user)
+                       and not quotas_freemium.etat_chat(db, user)["fil_actif"])
         _consommer_quota(db, user, "chat", AI_CHAT_DAILY_LIMIT)
 
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
@@ -5001,6 +5029,12 @@ def assistant_chat(
         # On logge l'erreur reelle (masquee) cote serveur, jamais l'exception brute au client
         # (elle peut contenir la cle Anthropic si l'en-tete x-api-key est invalide).
         print(f"[ASSISTANT ERROR] {type(e).__name__}: {billing.redact_secrets(e)}", flush=True)
+        # (20/08/2026) Le moteur a vraiment échoué : Sentry doit le voir (une
+        # question restée sans réponse ne doit jamais être invisible), et la
+        # personne ne paie rien : on lui rend son message et sa conversation.
+        sentry_sdk.capture_exception(e)
+        if not mode_aide:
+            _rembourser_quota_chat(db, user.id, nouveau_fil)
         raise HTTPException(status_code=502, detail="L'assistant n'est pas disponible pour le moment. Réessaie dans un instant.")
 
     # Radar UX (mode aide) : la PREMIÈRE question de chaque conversation part en copie
