@@ -2608,6 +2608,8 @@ def _html_email_bienvenue(statut: str) -> str:
       <h2 style="color:#0A2540;">🐾 Je t'attends</h2>
       <p>Salut, c'est Totor.</p>
       {corps}
+      <p>Et commencer ne coûte rien : tes premiers scans et tes questions
+      sont gratuits, sans carte bancaire.</p>
       <p style="margin:24px 0;">
         <a href="{frontend}" style="background:#5DCAA5; color:#04342C; padding:12px 20px;
            border-radius:8px; text-decoration:none; display:inline-block; font-weight:bold;">
