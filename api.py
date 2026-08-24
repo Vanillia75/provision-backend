@@ -2571,6 +2571,111 @@ def _html_rappel_actu(mois_nom: str, nb_contrats: int, nb_employeurs: int) -> st
     """
 
 
+# ────────────────────────────────────────────────────────────────────────
+#  EMAIL DE BIENVENUE J+1 (20/08/2026, décision Camille) : la revue des
+#  inscrits a montré que la pub amène des gens qui s'inscrivent... et ne
+#  reviennent jamais. Le lendemain d'une inscription restée VIDE, Totor
+#  envoie UN email, un seul, pour proposer le premier geste. Jamais de
+#  relance derrière : le drapeau users.email_bienvenue_envoye garantit
+#  l'unicité, et l'email le dit honnêtement. Aucun chiffre calculé dedans.
+#  Mode "dry" par défaut, EMAILS_BIENVENUE_MODE=live sur Railway pour armer.
+# ────────────────────────────────────────────────────────────────────────
+EMAILS_BIENVENUE_MODE = os.environ.get("EMAILS_BIENVENUE_MODE", "dry")
+
+
+def _html_email_bienvenue(statut: str) -> str:
+    frontend = os.environ.get("FRONTEND_URL", "https://www.montotor.fr")
+    if statut == "intermittent":
+        corps = (
+            "<p>Hier tu as ouvert ton compte, et depuis je monte la garde devant un dossier vide. "
+            "Je préfère te le dire : je suis bien plus utile quand j'ai quelque chose à compter.</p>"
+            "<p><strong>Le geste le plus simple pour commencer :</strong> prends en photo ta "
+            "dernière attestation employeur (AEM), envoie-la-moi dans l'app, et je remplis tout "
+            "tout seul. Tes heures vers les 507, ton mois, ton allocation : tu verras enfin "
+            "où tu en es, sans calculs à faire.</p>"
+        )
+    else:
+        corps = (
+            "<p>Hier tu as ouvert ton compte, et depuis je monte la garde devant un dossier vide. "
+            "Je préfère te le dire : je suis bien plus utile quand j'ai quelque chose à surveiller.</p>"
+            "<p><strong>Le geste le plus simple pour commencer :</strong> crée ta première facture "
+            "dans l'app (deux minutes, mentions légales comprises), ou dis-moi simplement ton "
+            "chiffre d'affaires du mois : je te dis quoi mettre de côté pour l'URSSAF, et quand.</p>"
+        )
+    return f"""
+    <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; color:#0A2540;">
+      {EMAIL_ENTETE_TOTOR}
+      <h2 style="color:#0A2540;">🐾 Je t'attends</h2>
+      <p>Salut, c'est Totor.</p>
+      {corps}
+      <p style="margin:24px 0;">
+        <a href="{frontend}" style="background:#5DCAA5; color:#04342C; padding:12px 20px;
+           border-radius:8px; text-decoration:none; display:inline-block; font-weight:bold;">
+          Ouvrir TOTOR
+        </a>
+      </p>
+      <p style="color:#6B7A8D; font-size:13px;">
+        Et si quelque chose t'a bloqué ou refroidi, réponds à ce mail : c'est Camille,
+        le fondateur, qui lit les réponses. Il répond en personne.
+      </p>
+      <p style="color:#6B7A8D; font-size:12px; border-top:1px solid #e5e9f0; padding-top:12px;">
+        C'est le seul email de ce genre que tu recevras : je ne relance pas les gens,
+        je les attends. 🐾
+      </p>
+    </div>
+    """
+
+
+def _bienvenue_candidats(db: Session, maintenant: datetime):
+    """Les comptes qui reçoivent l'email de bienvenue : inscrits il y a entre
+    20 h et 7 jours, jamais servis, hors comptes de test, et dont le dossier
+    est resté VIDE (aucun contrat, aucun revenu, aucune facture, aucun appel
+    IA, aucun document). La borne des 7 jours évite d'écrire à de vieux
+    comptes le jour où la fonction s'allume."""
+    recent = maintenant - timedelta(hours=20)
+    ancien = maintenant - timedelta(days=7)
+    candidats = []
+    for u in (db.query(User)
+                .filter(User.is_test.is_(False),
+                        User.email_bienvenue_envoye.is_(False),
+                        User.created_at <= recent,
+                        User.created_at >= ancien)
+                .all()):
+        vide = (
+            db.query(IntermittentActivity).filter(IntermittentActivity.user_id == u.id).first() is None
+            and db.query(IncomeEntry).filter(IncomeEntry.user_id == u.id).first() is None
+            and db.query(ClientInvoice).filter(ClientInvoice.user_id == u.id).first() is None
+            and db.query(AIUsage).filter(AIUsage.user_id == u.id).first() is None
+            and db.query(DocumentPerso).filter(DocumentPerso.user_id == u.id).first() is None
+        )
+        if vide:
+            candidats.append(u)
+    return candidats
+
+
+def _executer_emails_bienvenue():
+    db = SessionLocal()
+    try:
+        for u in _bienvenue_candidats(db, datetime.utcnow()):
+            profil = db.query(Profile).filter(Profile.user_id == u.id).first()
+            statut = profil.statut if profil else "intermittent"
+            if EMAILS_BIENVENUE_MODE != "live":
+                print(f"[bienvenue] (dry) enverrait a user {u.id} ({statut})", flush=True)
+                continue
+            try:
+                if send_email(u.email, "Totor t'attend 🐾", _html_email_bienvenue(statut)):
+                    u.email_bienvenue_envoye = True
+                    db.commit()
+                    print(f"[bienvenue] envoye a user {u.id} ({statut})", flush=True)
+            except Exception as e:
+                db.rollback()
+                sentry_sdk.capture_exception(e)
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+    finally:
+        db.close()
+
+
 def _executer_rappels_actualisation():
     aujourdhui = date.today()
     # La fenêtre ouvre le 28 (26 en février côté FT ; on garde le 28, simple et sûr).
@@ -2775,6 +2880,8 @@ async def _demarrer_relances_auto():
             await asyncio.to_thread(_executer_relances_auto)
             await asyncio.to_thread(_executer_rappels_actualisation)
             await asyncio.to_thread(_executer_rappels_urssaf)
+            # Bienvenue J+1 : un seul email si le compte est resté vide (dédup en base).
+            await asyncio.to_thread(_executer_emails_bienvenue)
             # Alerte fondateur : essais gratuits (stores) bientôt à échéance.
             await asyncio.to_thread(_executer_alerte_essais_fin)
             # Sauvegarde quotidienne de la base vers R2 (dédupliquée par jour).

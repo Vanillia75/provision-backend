@@ -35,6 +35,9 @@ class User(Base):
     # Compte de test/fondateur : exclu des stats du dashboard honnête (marque
     # explicite, remplace l'ancienne devinette par motif d'email).
     is_test = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Email de bienvenue J+1 (20/08/2026) : UN SEUL email si le compte est resté
+    # vide le lendemain de l'inscription. Ce drapeau garantit le « un seul ».
+    email_bienvenue_envoye = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     profile = relationship(
