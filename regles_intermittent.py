@@ -25,8 +25,8 @@
 """
 
 VERSION_REFERENTIEL = {
-    "version": "2026.07",
-    "revue": "2026-06-26",
+    "version": "2026.08",
+    "revue": "2026-08-25",
     "note": "Règles-clés du décompte des heures validées (source officielle + "
             "intermittente 20 ans). Montants et dispositifs annexes encore à valider.",
 }
@@ -38,7 +38,7 @@ REGLES = {
         "valeur": 507,
         "libelle": "Seuil d'ouverture de droits",
         "source": "Annexes 8 et 10 au règlement d'assurance chômage ; ARTCENA ; validé par intermittente (20 ans)",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": True,
         "commentaire": "Heures minimales (ou assimilées) à réunir pour ouvrir des droits. Confirmé France Travail et ARTCENA.",
@@ -47,7 +47,7 @@ REGLES = {
         "valeur": 365,
         "libelle": "Période de référence (première admission et réadmission)",
         "source": "ARTCENA (annexes VIII et X) ; France Travail Guide Intermittent ; validé par intermittente (20 ans)",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": True,
         "commentaire": "Les 507h se cherchent sur les 12 mois (365 jours) glissants précédant la dernière fin de contrat retenue. Vaut aussi pour la réadmission (date anniversaire au terme d'un délai de 12 mois). En réadmission, si les 507h ne sont pas atteintes, la période PEUT être allongée avec majoration (42h/30j au-delà du 365e jour) — cas spécial NON géré par le moteur pour l'instant.",
@@ -56,7 +56,7 @@ REGLES = {
         "valeur": 365,
         "libelle": "Durée d'indemnisation",
         "source": "Unédic ; France Travail ; validé par intermittente (20 ans)",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": True,
         "commentaire": "Droits ouverts jusqu'à une date anniversaire (terme d'un délai de 12 mois après la fin de contrat ayant ouvert les droits), avec réexamen des droits à cette date.",
@@ -67,7 +67,7 @@ REGLES = {
         "valeur": 12,
         "libelle": "Forfait d'un cachet (artiste, annexe 10)",
         "source": "Article 3 de l'annexe X ; ARTCENA ; validé par intermittente (20 ans)",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": True,
         "commentaire": "Chaque cachet d'artiste (annexe 10) est systématiquement converti en 12h par France Travail (article 3 de l'annexe X). Il n'existe PLUS de distinction entre cachets isolés et groupés : tous comptent 12h. 43 cachets = 516h. Les techniciens (annexe 8) sont décomptés à l'heure réelle.",
@@ -89,7 +89,7 @@ REGLES = {
         "valeur": 338,
         "libelle": "Seuil minimal de la clause de rattrapage (filet)",
         "source": "ARTCENA (annexes VIII et X) ; Circulaire Unédic n°2018-04 ; validé par intermittente (20 ans)",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "2018-02-07",
         "verifie": True,
         "commentaire": "Au moins 338h au cours des 12 derniers mois précédant la date anniversaire : c'est UNE des deux conditions de la clause de rattrapage (voir rattrapageOuverturesMin pour la seconde). Avoir 338h NE SUFFIT PAS à lui seul.",
@@ -98,7 +98,7 @@ REGLES = {
         "valeur": 6,
         "libelle": "Durée maximale de la clause de rattrapage",
         "source": "ARTCENA ; Circulaire Unédic n°2018-04 ; validé par intermittente (20 ans)",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "2018-02-07",
         "verifie": True,
         "commentaire": "Période d'indemnisation maximale de 6 mois au titre de la clause. Date anniversaire inchangée. Décision irrévocable une fois activée.",
@@ -107,7 +107,7 @@ REGLES = {
         "valeur": 5,
         "libelle": "Condition d'éligibilité — ouvertures de droits (clause de rattrapage)",
         "source": "ARTCENA (Précis juridique annexes VIII et X) ; Circulaire Unédic n°2018-04",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "2018-02-07",
         "verifie": True,
         "commentaire": "SECONDE condition de la clause, CUMULATIVE avec les 338h : justifier d'au moins 5 années d'affiliation (5 × 507h) OU 5 ouvertures de droits au cours des 10 années précédant la fin de contrat. Le moteur ne dispose pas de l'historique des ouvertures : il ne doit donc PAS affirmer le filet acquis sur la seule base des 338h.",
@@ -123,7 +123,7 @@ REGLES = {
         "source": "Unédic — annexes VIII et X au règlement d'assurance chômage (heures de "
                   "formation assimilées dans la limite des 2/3 du nombre d'heures requis) ; "
                   "ARTCENA, Précis juridique annexes VIII et X. Sourcé le 2026-07-03.",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": True,
         "commentaire": "Les heures de formation SUIVIE comptent comme des heures de travail dans la "
@@ -137,7 +137,7 @@ REGLES = {
         "libelle": "Plafond d'heures d'enseignement dispensé assimilées",
         "source": "Guide France Travail Intermittents p.8-9 (heures d'enseignement artistique/technique "
                   "limitées à 70h, 120h si ≥50 ans ; total formation + enseignement ≤ 338h). Sourcé le 2026-07-03.",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": True,
         "commentaire": "Les heures d'enseignement DISPENSÉ (artiste/technicien enseignant dans un "
@@ -151,7 +151,7 @@ REGLES = {
         "libelle": "Taux de l'indemnité Congés Spectacles (ICP) — % des bruts de l'exercice",
         "source": "Audiens Congés Spectacles ; backtesté sur 2 bordereaux réels (exercices "
                   "2023-2024 et 2024-2025) : ICP brut = 10 % des bruts au centime. Cf. CONGES_SPECTACLES_ETUDE.md.",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": True,
         "commentaire": "L'indemnité de congés payés (ICP) versée par Audiens = 10 % des salaires "
@@ -164,7 +164,7 @@ REGLES = {
         "libelle": "Ratio net social / brut de l'ICP Congés Spectacles",
         "source": "Bordereaux Audiens réels 2023-2024 et 2024-2025 : net/brut = 76,95 % (cotisations "
                   "salariales ≈ 23,05 %) — identique sur les 2 années. Cf. CONGES_SPECTACLES_ETUDE.md.",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "2025",
         "verifie": True,
         "commentaire": "Le net social (AVANT impôts) ≈ 76,95 % de l'ICP brute. PÉREMPTION ANNUELLE : les "
@@ -178,7 +178,7 @@ REGLES = {
         "source": "Guide France Travail Intermittents p.8 (suspension de contrat) et p.9 "
                   "(maternité/adoption/AT/ALD hors contrat) ; matermittentes.com. "
                   "Sourcé le 2026-07-03 — cf. MOTEUR_ARRETS_SOURCES.md.",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": True,
         "commentaire": "Certains arrêts INDEMNISÉS comptent comme du travail à raison de 5h par jour "
@@ -195,7 +195,7 @@ REGLES = {
         "libelle": "Allocation journalière minimale (paramètre de calcul)",
         "source": "Unédic — Paramètres utiles avril 2025 ; Guide France Travail Intermittents "
                   "(31,96 € depuis le 01/07/2023). Cf. MOTEUR_AJ_SOURCES.md.",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "2023-07-01",
         "verifie": True,
         "commentaire": "Paramètre fixe des formules A, B, C de l'AJ. Évolue avec le SMIC : "
@@ -216,7 +216,7 @@ REGLES = {
         },
         "libelle": "Paramètres de l'allocation journalière — annexe 8 (techniciens)",
         "source": "Guide France Travail Intermittents p.11, 12, 16-17 (exemples 6 et 12 vérifiés)",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": True,
         "commentaire": "A = AJmin×[0,42×SR(≤14400)+0,05×au-delà]/5000 ; B = AJmin×[0,26×NHT(≤720h)"
@@ -232,16 +232,35 @@ REGLES = {
         },
         "libelle": "Paramètres de l'allocation journalière — annexe 10 (artistes)",
         "source": "Guide France Travail Intermittents p.11, 12, 16-17 ; backtest réel 0,00 € d'écart (2026-07-03)",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": True,
         "commentaire": "A = AJmin×[0,36×SR(≤13700)+0,05×au-delà]/5000 ; B = AJmin×[0,26×NHT(≤690h)"
                        "+0,08×au-delà]/507 ; C = AJmin×0,70. Plancher 44 €. SJM = SR/(NHT/10). "
                        "Mois : jours travaillés = heures/10, seuil 27 j, décalage ×1,3.",
     },
+    "allocationPlafondAJOfficiel": {
+        "valeur": 181.18,
+        "libelle": "Plafond OFFICIEL de l'allocation journalière (annexes 8 et 10)",
+        "source": "Article 16 des annexes 8 et 10 (convention du 15/11/2024) : maximum = "
+                  "34,4 % de 1/365e du plafond annuel des contributions, soit "
+                  "0,344 × 526,68 = 181,18 €. Chiffre publié tel quel par l'Unédic "
+                  "(Paramètres utiles, avril 2026, p. 23 : « ARE Annexes VIII et X : "
+                  "181,18 € — maximum théorique du 01/01 au 31/12/2026 »). "
+                  "RÉSOLU le 25/08/2026 par la vérification quotidienne.",
+        "version": "2026.08",
+        "dateAppli": "2026",
+        "verifie": True,
+        "commentaire": "C'est LE chiffre publiable (guides, FAQ, chat) : formule du texte + "
+                       "publication Unédic concordantes. Le MOTEUR, lui, borne plus bas "
+                       "(voir allocationPlafondAJ) par prudence : afficher moins que le "
+                       "plafond théorique ne trompe personne, afficher plus que le versé "
+                       "trahirait (Loi X). Évolue chaque 1er janvier avec le plafond des "
+                       "contributions : rituel de janvier.",
+    },
     "allocationPlafondAJ": {
         "valeur": 155.77,
-        "libelle": "Plafond de l'allocation journalière (annexes 8 et 10)",
+        "libelle": "Plafond PRUDENT du moteur (mesuré, jamais publié comme officiel)",
         "source": "MESURÉ le 2026-07-27 sur le simulateur officiel France Travail "
                   "(simucalcul.pole-emploi-services.fr) : l'allocation reste bloquée à 155,77 € "
                   "pour un salaire de référence de 320 000, 350 000, 500 000 et 1 000 000 €, "
@@ -265,15 +284,18 @@ REGLES = {
                        "que ce qui sera versé (Loi X). Monter à 181,18 € ferait afficher à un "
                        "artiste très bien payé une allocation supérieure à ce que le simulateur "
                        "officiel calcule. "
-                       "À TRANCHER sur un vrai relevé d'un allocataire au plafond : c'est la seule "
-                       "preuve qui départagera. D'ici là, le chat ne doit PAS présenter ce montant "
-                       "comme un plafond officiel, et le rituel de janvier doit rejouer la mesure.",
+                       "MYSTÈRE RÉSOLU le 25/08/2026 : le plafond OFFICIEL est 181,18 € (art. 16 "
+                       "des annexes : 34,4 % de 1/365e du plafond annuel, cf. "
+                       "allocationPlafondAJOfficiel, verifie=True). Ce 155,77 ne reste que comme "
+                       "BORNE PRUDENTE DU MOTEUR : jamais publié comme plafond (ni guide, ni FAQ, "
+                       "ni chat). À TRANCHER sur un vrai relevé d'un allocataire au plafond ; le "
+                       "rituel de janvier rejoue la mesure ET met à jour l'officiel.",
     },
     "allocationRetenueRetraiteComp": {
         "valeur": {"taux": 0.0093, "seuilExoneration": 31.96, "seuilCsg": 60.0},
         "libelle": "Retenue retraite complémentaire sur l'AJ (0,93 % du SJM)",
         "source": "Guide France Travail Intermittents p.12 ; validé par backtest réel (retenue 1,25 € exacte)",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": True,
         "commentaire": "AJ ≤ 31,96 € : aucune retenue. Au-delà : retenue 0,93 % × SJM, EXACTE au "
@@ -287,7 +309,7 @@ REGLES = {
         "source": "Guide France Travail p.12 (taux) ; assiette 98,25 % CONFIRMÉE le 2026-07-27 "
                   "contre le simulateur officiel France Travail (simucalcul.pole-emploi-services.fr), "
                   "11 cas, annexes 8 et 10, écart 0,00 €.",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": True,
         "commentaire": "Taux 6,2 % (CSG) + 0,5 % (CRDS) = 6,7 %, appliqués sur 98,25 % de l'allocation "
@@ -302,7 +324,7 @@ REGLES = {
                   "Travail : trois allocations brutes différentes (63,27 / 64,64 / 65,99 €) donnent "
                   "toutes un net de 62,00 € exactement. SMIC brut mensuel ÷ 30, arrondi à l'euro "
                   "(1 867,02 ÷ 30 = 62,23 → 62 depuis le 01/06/2026).",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "2026-06-01",
         "verifie": True,
         "commentaire": "Règle : on calcule la CSG théorique, puis on la RABOTE de façon que le net ne "
@@ -318,7 +340,7 @@ REGLES = {
         "valeur": {"montant": 4005.0, "annee": 2026, "coefPlafondCumul": 1.18},
         "libelle": "Plafond mensuel de la sécurité sociale (pour le plafond de cumul ARE + salaires)",
         "source": "Unédic — Paramètres utiles AVRIL 2026, tableau des plafonds : PMSS 2026 = 4 005 € (LU À LA SOURCE le 15/08/2026 ; arrêté du 22/12/2025, PASS 2026 = 48 060 € = 4 005 × 12) ; guide FT p.17 (cumul ≤ 118 % du PMSS)",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "2025-01-01",
         "verifie": True,
         "commentaire": "Cumul mensuel ARE + rémunérations brutes plafonné à 118 % du PMSS. "
@@ -329,7 +351,7 @@ REGLES = {
         "valeur": {"jours": 2.5, "parTravailles": 24, "plafond": 30},
         "libelle": "Franchise congés payés",
         "source": "Unédic ; ARTCENA — à confirmer expert",
-        "version": "2026.07",
+        "version": "2026.08",
         "dateAppli": "en vigueur",
         "verifie": False,
         "frontOnly": True,

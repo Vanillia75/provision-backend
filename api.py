@@ -797,7 +797,12 @@ def auth_google(req: GoogleAuthRequest, db: Session = Depends(get_db)):
 
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        user = User(email=email, google_id=google_id, password_hash=None, gclid=(req.gclid or None))
+        # (25/08/2026) email_verified=True : Google a déjà vérifié cette adresse,
+        # comme le fait le volet Apple. Sans ça, les inscrits Google restaient
+        # « non vérifiés » à vie et ne recevaient JAMAIS les rappels
+        # (actualisation du 28, URSSAF), qui exigent un email vérifié.
+        user = User(email=email, google_id=google_id, password_hash=None,
+                    gclid=(req.gclid or None), email_verified=True)
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -808,8 +813,13 @@ def auth_google(req: GoogleAuthRequest, db: Session = Depends(get_db)):
             send_founder_signup_alert(total_inscrits, user.email)
         except Exception:
             pass
-    elif not user.google_id:
-        user.google_id = google_id
+    else:
+        if not user.google_id:
+            user.google_id = google_id
+        # Se connecter avec Google prouve l'adresse : on rattrape aussi les
+        # comptes existants restés « non vérifiés ».
+        if not user.email_verified:
+            user.email_verified = True
         db.commit()
 
     return AuthResponse(token=create_token(user.id), email=user.email)
@@ -4932,7 +4942,9 @@ def assistant_chat(
             "pas des calculs personnels — en precisant toujours 'valeur 2026' et que France Travail fait foi : "
             f"plancher de l'AJ artiste (annexe 10) = {regle_valeur('allocationParametresAnnexe10')['plancherAJ']:.0f} euros/jour ; "
             f"plancher technicien (annexe 8) = {regle_valeur('allocationParametresAnnexe8')['plancherAJ']:.0f} euros/jour ; "
-            f"plafond de l'AJ = {regle_valeur('allocationPlafondAJ'):.2f} euros/jour ; "
+            f"plafond OFFICIEL de l'AJ = {regle_valeur('allocationPlafondAJOfficiel'):.2f} euros/jour "
+            "(article 16 des annexes 8 et 10 : 34,4 % de 1/365e du plafond annuel des contributions, "
+            "publie par l'Unedic ; nos estimations personnalisees peuvent borner plus bas par prudence) ; "
             f"retenue retraite complementaire = 0,93 % du salaire journalier moyen quand l'AJ depasse 31,96 euros. "
             "Quand quelqu'un demande une ECHELLE ('c'est quoi le plancher ? le plafond ?'), tu donnes ces reperes "
             "franchement au lieu de te derober : refuser une constante publiee, c'est ne pas repondre. "
@@ -6303,6 +6315,40 @@ def supprimer_document(document_id: str, user: User = Depends(get_current_user),
     return {"ok": True}
 
 
+def _valider_date_anniversaire(d: date) -> None:
+    """(25/08/2026) La vérif quotidienne a trouvé trois vrais cockpits faussés :
+    une date anniversaire en 2030, une en 2005 (une date de naissance, sans
+    doute), une allocation à 13,53 €/jour. Tout le compteur 507h, la projection
+    et le chat partaient de valeurs impossibles, sans que rien ne les arrête.
+    La date anniversaire est une date de RENOUVELLEMENT : elle vit autour
+    d'aujourd'hui. Au-delà de 2 ans dans le passé ou de 18 mois dans le futur,
+    ce n'est pas elle (c'est un anniversaire de naissance, une faute de frappe,
+    un mauvais champ de l'ARE)."""
+    aujourd_hui = date.today()
+    if d < aujourd_hui - timedelta(days=730):
+        raise HTTPException(status_code=422, detail=(
+            "Cette date est trop ancienne pour être ta date anniversaire de droits. "
+            "C'est la date à laquelle France Travail réexamine ton dossier : elle se "
+            "trouve sur ta notification ARE, pas sur ta carte d'identité. 🐾"))
+    if d > aujourd_hui + timedelta(days=548):
+        raise HTTPException(status_code=422, detail=(
+            "Cette date est trop lointaine pour être ta date anniversaire de droits "
+            "(elle arrive toujours dans les 12 prochains mois). Vérifie sur ta "
+            "notification France Travail, ou demande-moi si tu hésites. 🐾"))
+
+
+def _valider_montant_journalier(m: float) -> None:
+    """Bornes de vraisemblance de l'allocation journalière BRUTE : le plancher
+    des annexes 8/10 est autour de 38 à 44 €, le plafond officiel Unédic à
+    181,18 € (avril 2026). On laisse de la marge des deux côtés (vieux droits,
+    cas particuliers), mais 13,53 € ou 500 € ne peuvent pas être une AJ."""
+    if not (20.0 <= m <= 200.0):
+        raise HTTPException(status_code=422, detail=(
+            "Ce montant ne ressemble pas à une allocation journalière (elles vont "
+            "d'environ 38 € à 181 € par jour). Reprends le montant BRUT par jour "
+            "sur ta notification ARE, pas un montant mensuel ni un reste à payer. 🐾"))
+
+
 @app.post("/profile/date-anniversaire")
 def save_date_anniversaire(
     req: DateAnniversaireRequest,
@@ -6312,6 +6358,10 @@ def save_date_anniversaire(
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Profil introuvable")
+    if req.date_anniversaire is not None:
+        _valider_date_anniversaire(req.date_anniversaire)
+    if req.montant_journalier is not None:
+        _valider_montant_journalier(float(req.montant_journalier))
     profile.date_anniversaire = req.date_anniversaire
     # Montant journalier : on ne l'écrase que s'il est fourni (None côté requête = champ
     # absent → on garde l'existant ; le front l'envoie explicitement quand il vient de l'ARE).
