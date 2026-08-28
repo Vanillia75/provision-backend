@@ -76,6 +76,10 @@ Règles importantes :
   NOTIFICATION D'OUVERTURE OU DE REPRISE DE DROITS (« notification d'admission », « reprise de
   paiement », montant journalier de l'allocation, date anniversaire) → renvoie UNIQUEMENT
   [{"type_document": "notification_are"}] et aucun autre champ.
+  ATTESTATION DE FORMATION (« attestation de fin de formation », « attestation d'entrée en
+  stage », « attestation de suivi de formation », organisme de formation, AFDAS, nombre d'heures
+  de formation) → renvoie UNIQUEMENT [{"type_document": "attestation_formation"}] et aucun autre
+  champ. Ce n'est PAS du travail salarié : ces heures se déclarent en « Formation suivie ».
   Tout AUTRE document (fiche de paie, contrat de travail, courrier…) → renvoie UNIQUEMENT
   [{"type_document": "inconnu"}] et aucun autre champ.
 - Si une information est absente ou illisible, mets null (sauf "nombre" : mets 0 si introuvable).
@@ -720,6 +724,15 @@ def _finaliser(data, fname: str) -> list:
             "ta date de renouvellement et ton allocation journalière d'un coup.",
         )
 
+    if items and all(item.get("type_document") == "attestation_formation" for item in items):
+        raise DocumentAOrienter(
+            "attestation_formation",
+            "Ça, c'est une attestation de formation, pas une attestation d'employeur. Tes heures "
+            "de formation comptent quand même pour tes 507 h (dans la limite de 338 h) : "
+            "saisis-les dans « Mes activités » avec le type « Formation suivie » (dans le lien "
+            "« Autre : formation, arrêt maladie... » du formulaire), sans employeur ni salaire. "
+            "Range l'attestation dans « Mes documents », elle y est en sécurité.",
+        )
     if items and all(item.get("type_document") == "inconnu" for item in items):
         raise RuntimeError(
             "Je ne sais pas encore lire ce type de document : ça ne ressemble pas à une attestation "
