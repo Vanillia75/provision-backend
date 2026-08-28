@@ -722,7 +722,7 @@ def _finaliser(data, fname: str) -> list:
 
     if items and all(item.get("type_document") == "inconnu" for item in items):
         raise RuntimeError(
-            "Je ne sais pas encore lire ce type de document — ça ne ressemble pas à une attestation "
+            "Je ne sais pas encore lire ce type de document : ça ne ressemble pas à une attestation "
             "employeur que je connais. Tu peux saisir ses heures à la main dans « Mes activités »."
         )
 
