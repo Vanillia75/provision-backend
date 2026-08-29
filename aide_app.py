@@ -142,7 +142,7 @@ MODE INTERMITTENT (menu de gauche) :
   droite (le total déclaré du mois). Si un bulletin de paie est rangé dans « Mes
   documents », le total du mois TOUT COMPRIS s'affiche en gros au-dessus, en nets
   (cachets convertis avec le rapport net/brut lu sur le bulletin) ; sans bulletin, la
-  colonne employeurs reste en BRUT et rien n'est additionné. Sur TÉLÉPHONE, cette
+  colonne employeurs reste en BRUT et rien n'est additionné, et un bouton « Déposer un bulletin de paie » (29/08/2026) emmène directement dans « Mes documents », onglet « Mon classeur », avec le type déjà choisi. Sur TÉLÉPHONE, cette
   carte est tout en HAUT du cockpit (heures, briefing, puis l'argent du mois) et son
   détail se REPLIE (18/08/2026) : visible en permanence le total, les deux colonnes,
   les jours indemnisés et la date du versement prévu ; le bouton « Simuler des
