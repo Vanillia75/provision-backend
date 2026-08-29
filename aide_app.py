@@ -127,7 +127,9 @@ MODE AUTO-ENTREPRENEUR (menu de gauche) :
 
 MODE INTERMITTENT (menu de gauche) :
 - Cockpit : le compteur des 507 heures (fenêtre de 12 mois glissants), la date anniversaire
-  (elle se règle ICI, sur le cockpit), la projection à l'échéance, la carte « Ton allocation
+  (elle se règle ICI, sur le cockpit ; depuis le 29/08/2026 son bouton « Modifier » change
+  la date ET le montant de l'allocation journalière à la main, utile quand le taux a bougé
+  au renouvellement ; « Réimporter » lit tout depuis la notification ARE), la projection à l'échéance, la carte « Ton allocation
   journalière », la carte « Totor vérifie ta décision » (comparer avec France Travail),
   le récap des activités. Juste sous la carte de Totor : « ☀️ Ton briefing du jour »
   (ce qu'il y a à faire aujourd'hui : actualisation ouverte, AEM manquantes, contrats des
