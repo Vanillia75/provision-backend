@@ -110,7 +110,13 @@ def generate_invoice_pdf(invoice: dict, emitter: dict, fiscal: dict = None, kind
         date_echeance = invoice.get("date_echeance")
         if date_echeance:
             meta += f" — Échéance le {date_echeance.strftime('%d/%m/%Y')}"
-        else:
+        elif invoice.get("client_type") == "professionnel":
+            # (29/08/2026, vérif quotidienne) Le délai supplétif de 30 jours
+            # n'existe QU'ENTRE PROFESSIONNELS (art. L441-10 du code de
+            # commerce ; service-public F23211 : ces règles « ne s'appliquent
+            # pas aux ventes à des particuliers »). Sur une facture à un
+            # particulier sans échéance choisie, on n'invente AUCUN délai :
+            # même schéma que le droit d'option, une règle sans sa condition.
             meta += " — Paiement à 30 jours (délai légal, à défaut de mention contraire)"
     story.append(Paragraph(meta, label_style))
     story.append(Spacer(1, 6 * mm))
