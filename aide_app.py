@@ -175,7 +175,11 @@ MODE INTERMITTENT (menu de gauche) :
   connaissance » porte directement les deux premiers gestes : « Scanner une
   AEM » (bouton vert) et « Ajouter un cachet » (ouvre le formulaire). La carte du haut reste bleu nuit même quand la situation
   se tend (seule la petite ligne 🔴/🟡 change) ; elle ne passe entière en vert
-  que quand les droits sont sécurisés. Depuis le 18/08/2026, « Mes activités »
+  que quand les 507 heures sont atteintes. ⚠️ VOCABULAIRE : on dit « tes 507
+  heures sont là », JAMAIS « tes droits sont sécurisés » : atteindre le seuil
+  d'heures est la condition principale, pas la seule (France Travail vérifie
+  aussi que la privation d'emploi est involontaire, une démission peut tout
+  changer). Depuis le 18/08/2026, « Mes activités »
   sur téléphone : compteur en accroche (« X h au compteur · N contrats »), jauge
   « Vers les 507 h », chaque contrat dans sa CASE (icône selon le type, employeur,
   brut, heures gagnées « +X h », badges AEM / Estimé / À venir, crayon pour

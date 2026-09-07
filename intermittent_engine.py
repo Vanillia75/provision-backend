@@ -94,7 +94,11 @@ PALIERS_HECTOR = [
     (250,           "ado",     "Tu es à mi-chemin, le rythme est bon."),
     (SEUIL_FILET,   "filet",   "Tu as passé les 338h : une des deux conditions du filet (clause de rattrapage) est remplie. L'autre dépend de ton historique d'ouvertures de droits."),
     (400,           "adulte",  "On y est presque, je le sens."),
-    (SEUIL_DROITS,  "niche",   "On l'a fait. Tes droits sont sécurisés. Tellement fier de nous."),
+    # ⚠️ Même prudence que le palier "filet" juste au-dessus : on annonce la
+    # condition REMPLIE, jamais le résultat GARANTI. France Travail vérifie aussi
+    # que la privation d'emploi est involontaire (une démission dans la période
+    # peut valoir un rejet malgré des heures largement suffisantes).
+    (SEUIL_DROITS,  "niche",   "On l'a fait. Tes 507h sont là, la condition d'heures est remplie. Tellement fier de nous."),
 ]
 
 AVERTISSEMENT = (
@@ -216,7 +220,7 @@ def etat_hector(total_heures: float) -> tuple:
 # ─────────────────────────────────────────────────────────────────────────────
 def construire_verdict(total: float, manquant: float, jours_restants: Optional[int]) -> str:
     if total >= SEUIL_DROITS:
-        return "Tes droits sont sécurisés. Tu as tes 507h. Profite, je veille."
+        return "Tes 507h sont là, la condition d'heures est remplie. Profite, je veille."
     if total >= SEUIL_FILET:
         base = (
             f"Il te manque {int(round(manquant))}h pour tes {SEUIL_DROITS}h. "

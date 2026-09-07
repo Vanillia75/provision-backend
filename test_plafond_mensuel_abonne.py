@@ -56,13 +56,21 @@ def _abonne(TestSession, scans_ce_mois=0.0):
     s.add(Subscription(user_id=u.id, plan="premium", status="comp", source="comp"))
     # On ETALE sur des jours differents : sinon on bute sur le garde-fou
     # JOURNALIER, qui n'est pas ce que ces tests verifient.
+    # ⚠️ ON ETALE VERS L'AVANT, DEPUIS LE 1er DU MOIS EN COURS. Etaler vers le
+    # PASSE (ce que faisait ce fixture jusqu'au 06/09/2026) faisait deborder les
+    # scans sur le mois PRECEDENT des qu'on jouait les tests avant le 15 : le
+    # compteur mensuel ne voyait alors qu'une fraction des scans et le plafond ne
+    # se declenchait jamais. Deux tests etaient donc rouges du 1er au 15 de chaque
+    # mois, sans que le code de production ait le moindre defaut.
     from datetime import timedelta
-    reste, jour = float(scans_ce_mois), date.today()
+    premier_du_mois = date.today().replace(day=1)
+    reste, decalage = float(scans_ce_mois), 0
     while reste > 0:
         part = min(reste, 10.0)
-        s.add(AIUsage(user_id=u.id, jour=jour, type_appel="aem_scan", count=part))
+        s.add(AIUsage(user_id=u.id, jour=premier_du_mois + timedelta(days=decalage),
+                      type_appel="aem_scan", count=part))
         reste -= part
-        jour -= timedelta(days=1)
+        decalage += 1
     s.commit()
     uid = u.id
     s.close()

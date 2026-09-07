@@ -4760,7 +4760,18 @@ def assistant_chat(
                 f"l'utilisateur que son filet est acquis sur la seule base des 338h : dis que c'est une "
                 f"premiere condition remplie, et que la seconde depend de son historique (a verifier "
                 f"aupres de France Travail). "
-                f"Droits {'SECURISES' if res.droits_securises else 'pas encore securises'}. "
+                f"Seuil d'heures {'ATTEINT' if res.droits_securises else 'pas encore atteint'}. "
+                f"ATTENTION, MEME PIEGE QUE LE FILET : atteindre le seuil d'heures ne garantit "
+                f"PAS l'ouverture des droits. France Travail verifie AUSSI que la privation "
+                f"d'emploi est INVOLONTAIRE. Une DEMISSION dans la periode de reference peut "
+                f"entrainer un rejet pour chomage volontaire, meme avec largement plus d'heures "
+                f"que le seuil, tant que la personne n'a pas retravaille assez APRES cette "
+                f"demission. Tu ne peux pas verifier ce point ici. Ne dis donc JAMAIS que ses "
+                f"droits sont 'securises', 'acquis' ou 'garantis' sur la seule base des heures : "
+                f"dis que la condition d'heures est remplie, et que le reste depend de la façon "
+                f"dont ses contrats se sont termines. Si l'utilisateur evoque une demission, une "
+                f"rupture conventionnelle ou un depart volontaire, prends-le au serieux, dis-lui "
+                f"que ca peut changer sa situation, et oriente-le vers France Travail. "
             )
             if res.date_anniversaire:
                 if res.jours_avant_anniversaire is not None and res.jours_avant_anniversaire >= 0:
