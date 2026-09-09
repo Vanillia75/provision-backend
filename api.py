@@ -161,6 +161,31 @@ LOGIN_MAX_ECHECS = int(os.environ.get("LOGIN_MAX_ECHECS", "8"))
 LOGIN_BLOCAGE_MINUTES = int(os.environ.get("LOGIN_BLOCAGE_MINUTES", "15"))
 
 STATUTS_FACTURE = ("brouillon", "envoyee", "payee", "impayee")
+
+# ⚖️ UNE FACTURE ÉMISE NE SE MODIFIE PLUS, NE SE SUPPRIME PLUS (09/09/2026).
+# service-public.fr F23208 : « Une fois la facture émise, elle ne peut plus être
+# modifiée directement » ; une facture déjà réglée se corrige UNIQUEMENT par une
+# facture d'avoir ; et les factures émises se conservent 10 ANS. Supprimer laisse
+# en plus un trou dans la numérotation (_next_numero repart du plus grand numéro),
+# ce qu'un contrôle cherche en premier.
+# Le brouillon, lui, n'a jamais été émis : il reste librement modifiable et
+# supprimable. Sortir du brouillon est donc une PORTE À SENS UNIQUE.
+MESSAGE_FACTURE_EMISE = (
+    "Cette facture a déjà été émise, elle ne peut plus être modifiée ni supprimée : "
+    "la loi impose de la conserver telle quelle pendant 10 ans. Pour corriger ou "
+    "annuler une facture émise, il faut établir une facture d'avoir. TOTOR ne sait "
+    "pas encore le faire : écris à bonjour@montotor.fr, Camille répond en personne "
+    "et t'explique la marche à suivre."
+)
+
+
+def _refuser_si_emise(inv: ClientInvoice) -> None:
+    """Garde-fou unique de l'immuabilité. À appeler avant toute écriture qui
+    toucherait le DOCUMENT (client, dates, lignes, montant) ou le ferait
+    disparaître. Le statut et la date de paiement, eux, restent modifiables :
+    ils décrivent la VIE de la facture, pas son contenu légal."""
+    if inv.statut != "brouillon":
+        raise HTTPException(status_code=409, detail=MESSAGE_FACTURE_EMISE)
 STATUTS_DEVIS = ("brouillon", "envoye", "accepte", "refuse", "expire")
 
 CATEGORIES_FRAIS = (
@@ -1862,6 +1887,10 @@ def update_invoice(
     inv = db.query(ClientInvoice).filter(ClientInvoice.id == invoice_id, ClientInvoice.user_id == user.id).first()
     if not inv:
         raise HTTPException(status_code=404, detail="Facture introuvable")
+    # Tout ce qui suit réécrit le DOCUMENT (client, dates, lignes, montant) :
+    # interdit dès qu'elle est sortie du brouillon. Le statut et la date de
+    # paiement passent par PATCH /invoices/{id}/status, qui reste ouvert.
+    _refuser_si_emise(inv)
 
     if req.client_nom is not None:
         inv.client_nom = req.client_nom
@@ -1913,6 +1942,11 @@ def update_invoice_status(
         raise HTTPException(status_code=404, detail="Facture introuvable")
 
     was_brouillon = inv.statut == "brouillon"
+    # 🚪 PORTE À SENS UNIQUE : on ne revient JAMAIS au brouillon une fois émise.
+    # Sans ça, le verrou de _refuser_si_emise ne vaudrait rien : il suffirait de
+    # repasser la facture en brouillon pour la réécrire ou la supprimer.
+    if not was_brouillon and req.statut == "brouillon":
+        raise HTTPException(status_code=409, detail=MESSAGE_FACTURE_EMISE)
     inv.statut = req.statut
     if req.statut == "payee" and not inv.date_paiement:
         inv.date_paiement = date.today()
@@ -2003,6 +2037,7 @@ def delete_invoice(
     inv = db.query(ClientInvoice).filter(ClientInvoice.id == invoice_id, ClientInvoice.user_id == user.id).first()
     if not inv:
         raise HTTPException(status_code=404, detail="Facture introuvable")
+    _refuser_si_emise(inv)
     db.delete(inv)
     db.commit()
     return {"ok": True}
