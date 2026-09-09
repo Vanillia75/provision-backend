@@ -421,6 +421,154 @@ def admin_stats(request: Request, key: str = "", db: Session = Depends(get_db)):
     }
 
 
+def _masquer_email(e: str) -> str:
+    """3 premiers caractères + domaine. RÈGLE de discrétion : jamais une adresse
+    entière dans un rapport ou une page, même derrière la clé admin."""
+    if not e or "@" not in e:
+        return "???"
+    return e[:3] + "…@" + e.split("@")[-1]
+
+
+def _mesurer_activation(db: Session) -> dict:
+    """L'entonnoir d'activation et les derniers inscrits, SANS passer par la base
+    en direct. Posé le 09/09/2026 : Windows a bloqué l'outil Railway (Smart App
+    Control refuse ce binaire, qui n'est pas signé), et c'était le SEUL chemin
+    vers la base, la vérification quotidienne comprise. Cette route rend les
+    mêmes chiffres par HTTPS, donc depuis n'importe quel poste et depuis un
+    téléphone. Agrégats en Python (pas de SQL daté) pour rester identique sur
+    SQLite en test et sur PostgreSQL en production.
+    Ne renvoie QUE des compteurs et des adresses masquées."""
+    users = [u for u in db.query(User).all() if not bool(getattr(u, "is_test", False))]
+    ids = {u.id for u in users}
+    profils = {p.user_id: p for p in db.query(Profile).all() if p.user_id in ids}
+
+    def _porteurs(modele):
+        return {r[0] for r in db.query(modele.user_id).distinct().all()} & ids
+
+    avec_activites = _porteurs(IntermittentActivity)
+    avec_factures = _porteurs(ClientInvoice)
+    avec_recettes = _porteurs(IncomeEntry)
+    avec_ia = _porteurs(AIUsage)
+    avec_chat = _porteurs(ChatMessageDB)
+    ont_saisi = avec_activites | avec_factures | avec_recettes
+    ont_touche = ont_saisi | avec_ia | avec_chat
+    # « Est revenu » = a consommé de l'IA sur au moins 2 jours différents.
+    jours_ia: dict[str, set] = {}
+    for uid, jour in db.query(AIUsage.user_id, AIUsage.jour).all():
+        if uid in ids:
+            jours_ia.setdefault(uid, set()).add(jour)
+    revenus = {uid for uid, j in jours_ia.items() if len(j) >= 2}
+
+    maintenant = datetime.utcnow()
+    aujourdhui = maintenant.date()
+
+    def _cree(u):
+        return u.created_at or maintenant
+
+    par_jour: dict[str, int] = {}
+    for u in users:
+        par_jour[_cree(u).date().isoformat()] = par_jour.get(_cree(u).date().isoformat(), 0) + 1
+
+    derniers = sorted(users, key=_cree, reverse=True)[:10]
+    finis = [u for u in users if profils.get(u.id) and profils[u.id].onboarding_complete]
+
+    return {
+        "arrete_le": maintenant.isoformat(timespec="seconds"),
+        "total": len(users),
+        "aujourdhui": sum(1 for u in users if _cree(u).date() == aujourdhui),
+        "dernieres_24h": sum(1 for u in users if (maintenant - _cree(u)).total_seconds() <= 86400),
+        "depuis_le_lancement": sum(1 for u in users if _cree(u).date() >= date(2026, 9, 1)),
+        "par_jour": dict(sorted(par_jour.items())[-14:]),
+        "entonnoir": [
+            ("Compte créé", len(users)),
+            ("A choisi son métier", len([u for u in users if profils.get(u.id)])),
+            ("A fini l'inscription", len(finis)),
+            ("A vu la visite guidée", len([u for u in users if profils.get(u.id) and profils[u.id].walkthrough_vu])),
+            ("A saisi SES données", len(ont_saisi)),
+            ("A utilisé le scan ou le chat", len(avec_ia | avec_chat)),
+            ("Est revenu un 2e jour", len(revenus)),
+        ],
+        # La marche qui compte : entre « inscription finie » et « données saisies ».
+        "bloques_apres_inscription": len([u for u in finis if u.id not in ont_saisi]),
+        "dont_ont_essaye_un_scan": len([u for u in finis if u.id not in ont_saisi and u.id in avec_ia]),
+        "derniers_inscrits": [{
+            "quand": _cree(u).strftime("%d/%m à %H:%M"),
+            "email": _masquer_email(u.email),
+            "porte": "Apple" if u.apple_id else ("Google" if u.google_id else "Email"),
+            "metier": (profils[u.id].statut if profils.get(u.id) else "(pas de profil)"),
+            "email_verifie": bool(u.email_verified),
+            "a_utilise": u.id in ont_touche,
+        } for u in derniers],
+    }
+
+
+@app.get("/admin/activation")
+def admin_activation(request: Request, key: str = "", format: str = "html",
+                     db: Session = Depends(get_db)):
+    """Inscrits du jour + entonnoir d'activation. `?format=json` pour la
+    vérification quotidienne, HTML par défaut pour Camille."""
+    if not _admin_authed(request, key):
+        raise HTTPException(status_code=404, detail="Not found")
+    d = _mesurer_activation(db)
+    if format == "json":
+        return d
+
+    barres = ""
+    for libelle, n in d["entonnoir"]:
+        pct = round(100 * n / d["total"]) if d["total"] else 0
+        barres += (f"<tr><td>{libelle}</td><td style='text-align:right;font-weight:600;'>{n}</td>"
+                   f"<td style='width:55%;'><div style='background:rgba(255,255,255,.08);border-radius:4px;height:10px;'>"
+                   f"<div style='background:#5DCAA5;height:10px;border-radius:4px;width:{pct}%;'></div></div></td></tr>")
+    jours = "".join(
+        f"<tr><td>{j[8:10]}/{j[5:7]}</td><td>{'▇' * min(n, 20)} {n}</td></tr>"
+        for j, n in d["par_jour"].items())
+    recents = "".join(
+        f"<tr><td>{u['quand']}</td><td>{u['email']}</td><td>{u['porte']}</td><td>{u['metier']}</td>"
+        f"<td>{'<span style=\"color:#5DCAA5;\">a utilisé</span>' if u['a_utilise'] else '<span style=\"color:#F0A24B;\">vide</span>'}</td></tr>"
+        for u in d["derniers_inscrits"])
+
+    html = f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Inscrits et activation — TOTOR</title>
+    <style>
+      body{{font-family:sans-serif;background:#07192E;color:#F8FAFC;margin:0;padding:28px 18px;}}
+      .wrap{{max-width:720px;margin:0 auto;}}
+      h1{{color:#5DCAA5;font-size:20px;margin:0 0 4px;}}
+      h2{{color:#9FE1CB;font-size:15px;margin:26px 0 8px;}}
+      .sub{{color:#9BB0C4;font-size:13px;margin:0 0 18px;}}
+      .grand{{font-size:32px;font-weight:700;color:#5DCAA5;}}
+      table{{width:100%;border-collapse:collapse;font-size:13px;}}
+      th{{text-align:left;color:#6B7A8D;font-weight:600;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.12);}}
+      td{{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:middle;}}
+      a{{color:#378ADD;}}
+      .note{{color:#6B7A8D;font-size:12px;line-height:1.6;}}
+    </style></head><body><div class="wrap">
+      <h1>Inscrits et activation</h1>
+      <p class="sub">Arrêté au {d['arrete_le'][8:10]}/{d['arrete_le'][5:7]} à {d['arrete_le'][11:16]} (heure serveur)</p>
+
+      <p><span class="grand">{d['aujourdhui']}</span> inscrit(s) aujourd'hui
+        &nbsp;·&nbsp; {d['dernieres_24h']} sur 24 h
+        &nbsp;·&nbsp; {d['depuis_le_lancement']} depuis le 1er septembre
+        &nbsp;·&nbsp; <strong>{d['total']}</strong> au total</p>
+
+      <h2>Jour par jour</h2>
+      <table><tbody>{jours}</tbody></table>
+
+      <h2>L'entonnoir</h2>
+      <table><tbody>{barres}</tbody></table>
+      <p class="note"><strong>{d['bloques_apres_inscription']}</strong> personnes ont fini leur
+        inscription puis n'ont rien saisi, dont <strong>{d['dont_ont_essaye_un_scan']}</strong>
+        seulement ont essayé un scan. C'est la marche à surveiller.</p>
+
+      <h2>Les 10 derniers arrivés</h2>
+      <table><thead><tr><th>Quand</th><th>Qui</th><th>Porte</th><th>Métier</th><th>État</th></tr></thead>
+      <tbody>{recents}</tbody></table>
+
+      <p style="margin-top:22px;"><a href="/admin/dashboard">← Retour au tableau de bord</a></p>
+    </div></body></html>"""
+    return HTMLResponse(html)
+
+
 @app.get("/admin/trials", response_class=HTMLResponse)
 def admin_trials(request: Request, key: str = "", db: Session = Depends(get_db)):
     """Suivi des essais gratuits (fondateur) : qui est en essai, date de fin, qui
