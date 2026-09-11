@@ -502,6 +502,44 @@ def _mesurer_activation(db: Session) -> dict:
     }
 
 
+# Coût mesuré d'un appel, en euros. Mesuré le 11/09/2026 sur le vrai prompt :
+# un scan envoie ~2 500 jetons de consignes + l'image (ramenée à 1568 px par le
+# modèle, soit ~2 500 jetons) et rend ~500 jetons. Tarif Sonnet : 3 $ le million
+# en entrée, 15 $ en sortie, converti à 0,92 €/$.
+# ⚠️ Ce sont des ORDRES DE GRANDEUR, pas la facture. La vérité est sur
+# console.anthropic.com. Ils servent à répondre à « est-ce que ça me coûte
+# cher ? », pas à tenir une comptabilité.
+_COUT_EUR = {"aem_scan": 0.021, "doc_scan": 0.021, "are_scan": 0.021, "chat": 0.025}
+
+
+def _mesurer_couts_ia(db: Session) -> dict:
+    """Ce que l'intelligence artificielle a réellement coûté ce mois-ci, à partir
+    des appels COMPTÉS en base (table ai_usage), comptes de test exclus."""
+    now = datetime.utcnow()
+    ids_test = {u.id for u in db.query(User).filter(User.is_test.is_(True)).all()}
+    # Filtre du mois fait en Python (comme le reste de cette page) : identique
+    # sur SQLite en test et sur PostgreSQL en production, sans SQL daté.
+    par_type: dict[str, float] = {}
+    consommateurs = set()
+    for r in db.query(AIUsage).all():
+        if r.user_id in ids_test or r.jour is None:
+            continue
+        if (r.jour.year, r.jour.month) != (now.year, now.month):
+            continue
+        par_type[r.type_appel] = par_type.get(r.type_appel, 0.0) + float(r.count or 0)
+        consommateurs.add(r.user_id)
+    total = sum(n * _COUT_EUR.get(t, 0.02) for t, n in par_type.items())
+    nb = len(consommateurs)
+    return {
+        "mois": f"{now.month:02d}/{now.year}",
+        "appels_par_type": {t: round(n, 1) for t, n in sorted(par_type.items())},
+        "appels_total": round(sum(par_type.values()), 1),
+        "cout_estime_eur": round(total, 2),
+        "personnes_ayant_consomme": nb,
+        "cout_par_personne_eur": round(total / nb, 3) if nb else 0.0,
+    }
+
+
 @app.get("/admin/activation")
 def admin_activation(request: Request, key: str = "", format: str = "html",
                      db: Session = Depends(get_db)):
@@ -510,6 +548,7 @@ def admin_activation(request: Request, key: str = "", format: str = "html",
     if not _admin_authed(request, key):
         raise HTTPException(status_code=404, detail="Not found")
     d = _mesurer_activation(db)
+    d["couts_ia"] = _mesurer_couts_ia(db)
     if format == "json":
         return d
 
@@ -559,6 +598,14 @@ def admin_activation(request: Request, key: str = "", format: str = "html",
       <p class="note"><strong>{d['bloques_apres_inscription']}</strong> personnes ont fini leur
         inscription puis n'ont rien saisi, dont <strong>{d['dont_ont_essaye_un_scan']}</strong>
         seulement ont essayé un scan. C'est la marche à surveiller.</p>
+
+      <h2>Ce que l'IA coûte ce mois-ci</h2>
+      <p><span class="grand">{d['couts_ia']['cout_estime_eur']:.2f} €</span>
+        &nbsp;·&nbsp; {d['couts_ia']['appels_total']:.0f} appels
+        &nbsp;·&nbsp; {d['couts_ia']['personnes_ayant_consomme']} personnes
+        &nbsp;·&nbsp; <strong>{d['couts_ia']['cout_par_personne_eur']:.3f} €</strong> par personne</p>
+      <p class="note">Ordre de grandeur calculé sur tes vrais volumes (2,1 centimes par scan,
+        2,5 par échange de chat). La facture exacte est sur console.anthropic.com.</p>
 
       <h2>Les 10 derniers arrivés</h2>
       <table><thead><tr><th>Quand</th><th>Qui</th><th>Porte</th><th>Métier</th><th>État</th></tr></thead>
