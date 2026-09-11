@@ -7017,6 +7017,30 @@ def get_intermittent_cockpit(
         date_anniversaire=date_anniv,
     )
     out = _resultat_vers_dict(res)
+
+    # ⚠️ CONTRÔLE DE CONFORMITÉ : COMPARER CE QUI EST COMPARABLE (11/09/2026).
+    # `heures_reference` est FIGÉ : ce sont les heures que France Travail a retenues
+    # à l'examen qui a OUVERT les droits. Le compteur `total_heures`, lui, GLISSE :
+    # il couvre les 12 derniers mois et prépare le PROCHAIN renouvellement.
+    # On comparait les deux, donc deux fenêtres différentes, et l'écart grossissait
+    # MÉCANIQUEMENT chaque mois écoulé depuis l'ouverture des droits. Résultat :
+    # TOTOR accusait l'utilisateur d'AEM manquantes qu'il avait pourtant scannées.
+    # Cas réel n°1 (11/09) : 513 h d'écart annoncées à tort, 4 mois après l'ouverture.
+    # La bonne comparaison, c'est la fenêtre de 12 mois qui FINIT à l'ouverture des
+    # droits, soit un an avant la date anniversaire.
+    # Si on n'a rien sur cette fenêtre (compte créé après l'ouverture des droits),
+    # on renvoie None : on se taira plutôt que d'accuser à tort.
+    out["heures_periode_reference"] = None
+    if date_anniv:
+        ouverture = ie.borne_basse_12_mois(date_anniv)
+        res_ref = ie.calculer(
+            _activites_modele_vers_moteur(rows),
+            aujourdhui=ouverture,
+            date_anniversaire=None,
+        )
+        if res_ref.total_heures > 0:
+            out["heures_periode_reference"] = round(res_ref.total_heures, 2)
+
     # Montant journalier (lu sur l'ARE, stocké sur le profil) — affiché tel quel au cockpit.
     out["montant_journalier"] = profile.montant_journalier if profile else None
     # Allocation RECALCULÉE (Loi X : `affichable` décide si le montant peut être montré).
