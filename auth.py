@@ -10,7 +10,17 @@ from models import User
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "change-me-in-production")
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_DAYS = 30
+# Durée d'une session. Passée de 30 à 90 jours le 14/09/2026, après la panne
+# du 11/09 : des comptes réveillés par l'email de lancement tombaient sur
+# « Token invalide ou expire » et restaient bloqués. Le site sait désormais
+# renvoyer proprement à la connexion, mais les APPLICATIONS embarquent encore
+# l'ancien comportement jusqu'à la 1.1.12 : allonger la durée, qui se règle
+# côté serveur et s'applique donc partout tout de suite, les protège entre-temps.
+# 90 jours reste la norme des applications mobiles. Contrepartie assumée : un
+# jeton volé reste valable plus longtemps. Réglable sans toucher au code.
+# ⚠️ Ne s'applique qu'aux NOUVELLES connexions : un jeton déjà émis garde sa
+# date d'expiration d'origine.
+JWT_EXPIRE_DAYS = int(os.environ.get("JWT_EXPIRE_DAYS", "90"))
 
 
 def hash_password(password: str) -> str:
