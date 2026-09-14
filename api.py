@@ -540,6 +540,60 @@ def _mesurer_couts_ia(db: Session) -> dict:
     }
 
 
+def _diagnostic_arrets(db: Session) -> dict:
+    """Retrouve les ARRÊTS enregistrés de travers avant le 14/09/2026.
+
+    Le formulaire découpait un arrêt « 1 par jour » en portant sur CHAQUE ligne le
+    nombre total de jours : un arrêt de N jours devenait N lignes à N jours, soit
+    N × N × 5 h au lieu de N × 5 h. Les arrêts de plus de 92 jours étaient refusés
+    (plafond des tournées), mais tous les plus courts passaient.
+
+    Empreinte exacte du bug, et rien d'autre : une suite d'au moins 2 lignes
+    d'arrêt consécutives (jours qui se suivent), sans date de fin, pour le même
+    compte et le même type, dont le NOMBRE DE LIGNES est ÉGAL au `nombre` porté
+    par chacune. Une vraie saisie jour par jour porterait nombre = 1 : elle ne
+    peut pas correspondre. Zéro faux positif par construction.
+
+    LECTURE SEULE. Ne corrige rien : on constate, Camille décide."""
+    ids_test = {u.id for u in db.query(User).filter(User.is_test.is_(True)).all()}
+    lignes = [
+        a for a in db.query(IntermittentActivity).all()
+        if (a.type_activite or "").startswith("arret_") and a.date_fin is None
+        and a.date is not None and a.user_id not in ids_test and (a.nombre or 0) > 1
+    ]
+    groupes: dict = {}
+    for a in lignes:
+        groupes.setdefault((a.user_id, a.type_activite, float(a.nombre)), []).append(a)
+
+    comptes, series = set(), []
+    for (uid, type_, nombre), rows in groupes.items():
+        rows.sort(key=lambda r: r.date)
+        suite = [rows[0]]
+        for r in rows[1:] + [None]:
+            if r is not None and (r.date - suite[-1].date).days == 1:
+                suite.append(r)
+                continue
+            if len(suite) >= 2 and len(suite) == int(nombre):
+                # La MÊME constante que le moteur (heures_de), jamais un 5 recopié à la main.
+                heures_par_jour = float(ie.HEURES_ARRET_PAR_JOUR) if type_ in ie.TYPES_ARRET_ASSIMILE else 0.0
+                series.append({
+                    "type": type_,
+                    "debut": suite[0].date.isoformat(),
+                    "jours": len(suite),
+                    "heures_comptees": round(len(suite) * nombre * heures_par_jour),
+                    "heures_justes": round(nombre * heures_par_jour),
+                })
+                comptes.add(uid)
+            if r is not None:
+                suite = [r]
+    return {
+        "comptes_touches": len(comptes),
+        "series": len(series),
+        "heures_en_trop": sum(s["heures_comptees"] - s["heures_justes"] for s in series),
+        "detail": sorted(series, key=lambda s: s["debut"]),
+    }
+
+
 @app.get("/admin/activation")
 def admin_activation(request: Request, key: str = "", format: str = "html",
                      db: Session = Depends(get_db)):
@@ -549,6 +603,7 @@ def admin_activation(request: Request, key: str = "", format: str = "html",
         raise HTTPException(status_code=404, detail="Not found")
     d = _mesurer_activation(db)
     d["couts_ia"] = _mesurer_couts_ia(db)
+    d["arrets_mal_enregistres"] = _diagnostic_arrets(db)
     if format == "json":
         return d
 
