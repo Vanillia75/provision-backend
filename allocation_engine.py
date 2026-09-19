@@ -278,7 +278,11 @@ def projeter_renouvellement(activites: list, fin, cachets_sup: int = 0, brut_cac
         if not p_ok:
             courbe_plafonnee = True
             break
-        points.append({"cachets": n, "aj_brute": p["aj_brute"]})
+        # « aj_nette » ajouté le 19/09/2026 : le gros chiffre de la carte est en NET,
+        # la courbe était tracée en BRUT, et la carte affichait deux valeurs pour le
+        # même jour (46,04 € en gros, 47,36 € au départ de la courbe). La courbe se
+        # trace désormais en net. « aj_brute » reste : les applis déjà en ligne le lisent.
+        points.append({"cachets": n, "aj_brute": p["aj_brute"], "aj_nette": p["aj_nette"]})
 
     socle.update({
         "affichable": True,

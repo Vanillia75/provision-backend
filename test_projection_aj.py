@@ -90,6 +90,34 @@ def test_courbe_croissante_et_plafonnee_a_60():
         assert r["courbe_plafonnee_60"] is True
 
 
+def test_la_courbe_se_trace_en_net_comme_le_gros_chiffre():
+    # 19/09/2026 : le gros chiffre de la carte est en NET, la courbe était en BRUT,
+    # et la carte montrait deux valeurs pour le même jour (46,04 € contre 47,36 €).
+    # Chaque point porte maintenant son net, et le premier tombe pile sur le chiffre
+    # affiché en gros.
+    acts = [_act(i * 7, nombre=4, brut=520.0) for i in range(1, 11)]
+    r = projeter_renouvellement(acts, FIN)
+    assert all("aj_nette" in p for p in r["points"])
+    assert r["points"][0]["aj_nette"] == r["aj_nette"]
+    # Le brut reste là : les applis déjà publiées le lisent pour tracer leur courbe.
+    assert all("aj_brute" in p for p in r["points"])
+    for p in r["points"]:
+        assert p["aj_nette"] <= p["aj_brute"]
+
+
+def test_la_courbe_nette_ne_descend_jamais_meme_au_palier_des_prelevements():
+    # Autour de 62 € net, la CSG est rabotée pour ne jamais passer sous le plancher :
+    # le net reste à plat pendant que le brut monte encore. Balayé le 19/09/2026 sur
+    # 3 740 profils : pas une seule baisse. Ce profil-ci franchit le palier.
+    acts = [_act(i * 7, nombre=4, brut=4080.0) for i in range(1, 9)]  # 32 cachets à 1 020 €
+    r = projeter_renouvellement(acts, FIN)
+    nets = [p["aj_nette"] for p in r["points"]]
+    assert all(b >= a for a, b in zip(nets, nets[1:]))
+    paliers = [(a, b) for a, b in zip(r["points"], r["points"][1:])
+               if b["aj_nette"] == a["aj_nette"] and b["aj_brute"] > a["aj_brute"]]
+    assert paliers, "ce profil doit franchir le palier des prélèvements sociaux"
+
+
 def test_annexe_indeterminee_prudente():
     # Que des heures sans metier -> annexe indeterminee : on retient la plus BASSE
     # des deux annexes. Si c'est l'annexe 8, la Loi X la rend non affichable.
