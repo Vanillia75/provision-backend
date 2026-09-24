@@ -26,7 +26,7 @@ def test_les_deux_metiers_connaissent_les_tarifs(statut):
     """Un intermittent comme un auto-entrepreneur peut demander le prix."""
     p = _plat(prompt_aide(statut))
     assert "COMBIEN ÇA COÛTE" in p
-    for montant in ["9,99 €", "79 €", "6,58 €", "44,99 €", "3,75 €"]:
+    for montant in ["4,99 €", "34,99 €", "2,92 €", "24,99 €", "2,08 €"]:
         assert montant in p, f"{montant} absent du prompt {statut}"
 
 
@@ -62,12 +62,20 @@ def test_inventer_un_prix_est_explicitement_interdit(statut):
 
 
 def test_les_tarifs_de_la_carte_collent_a_ceux_du_site():
-    """Garde-fou anti-dérive : 79 € par an font bien 6,58 € par mois, 44,99 font 3,75.
+    """Garde-fou anti-dérive : 34,99 € par an font bien 2,92 € par mois, 24,99 font 2,08.
 
     Si quelqu'un change un prix sans recalculer l'équivalent mensuel, ce test tombe.
     """
-    assert round(79 / 12, 2) == 6.58
-    assert round(44.99 / 12, 2) == 3.75
+    assert round(34.99 / 12, 2) == 2.92
+    assert round(24.99 / 12, 2) == 2.08
     p = _plat(CARTE_APP)
-    assert "79 € par an, soit 6,58 € par mois" in p
-    assert "44,99 € par an, soit 3,75 € par mois" in p
+    assert "34,99 € par an, soit 2,92 € par mois" in p
+    assert "24,99 € par an, soit 2,08 € par mois" in p
+
+
+def test_le_tarif_solidaire_n_est_plus_propose():
+    """Le prix public EST devenu le prix solidaire : promettre encore une remise
+    « sur demande » enverrait les gens réclamer quelque chose qui n'existe plus."""
+    p = _plat(CARTE_APP)
+    assert "tarif solidaire N'EXISTE PLUS" in p
+    assert "Les fins de mois sont dures" not in p

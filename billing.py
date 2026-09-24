@@ -28,12 +28,17 @@ from models import Subscription, PromoCode, StripeEvent, User, AIUsage, Solidair
 # retour à la ligne invisible en fin de valeur. Sur une clé, ce caractère rend
 # l'en-tête HTTP invalide (« Invalid header value ... \n ») et Stripe refuse tout.
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
-STRIPE_PRICE_PREMIUM = os.environ.get("STRIPE_PRICE_PREMIUM", "").strip()          # mensuel 9,99 €
-STRIPE_PRICE_PREMIUM_ANNUAL = os.environ.get("STRIPE_PRICE_PREMIUM_ANNUAL", "").strip()  # annuel 79 €
-# Pionnier : 44,99 €/an VERROUILLÉ À VIE, réservé aux 100 premiers payants réels.
+STRIPE_PRICE_PREMIUM = os.environ.get("STRIPE_PRICE_PREMIUM", "").strip()          # mensuel 4,99 €
+STRIPE_PRICE_PREMIUM_ANNUAL = os.environ.get("STRIPE_PRICE_PREMIUM_ANNUAL", "").strip()  # annuel 34,99 €
+# Pionnier : 24,99 €/an VERROUILLÉ À VIE, réservé aux 100 premiers payants réels.
 # ⚠️ RÈGLE ABSOLUE : un abonné Pionnier garde ce prix indéfiniment tant qu'il reste
 # abonné. Ne JAMAIS migrer son abonnement vers un autre prix, même lors d'une hausse.
 STRIPE_PRICE_PIONNIER = os.environ.get("STRIPE_PRICE_PIONNIER", "").strip()
+# Les prix Pionnier des grilles PRÉCÉDENTES, séparés par des virgules. Un prix Stripe
+# ne se modifie jamais : changer le tarif crée un NOUVEL identifiant. Sans cette liste,
+# les Pionniers d'avant ne seraient plus comptés et les 100 places repartiraient à zéro
+# (ce serait une fausse rareté, interdite par la Loi X du pricing).
+STRIPE_PRICE_PIONNIER_ANCIENS = [p.strip() for p in os.environ.get("STRIPE_PRICE_PIONNIER_ANCIENS", "").split(",") if p.strip()]
 PIONNIER_LIMITE = 100
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://www.montotor.fr")
@@ -293,10 +298,17 @@ _PIONNIER_CACHE = {"t": 0.0, "n": 0}
 _PIONNIER_TTL = 60  # secondes : la page d'abonnement peut interroger souvent
 
 
+def prix_pionnier_tous() -> list[str]:
+    """Le prix Pionnier du jour ET ceux des grilles précédentes, sans doublon :
+    une place prise reste prise, quel que soit le tarif de l'époque."""
+    tous = [STRIPE_PRICE_PIONNIER] + STRIPE_PRICE_PIONNIER_ANCIENS
+    return [p for i, p in enumerate(tous) if p and p not in tous[:i]]
+
+
 def compter_pionniers(db: Session) -> int:
     """Nombre d'abonnements Pionnier PAYANTS RÉELS : lus chez Stripe (source de
-    vérité, prix Pionnier, statuts qui donnent le premium), moins les comptes de
-    test de la maison (User.is_test via le customer). Cache mémoire 60 s."""
+    vérité, tous les prix Pionnier, statuts qui donnent le premium), moins les
+    comptes de test de la maison (User.is_test via le customer). Cache mémoire 60 s."""
     import time as _time
     now = _time.time()
     if now - _PIONNIER_CACHE["t"] < _PIONNIER_TTL:
@@ -305,17 +317,18 @@ def compter_pionniers(db: Session) -> int:
         return 0
     n = 0
     try:
-        subs = stripe.Subscription.list(price=STRIPE_PRICE_PIONNIER, status="all", limit=100)
-        for s in subs.auto_paging_iter():
-            if _g(s, "status") not in GRANTING_STATUSES:
-                continue
-            cust = _g(s, "customer")
-            row = db.query(Subscription).filter(Subscription.stripe_customer_id == cust).first()
-            if row:
-                u = db.query(User).filter(User.id == row.user_id).first()
-                if u is not None and bool(getattr(u, "is_test", False)):
-                    continue  # compte de test maison : ne compte pas une place
-            n += 1
+        for price_id in prix_pionnier_tous():
+            subs = stripe.Subscription.list(price=price_id, status="all", limit=100)
+            for s in subs.auto_paging_iter():
+                if _g(s, "status") not in GRANTING_STATUSES:
+                    continue
+                cust = _g(s, "customer")
+                row = db.query(Subscription).filter(Subscription.stripe_customer_id == cust).first()
+                if row:
+                    u = db.query(User).filter(User.id == row.user_id).first()
+                    if u is not None and bool(getattr(u, "is_test", False)):
+                        continue  # compte de test maison : ne compte pas une place
+                n += 1
     except Exception:
         # Stripe injoignable : on sert la dernière valeur connue plutôt que 0
         return _PIONNIER_CACHE["n"]
@@ -324,9 +337,44 @@ def compter_pionniers(db: Session) -> int:
     return n
 
 
+# Les montants affichés : lus chez Stripe, gardés 10 minutes.
+_PRIX_CACHE = {"t": 0.0, "v": None}
+_PRIX_TTL = 600
+
+
+def prix_affiches() -> dict:
+    """Les trois montants du jour, en centimes, lus chez Stripe (source de vérité).
+    L'app les AFFICHE au lieu de les écrire en dur : une baisse de prix ne demande
+    plus de republier les applications iPhone et Android, qui embarquent une copie
+    figée du site. Stripe injoignable -> dernier connu, sinon {} (l'app retombe
+    alors sur ses valeurs écrites en dur)."""
+    import time as _time
+    now = _time.time()
+    if _PRIX_CACHE["v"] is not None and now - _PRIX_CACHE["t"] < _PRIX_TTL:
+        return _PRIX_CACHE["v"]
+    if not stripe.api_key:
+        return _PRIX_CACHE["v"] or {}
+    montants = {}
+    try:
+        for cle, price_id in (("mensuel", STRIPE_PRICE_PREMIUM),
+                              ("annuel", STRIPE_PRICE_PREMIUM_ANNUAL),
+                              ("pionnier", STRIPE_PRICE_PIONNIER)):
+            if not price_id:
+                continue
+            montant = _g(stripe.Price.retrieve(price_id), "unit_amount")
+            if montant:
+                montants[cle] = int(montant)
+    except Exception:
+        return _PRIX_CACHE["v"] or {}
+    _PRIX_CACHE["t"] = now
+    _PRIX_CACHE["v"] = montants
+    return montants
+
+
 def offre_pionnier(db: Session) -> dict:
     """État de l'offre Pionnier pour la page d'abonnement : places restantes
-    (compteur réel) et ouverture. À 100 payants réels, l'offre se ferme seule."""
+    (compteur réel) et ouverture. À 100 payants réels, l'offre se ferme seule.
+    Sert aussi les montants du jour, pour que la page n'écrive aucun prix en dur."""
     pris = compter_pionniers(db)
     restantes = max(0, PIONNIER_LIMITE - pris)
     return {
@@ -334,6 +382,7 @@ def offre_pionnier(db: Session) -> dict:
         "pionnier_ouvert": bool(STRIPE_PRICE_PIONNIER) and restantes > 0,
         "pionnier_restantes": restantes,
         "pionnier_limite": PIONNIER_LIMITE,
+        "prix": prix_affiches(),
     }
 
 
@@ -347,7 +396,7 @@ def create_checkout_session(db: Session, user: User, promo_code: str | None = No
     NB : l'activation du premium se fera au WEBHOOK, pas au retour de cette URL.
     `app_mode` (auto_entrepreneur/intermittent) et `origin` permettent de revenir sur le
     bon domaine ET dans le bon mode après le paiement.
-    `plan` = "mensuel" (défaut) | "annuel" | "pionnier" (44,99 €/an à vie, 100 premiers)."""
+    `plan` = "mensuel" (défaut) | "annuel" | "pionnier" (24,99 €/an à vie, 100 premiers)."""
     sub = get_or_create_subscription(db, user)
 
     # Tarif selon le plan demandé.
@@ -399,80 +448,22 @@ def create_checkout_session(db: Session, user: User, promo_code: str | None = No
 #  normal automatique). Stores : un code de réduction pioché dans la réserve
 #  (table solidaire_codes), un par personne. Aucun justificatif : par principe.
 # ════════════════════════════════════════════════════════════════════════
-SOLIDAIRE_COUPON_ID = "SOLIDAIRE-499"
-SOLIDAIRE_LIEN_APPLE = "https://apps.apple.com/redeem?ctx=offercodes&id=6789915732&code={code}"
-SOLIDAIRE_LIEN_GOOGLE = "https://play.google.com/redeem?code={code}"
-
-
-def _ensure_solidaire_coupon() -> str:
-    """Le coupon Stripe du tarif solidaire, créé une fois pour toutes (idempotent).
-    5 € de moins pendant 12 mois sur le mensuel : 9,99 → 4,99, puis retour seul
-    au tarif normal. Si quelqu'un l'applique sur l'annuel, Stripe le refusera de
-    lui-même (on ne l'attache qu'au checkout mensuel, jamais ailleurs)."""
-    try:
-        stripe.Coupon.retrieve(SOLIDAIRE_COUPON_ID)
-    except stripe.error.InvalidRequestError:
-        stripe.Coupon.create(
-            id=SOLIDAIRE_COUPON_ID,
-            name="Tarif solidaire",
-            amount_off=500, currency="eur",
-            duration="repeating", duration_in_months=12,
-        )
-    return SOLIDAIRE_COUPON_ID
-
-
 def create_solidaire_checkout(db: Session, user: User, app_mode: str | None = None,
                               origin: str | None = None) -> str:
-    """Checkout du tarif solidaire : le MENSUEL avec le coupon de 5 € sur 12 mois.
-    Même circuit que le checkout normal (activation au webhook, jamais avant)."""
-    sub = get_or_create_subscription(db, user)
-    base = _safe_return_base(origin)
-    mode_q = f"&mode={app_mode}" if app_mode else ""
-    params = {
-        "mode": "subscription",
-        "line_items": [{"price": STRIPE_PRICE_PREMIUM, "quantity": 1}],
-        "client_reference_id": user.id,
-        "success_url": f"{base}/?billing=success{mode_q}",
-        "cancel_url": f"{base}/?billing=cancel",
-        "metadata": {"user_id": user.id, "solidaire": "1"},
-        "discounts": [{"coupon": _ensure_solidaire_coupon()}],
-        "subscription_data": {"metadata": {"user_id": user.id, "plan_demande": "mensuel", "solidaire": "1"}},
-    }
-    if sub.stripe_customer_id:
-        params["customer"] = sub.stripe_customer_id
-    else:
-        params["customer_email"] = user.email
-    session = stripe.checkout.Session.create(**params)
-    return session.url
+    """Le tarif solidaire N'EXISTE PLUS depuis la baisse du 24/09/2026 : le prix
+    public EST devenu le prix solidaire (4,99 €/mois pour tout le monde, sans rien
+    à demander ni à déclarer). Cette porte reste ouverte parce que les applications
+    iPhone et Android embarquent une copie FIGÉE du site : les versions déjà
+    installées affichent encore le lien solidaire. Elle mène donc simplement au
+    mensuel normal, au même prix qu'avant, sans coupon."""
+    return create_checkout_session(db, user, app_mode=app_mode, origin=origin, plan="mensuel")
 
 
 def obtenir_code_solidaire(db: Session, user: User, plateforme: str) -> dict | None:
-    """Un code solidaire de la réserve pour cette personne, UN seul à la fois.
-    Si elle en a déjà reçu un il y a moins de 11 mois, on lui REDONNE le même
-    (un code Apple/Google est à usage unique : le sien reste le sien). Passé
-    11 mois, l'ancien code a expiré chez le store : on en attribue un neuf,
-    c'est la reconduction annuelle « c'est toujours dur ? ». Renvoie None si
-    la réserve de cette plateforme est vide."""
-    if plateforme not in ("apple", "google"):
-        return None
-    lien = SOLIDAIRE_LIEN_APPLE if plateforme == "apple" else SOLIDAIRE_LIEN_GOOGLE
-
-    deja = (db.query(SolidaireCode)
-              .filter(SolidaireCode.attribue_a == user.id, SolidaireCode.plateforme == plateforme)
-              .order_by(SolidaireCode.attribue_le.desc())
-              .first())
-    if deja and deja.attribue_le and (datetime.utcnow() - deja.attribue_le) < timedelta(days=335):
-        return {"code": deja.code, "lien": lien.format(code=deja.code)}
-
-    libre = (db.query(SolidaireCode)
-               .filter(SolidaireCode.attribue_a.is_(None), SolidaireCode.plateforme == plateforme)
-               .first())
-    if not libre:
-        return None
-    libre.attribue_a = user.id
-    libre.attribue_le = datetime.utcnow()
-    db.commit()
-    return {"code": libre.code, "lien": lien.format(code=libre.code)}
+    """Plus aucun code solidaire n'est distribué : le prix des stores a baissé pour
+    tout le monde. La réserve (table solidaire_codes) est gardée telle quelle, pour
+    l'historique et pour les codes déjà remis, qui restent valables jusqu'au bout."""
+    return None
 
 
 def create_portal_session(db: Session, user: User) -> str:
