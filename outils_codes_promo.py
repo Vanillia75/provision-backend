@@ -14,10 +14,13 @@ Se lance depuis le conteneur Railway, où vit la base :
 import os
 
 import stripe
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
+
+# On passe par la connexion de l'application : elle sait déjà quel pilote utiliser
+# (psycopg v3, et non psycopg2 qui n'est pas installé) et quelle base viser.
+from database import SessionLocal
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
-moteur = create_engine(os.environ["DATABASE_URL"])
 
 LIGNES = text("""
     select code, kind, stripe_coupon_id, active, times_used, max_uses
@@ -25,8 +28,11 @@ LIGNES = text("""
     order by active desc, code
 """)
 
-with moteur.connect() as cx:
-    codes = list(cx.execute(LIGNES))
+db = SessionLocal()
+try:
+    codes = list(db.execute(LIGNES))
+finally:
+    db.close()
 
 print(f"{len(codes)} code(s) promo.\n")
 coupons = {}
